@@ -15,6 +15,7 @@ const (
 	Float
 	String
 	ArrayKind
+	ObjectKind
 )
 
 type Value struct {
@@ -24,14 +25,16 @@ type Value struct {
 	F    float64
 	S    string
 	A    *Array
+	O    *Object
 }
 
-func NullValue() Value           { return Value{Kind: Null} }
-func BoolValue(v bool) Value     { return Value{Kind: Bool, B: v} }
-func IntValue(v int64) Value     { return Value{Kind: Int, I: v} }
-func FloatValue(v float64) Value { return Value{Kind: Float, F: v} }
-func StringValue(v string) Value { return Value{Kind: String, S: v} }
-func ArrayValue(v *Array) Value  { return Value{Kind: ArrayKind, A: v} }
+func NullValue() Value            { return Value{Kind: Null} }
+func BoolValue(v bool) Value      { return Value{Kind: Bool, B: v} }
+func IntValue(v int64) Value      { return Value{Kind: Int, I: v} }
+func FloatValue(v float64) Value  { return Value{Kind: Float, F: v} }
+func StringValue(v string) Value  { return Value{Kind: String, S: v} }
+func ArrayValue(v *Array) Value   { return Value{Kind: ArrayKind, A: v} }
+func ObjectValue(v *Object) Value { return Value{Kind: ObjectKind, O: v} }
 
 func (v Value) Truthy() bool {
 	switch v.Kind {
@@ -47,6 +50,8 @@ func (v Value) Truthy() bool {
 		return v.S != "" && v.S != "0"
 	case ArrayKind:
 		return v.A != nil && len(v.A.Entries) > 0
+	case ObjectKind:
+		return v.O != nil
 	}
 	return false
 }
@@ -68,6 +73,8 @@ func (v Value) String() string {
 		return v.S
 	case ArrayKind:
 		return "Array"
+	case ObjectKind:
+		return "Object"
 	}
 	return ""
 }

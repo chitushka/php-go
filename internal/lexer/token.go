@@ -25,6 +25,7 @@ const (
 	Bang        TokenType = "!"
 	Asterisk    TokenType = "*"
 	Slash       TokenType = "/"
+	ObjectOp    TokenType = "->"
 	LT          TokenType = "<"
 	GT          TokenType = ">"
 	EQ          TokenType = "=="
@@ -40,20 +41,22 @@ const (
 	LBrace    TokenType = "{"
 	RBrace    TokenType = "}"
 
-	Echo     TokenType = "ECHO"
-	If       TokenType = "IF"
-	Else     TokenType = "ELSE"
-	While    TokenType = "WHILE"
-	Foreach  TokenType = "FOREACH"
-	As       TokenType = "AS"
-	Array    TokenType = "ARRAY"
-	Function TokenType = "FUNCTION"
-	Return   TokenType = "RETURN"
-	Include  TokenType = "INCLUDE"
-	Require  TokenType = "REQUIRE"
-	True     TokenType = "TRUE"
-	False    TokenType = "FALSE"
-	Null     TokenType = "NULL"
+	Echo       TokenType = "ECHO"
+	If         TokenType = "IF"
+	Else       TokenType = "ELSE"
+	While      TokenType = "WHILE"
+	Foreach    TokenType = "FOREACH"
+	As         TokenType = "AS"
+	Array      TokenType = "ARRAY"
+	Function   TokenType = "FUNCTION"
+	Return     TokenType = "RETURN"
+	Include    TokenType = "INCLUDE"
+	Require    TokenType = "REQUIRE"
+	Class      TokenType = "CLASS"
+	NewKeyword TokenType = "NEW"
+	True       TokenType = "TRUE"
+	False      TokenType = "FALSE"
+	Null       TokenType = "NULL"
 )
 
 var keywords = map[string]TokenType{
@@ -68,6 +71,8 @@ var keywords = map[string]TokenType{
 	"return":   Return,
 	"include":  Include,
 	"require":  Require,
+	"class":    Class,
+	"new":      NewKeyword,
 	"true":     True,
 	"false":    False,
 	"null":     Null,

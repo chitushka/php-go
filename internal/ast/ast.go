@@ -65,6 +65,21 @@ type IncludeStmt struct {
 
 func (*IncludeStmt) stmtNode() {}
 
+type ClassDeclStmt struct {
+	Name    string
+	Methods []*FunctionDeclStmt
+}
+
+func (*ClassDeclStmt) stmtNode() {}
+
+type PropertyAssignStmt struct {
+	Object   Expr
+	Property string
+	Value    Expr
+}
+
+func (*PropertyAssignStmt) stmtNode() {}
+
 type ExprStmt struct{ Expr Expr }
 
 func (*ExprStmt) stmtNode() {}
@@ -125,3 +140,25 @@ type CallExpr struct {
 }
 
 func (*CallExpr) exprNode() {}
+
+type NewExpr struct {
+	ClassName string
+	Args      []Expr
+}
+
+func (*NewExpr) exprNode() {}
+
+type PropertyFetchExpr struct {
+	Object   Expr
+	Property string
+}
+
+func (*PropertyFetchExpr) exprNode() {}
+
+type MethodCallExpr struct {
+	Object Expr
+	Method string
+	Args   []Expr
+}
+
+func (*MethodCallExpr) exprNode() {}

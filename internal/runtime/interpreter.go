@@ -14,6 +14,7 @@ import (
 type Interpreter struct {
 	Vars      map[string]Value
 	functions map[string]*ast.FunctionDeclStmt
+	classes   map[string]*ast.ClassDeclStmt
 	frames    []map[string]Value
 	baseDir   string
 	dirStack  []string
@@ -31,6 +32,7 @@ func NewInterpreterWithBaseDir(baseDir string) *Interpreter {
 	return &Interpreter{
 		Vars:      map[string]Value{},
 		functions: map[string]*ast.FunctionDeclStmt{},
+		classes:   map[string]*ast.ClassDeclStmt{},
 		baseDir:   baseDir,
 		dirStack:  []string{baseDir},
 	}
@@ -42,10 +44,19 @@ func (i *Interpreter) Run(p *ast.Program) error {
 			if err := i.defineFunction(fn); err != nil {
 				return err
 			}
+			continue
+		}
+		if class, ok := s.(*ast.ClassDeclStmt); ok {
+			if err := i.defineClass(class); err != nil {
+				return err
+			}
 		}
 	}
 	for _, s := range p.Statements {
 		if _, ok := s.(*ast.FunctionDeclStmt); ok {
+			continue
+		}
+		if _, ok := s.(*ast.ClassDeclStmt); ok {
 			continue
 		}
 		if _, err := i.exec(s); err != nil {
@@ -133,6 +144,23 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 		if err := i.defineFunction(n); err != nil {
 			return nil, err
 		}
+	case *ast.ClassDeclStmt:
+		if err := i.defineClass(n); err != nil {
+			return nil, err
+		}
+	case *ast.PropertyAssignStmt:
+		obj, err := i.eval(n.Object)
+		if err != nil {
+			return nil, err
+		}
+		if obj.Kind != ObjectKind || obj.O == nil {
+			return nil, fmt.Errorf("cannot assign property %s on non-object", n.Property)
+		}
+		value, err := i.eval(n.Value)
+		if err != nil {
+			return nil, err
+		}
+		obj.O.Props[n.Property] = value
 	case *ast.ReturnStmt:
 		if n.Value == nil {
 			return &returnSignal{value: NullValue()}, nil
@@ -221,6 +249,22 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 		return ArrayValue(arr), nil
 	case *ast.CallExpr:
 		return i.call(n)
+	case *ast.NewExpr:
+		return i.newObject(n)
+	case *ast.PropertyFetchExpr:
+		obj, err := i.eval(n.Object)
+		if err != nil {
+			return NullValue(), err
+		}
+		if obj.Kind != ObjectKind || obj.O == nil {
+			return NullValue(), fmt.Errorf("cannot fetch property %s on non-object", n.Property)
+		}
+		if value, ok := obj.O.Props[n.Property]; ok {
+			return value, nil
+		}
+		return NullValue(), nil
+	case *ast.MethodCallExpr:
+		return i.callMethod(n)
 	}
 	return NullValue(), fmt.Errorf("unsupported expression %T", e)
 }
@@ -233,9 +277,19 @@ func (i *Interpreter) call(c *ast.CallExpr) (Value, error) {
 	if len(c.Args) != len(fn.Params) {
 		return NullValue(), fmt.Errorf("function %s expects %d arguments, got %d", c.Name, len(fn.Params), len(c.Args))
 	}
+	return i.callFunction(fn, c.Args, nil)
+}
+
+func (i *Interpreter) callFunction(fn *ast.FunctionDeclStmt, args []ast.Expr, thisObj *Object) (Value, error) {
+	if len(args) != len(fn.Params) {
+		return NullValue(), fmt.Errorf("function %s expects %d arguments, got %d", fn.Name, len(fn.Params), len(args))
+	}
 	frame := map[string]Value{}
+	if thisObj != nil {
+		frame["this"] = ObjectValue(thisObj)
+	}
 	for idx, param := range fn.Params {
-		arg, err := i.eval(c.Args[idx])
+		arg, err := i.eval(args[idx])
 		if err != nil {
 			return NullValue(), err
 		}
@@ -253,11 +307,50 @@ func (i *Interpreter) call(c *ast.CallExpr) (Value, error) {
 	return ret.value, nil
 }
 
+func (i *Interpreter) newObject(n *ast.NewExpr) (Value, error) {
+	class, ok := i.classes[n.ClassName]
+	if !ok {
+		return NullValue(), fmt.Errorf("undefined class %s", n.ClassName)
+	}
+	obj := NewObject(class)
+	if constructor, ok := obj.Methods["__construct"]; ok {
+		if _, err := i.callFunction(constructor, n.Args, obj); err != nil {
+			return NullValue(), err
+		}
+	} else if len(n.Args) != 0 {
+		return NullValue(), fmt.Errorf("class %s has no constructor", n.ClassName)
+	}
+	return ObjectValue(obj), nil
+}
+
+func (i *Interpreter) callMethod(n *ast.MethodCallExpr) (Value, error) {
+	obj, err := i.eval(n.Object)
+	if err != nil {
+		return NullValue(), err
+	}
+	if obj.Kind != ObjectKind || obj.O == nil {
+		return NullValue(), fmt.Errorf("cannot call method %s on non-object", n.Method)
+	}
+	method, ok := obj.O.Methods[n.Method]
+	if !ok {
+		return NullValue(), fmt.Errorf("undefined method %s::%s", obj.O.ClassName, n.Method)
+	}
+	return i.callFunction(method, n.Args, obj.O)
+}
+
 func (i *Interpreter) defineFunction(fn *ast.FunctionDeclStmt) error {
 	if _, exists := i.functions[fn.Name]; exists {
 		return fmt.Errorf("cannot redeclare function %s", fn.Name)
 	}
 	i.functions[fn.Name] = fn
+	return nil
+}
+
+func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
+	if _, exists := i.classes[class.Name]; exists {
+		return fmt.Errorf("cannot redeclare class %s", class.Name)
+	}
+	i.classes[class.Name] = class
 	return nil
 }
 

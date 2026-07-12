@@ -57,7 +57,7 @@ func (p *Parser) parseStatement() ast.Stmt {
 		if p.peek.Type == lexer.Assign {
 			return p.parseAssign()
 		}
-		return p.parseExprStmt()
+		return p.parseExprOrPropertyAssign()
 	case lexer.Echo:
 		return p.parseEcho()
 	case lexer.If:
@@ -74,6 +74,8 @@ func (p *Parser) parseStatement() ast.Stmt {
 		return p.parseInclude(false)
 	case lexer.Require:
 		return p.parseInclude(true)
+	case lexer.Class:
+		return p.parseClassDecl()
 	case lexer.LBrace:
 		return p.parseBlock()
 	default:
@@ -235,6 +237,48 @@ func (p *Parser) parseInclude(require bool) ast.Stmt {
 	return &ast.IncludeStmt{Path: path, Require: require}
 }
 
+func (p *Parser) parseClassDecl() ast.Stmt {
+	if !p.expectPeek(lexer.Ident) {
+		return nil
+	}
+	name := p.cur.Literal
+	if !p.expectPeek(lexer.LBrace) {
+		return nil
+	}
+	class := &ast.ClassDeclStmt{Name: name}
+	p.next()
+	for p.cur.Type != lexer.RBrace && p.cur.Type != lexer.EOF {
+		if p.cur.Type != lexer.Function {
+			p.errors = append(p.errors, fmt.Sprintf("expected method declaration in class %s, got %s", name, p.cur.Type))
+			return class
+		}
+		method, ok := p.parseFunctionDecl().(*ast.FunctionDeclStmt)
+		if ok && method != nil {
+			class.Methods = append(class.Methods, method)
+		}
+		p.next()
+	}
+	return class
+}
+
+func (p *Parser) parseExprOrPropertyAssign() ast.Stmt {
+	expr := p.parseExpression(lowest)
+	if p.peek.Type == lexer.Assign {
+		prop, ok := expr.(*ast.PropertyFetchExpr)
+		if !ok {
+			p.errors = append(p.errors, "only variables and object properties can be assigned")
+			return &ast.ExprStmt{Expr: expr}
+		}
+		p.next()
+		p.next()
+		value := p.parseExpression(lowest)
+		p.consumeSemi()
+		return &ast.PropertyAssignStmt{Object: prop.Object, Property: prop.Property, Value: value}
+	}
+	p.consumeSemi()
+	return &ast.ExprStmt{Expr: expr}
+}
+
 func (p *Parser) parseBlock() ast.Stmt {
 	block := &ast.BlockStmt{}
 	p.next()
@@ -282,6 +326,8 @@ func (p *Parser) parseExpression(precedence int) ast.Expr {
 		left = &ast.NullLit{}
 	case lexer.Array:
 		left = p.parseArray()
+	case lexer.NewKeyword:
+		left = p.parseNew()
 	case lexer.Bang, lexer.Minus:
 		op := p.cur.Literal
 		p.next()
@@ -296,11 +342,45 @@ func (p *Parser) parseExpression(precedence int) ast.Expr {
 		p.errors = append(p.errors, fmt.Sprintf("unexpected token %s at %d:%d", p.cur.Type, p.cur.Line, p.cur.Column))
 		return &ast.NullLit{}
 	}
+	for p.peek.Type == lexer.ObjectOp {
+		p.next()
+		left = p.parseObjectAccess(left)
+	}
 	for p.peek.Type != lexer.Semicolon && p.peek.Type != lexer.RParen && precedence < p.peekPrecedence() {
 		p.next()
 		left = p.parseInfix(left)
+		for p.peek.Type == lexer.ObjectOp {
+			p.next()
+			left = p.parseObjectAccess(left)
+		}
 	}
 	return left
+}
+
+func (p *Parser) parseNew() ast.Expr {
+	expr := &ast.NewExpr{}
+	if !p.expectPeek(lexer.Ident) {
+		return expr
+	}
+	expr.ClassName = p.cur.Literal
+	if p.peek.Type != lexer.LParen {
+		return expr
+	}
+	p.next()
+	expr.Args = p.parseCallArgs()
+	return expr
+}
+
+func (p *Parser) parseObjectAccess(object ast.Expr) ast.Expr {
+	if !p.expectPeek(lexer.Ident) {
+		return object
+	}
+	name := p.cur.Literal
+	if p.peek.Type == lexer.LParen {
+		p.next()
+		return &ast.MethodCallExpr{Object: object, Method: name, Args: p.parseCallArgs()}
+	}
+	return &ast.PropertyFetchExpr{Object: object, Property: name}
 }
 
 func (p *Parser) parseCall() ast.Expr {
@@ -308,20 +388,26 @@ func (p *Parser) parseCall() ast.Expr {
 	if !p.expectPeek(lexer.LParen) {
 		return call
 	}
+	call.Args = p.parseCallArgs()
+	return call
+}
+
+func (p *Parser) parseCallArgs() []ast.Expr {
+	var args []ast.Expr
 	if p.peek.Type == lexer.RParen {
 		p.next()
-		return call
+		return args
 	}
 	for {
 		p.next()
-		call.Args = append(call.Args, p.parseExpression(lowest))
+		args = append(args, p.parseExpression(lowest))
 		if p.peek.Type != lexer.Comma {
 			break
 		}
 		p.next()
 	}
 	p.expectPeek(lexer.RParen)
-	return call
+	return args
 }
 
 func (p *Parser) parseArray() ast.Expr {

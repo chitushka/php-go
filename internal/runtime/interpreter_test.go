@@ -143,3 +143,39 @@ func TestNestedIncludeUsesIncludedFileDirectory(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestClassConstructorMethodAndThis(t *testing.T) {
+	src := "<?php class Box { function __construct($value) { $this->value = $value; } function get() { return $this->value; } } $box = new Box(9); echo $box->get();"
+	got := run(t, src)
+	if got != "9" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestObjectPropertyAssignmentOutsideClass(t *testing.T) {
+	src := "<?php class Box { function get() { return $this->value; } } $box = new Box(); $box->value = 4; echo $box->value; echo $box->get();"
+	got := run(t, src)
+	if got != "44" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestClassCanBeUsedBeforeDeclaration(t *testing.T) {
+	src := "<?php $calc = new Calc(); echo $calc->add(2, 3); class Calc { function add($a, $b) { return $a + $b; } }"
+	got := run(t, src)
+	if got != "5" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestIncludedClass(t *testing.T) {
+	dir := t.TempDir()
+	src := "<?php class Doubler { function run($value) { return $value * 2; } }"
+	if err := os.WriteFile(filepath.Join(dir, "doubler.php"), []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got := runFile(t, dir, "<?php require 'doubler.php'; $d = new Doubler(); echo $d->run(6);")
+	if got != "12" {
+		t.Fatalf("got %q", got)
+	}
+}

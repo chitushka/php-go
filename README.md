@@ -12,7 +12,8 @@
 - `foreach ($items as $value)` и `foreach ($items as $key => $value)`.
 - Пользовательские функции: `function name($arg) { ... }`, вызовы, локальные frame-ы и `return`.
 - Ограниченные `include` и `require` для строковых путей, разрешаемых относительно текущего PHP-файла.
-- Runtime со значениями `null`, `bool`, `int`, `float`, `string`, `array` и таблицей переменных.
+- Базовые классы: `class`, `new`, методы, `__construct`, `$this`, динамические свойства и `$obj->method()`.
+- Runtime со значениями `null`, `bool`, `int`, `float`, `string`, `array`, `object` и таблицей переменных.
 
 ## Запуск
 
@@ -23,5 +24,5 @@ go run ./cmd/php53 -- examples/hello.php
 
 ## Следующие шаги переноса
 
-1. Добавить классы, объекты, методы и исключения.
+1. Добавить исключения: `throw`, `try`, `catch` и базовый объект `Exception`.
 2. Подключить PHPT-тесты как acceptance suite.
