@@ -51,6 +51,8 @@ type FunctionDeclStmt struct {
 	Visibility string
 	Static     bool
 	Owner      string
+	Final      bool
+	Abstract   bool
 }
 
 func (*FunctionDeclStmt) stmtNode() {}
@@ -73,6 +75,8 @@ type ClassDeclStmt struct {
 	Parent     string
 	Properties []*ClassProperty
 	Methods    []*FunctionDeclStmt
+	Final      bool
+	Abstract   bool
 }
 
 func (*ClassDeclStmt) stmtNode() {}

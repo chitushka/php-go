@@ -280,3 +280,55 @@ func TestPrivateStaticPropertyAccessDeniedOutsideClass(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestSelfStaticAccess(t *testing.T) {
+	src := "<?php class Counter { private static $count = 0; public static function inc() { self::$count = self::$count + 1; return self::$count; } } echo Counter::inc(); echo Counter::inc();"
+	got := run(t, src)
+	if got != "12" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestLateStaticAccess(t *testing.T) {
+	src := "<?php class Base { public static $name = 'base'; public static function name() { return static::$name; } } class Child extends Base { public static $name = 'child'; } echo Child::name();"
+	got := run(t, src)
+	if got != "child" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestParentMethodCall(t *testing.T) {
+	src := "<?php class Base { protected function value() { return 4; } } class Child extends Base { public function value2() { return parent::value() * 2; } } $c = new Child(); echo $c->value2();"
+	got := run(t, src)
+	if got != "8" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestCannotExtendFinalClass(t *testing.T) {
+	err := runErr(t, "<?php final class Base {} class Child extends Base {}")
+	if err == nil || err.Error() != "class Child cannot extend final class Base" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCannotOverrideFinalMethod(t *testing.T) {
+	err := runErr(t, "<?php class Base { final public function value() { return 1; } } class Child extends Base { public function value() { return 2; } }")
+	if err == nil || err.Error() != "cannot override final method Base::value" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestAbstractClassCannotBeInstantiated(t *testing.T) {
+	err := runErr(t, "<?php abstract class Base { abstract public function value(); } $b = new Base();")
+	if err == nil || err.Error() != "cannot instantiate abstract class Base" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestConcreteClassMustImplementAbstractMethods(t *testing.T) {
+	err := runErr(t, "<?php abstract class Base { abstract public function value(); } class Child extends Base {}")
+	if err == nil || err.Error() != "class Child contains abstract methods and must be abstract" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

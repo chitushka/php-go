@@ -75,8 +75,14 @@ func (p *Parser) parseStatement() ast.Stmt {
 	case lexer.Require:
 		return p.parseInclude(true)
 	case lexer.Class:
-		return p.parseClassDecl()
+		return p.parseClassDecl(false, false)
+	case lexer.Final:
+		return p.parseClassDeclWithLeadingModifier("final")
+	case lexer.Abstract:
+		return p.parseClassDeclWithLeadingModifier("abstract")
 	case lexer.Ident:
+		return p.parseExprOrPropertyAssign()
+	case lexer.Self, lexer.Parent, lexer.Static:
 		return p.parseExprOrPropertyAssign()
 	case lexer.Throw:
 		return p.parseThrow()
@@ -190,6 +196,10 @@ func (p *Parser) parseFunctionDecl() ast.Stmt {
 }
 
 func (p *Parser) parseFunctionDeclWith(visibility string, static bool) ast.Stmt {
+	return p.parseFunctionDeclFull(visibility, static, false, false)
+}
+
+func (p *Parser) parseFunctionDeclFull(visibility string, static bool, final bool, abstract bool) ast.Stmt {
 	if !p.expectPeek(lexer.Ident) {
 		return nil
 	}
@@ -198,11 +208,17 @@ func (p *Parser) parseFunctionDeclWith(visibility string, static bool) ast.Stmt 
 		return nil
 	}
 	params := p.parseFunctionParams()
+	if abstract {
+		if !p.expectPeek(lexer.Semicolon) {
+			return nil
+		}
+		return &ast.FunctionDeclStmt{Name: name, Params: params, Visibility: visibility, Static: static, Final: final, Abstract: abstract}
+	}
 	if !p.expectPeek(lexer.LBrace) {
 		return nil
 	}
 	body := p.parseBlock().(*ast.BlockStmt)
-	return &ast.FunctionDeclStmt{Name: name, Params: params, Body: body, Visibility: visibility, Static: static}
+	return &ast.FunctionDeclStmt{Name: name, Params: params, Body: body, Visibility: visibility, Static: static, Final: final, Abstract: abstract}
 }
 
 func (p *Parser) parseFunctionParams() []string {
@@ -247,7 +263,16 @@ func (p *Parser) parseInclude(require bool) ast.Stmt {
 	return &ast.IncludeStmt{Path: path, Require: require}
 }
 
-func (p *Parser) parseClassDecl() ast.Stmt {
+func (p *Parser) parseClassDeclWithLeadingModifier(mod string) ast.Stmt {
+	if p.peek.Type != lexer.Class {
+		p.errors = append(p.errors, fmt.Sprintf("%s must be followed by class", mod))
+		return nil
+	}
+	p.next()
+	return p.parseClassDecl(mod == "final", mod == "abstract")
+}
+
+func (p *Parser) parseClassDecl(final bool, abstract bool) ast.Stmt {
 	if !p.expectPeek(lexer.Ident) {
 		return nil
 	}
@@ -263,13 +288,13 @@ func (p *Parser) parseClassDecl() ast.Stmt {
 	if !p.expectPeek(lexer.LBrace) {
 		return nil
 	}
-	class := &ast.ClassDeclStmt{Name: name, Parent: parent}
+	class := &ast.ClassDeclStmt{Name: name, Parent: parent, Final: final, Abstract: abstract}
 	p.next()
 	for p.cur.Type != lexer.RBrace && p.cur.Type != lexer.EOF {
-		visibility, static := p.parseMemberModifiers()
+		visibility, static, finalMember, abstractMember := p.parseMemberModifiers()
 		switch p.cur.Type {
 		case lexer.Function:
-			method, ok := p.parseFunctionDeclWith(visibility, static).(*ast.FunctionDeclStmt)
+			method, ok := p.parseFunctionDeclFull(visibility, static, finalMember, abstractMember).(*ast.FunctionDeclStmt)
 			if ok && method != nil {
 				class.Methods = append(class.Methods, method)
 			}
@@ -284,9 +309,11 @@ func (p *Parser) parseClassDecl() ast.Stmt {
 	return class
 }
 
-func (p *Parser) parseMemberModifiers() (string, bool) {
+func (p *Parser) parseMemberModifiers() (string, bool, bool, bool) {
 	visibility := "public"
 	static := false
+	final := false
+	abstract := false
 	for {
 		switch p.cur.Type {
 		case lexer.Public:
@@ -297,8 +324,12 @@ func (p *Parser) parseMemberModifiers() (string, bool) {
 			visibility = "protected"
 		case lexer.Static:
 			static = true
+		case lexer.Final:
+			final = true
+		case lexer.Abstract:
+			abstract = true
 		default:
-			return visibility, static
+			return visibility, static, final, abstract
 		}
 		p.next()
 	}
@@ -409,6 +440,13 @@ func (p *Parser) parseExpression(precedence int) ast.Expr {
 			p.errors = append(p.errors, fmt.Sprintf("unexpected bare identifier %s at %d:%d", p.cur.Literal, p.cur.Line, p.cur.Column))
 			return &ast.NullLit{}
 		}
+	case lexer.Self, lexer.Parent, lexer.Static:
+		if p.peek.Type == lexer.ScopeResolution {
+			left = p.parseStaticAccess()
+		} else {
+			p.errors = append(p.errors, fmt.Sprintf("unexpected bare identifier %s at %d:%d", p.cur.Literal, p.cur.Line, p.cur.Column))
+			return &ast.NullLit{}
+		}
 	case lexer.Int:
 		v, _ := strconv.ParseInt(p.cur.Literal, 10, 64)
 		left = &ast.IntLit{Value: v}
@@ -458,6 +496,14 @@ func (p *Parser) parseExpression(precedence int) ast.Expr {
 
 func (p *Parser) parseStaticAccess() ast.Expr {
 	className := p.cur.Literal
+	switch p.cur.Type {
+	case lexer.Self:
+		className = "self"
+	case lexer.Parent:
+		className = "parent"
+	case lexer.Static:
+		className = "static"
+	}
 	if !p.expectPeek(lexer.ScopeResolution) {
 		return &ast.NullLit{}
 	}

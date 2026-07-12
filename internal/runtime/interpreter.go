@@ -75,8 +75,9 @@ type returnSignal struct {
 }
 
 type frame struct {
-	vars      map[string]Value
-	className string
+	vars        map[string]Value
+	className   string
+	calledClass string
 }
 
 type thrownError struct {
@@ -345,14 +346,20 @@ func (i *Interpreter) call(c *ast.CallExpr) (Value, error) {
 	if len(c.Args) != len(fn.Params) {
 		return NullValue(), fmt.Errorf("function %s expects %d arguments, got %d", c.Name, len(fn.Params), len(c.Args))
 	}
-	return i.callFunction(fn, c.Args, nil)
+	return i.callFunction(fn, c.Args, nil, "")
 }
 
-func (i *Interpreter) callFunction(fn *ast.FunctionDeclStmt, args []ast.Expr, thisObj *Object) (Value, error) {
+func (i *Interpreter) callFunction(fn *ast.FunctionDeclStmt, args []ast.Expr, thisObj *Object, calledClass string) (Value, error) {
+	if fn.Abstract {
+		return NullValue(), fmt.Errorf("cannot call abstract method %s::%s", fn.Owner, fn.Name)
+	}
 	if len(args) != len(fn.Params) {
 		return NullValue(), fmt.Errorf("function %s expects %d arguments, got %d", fn.Name, len(fn.Params), len(args))
 	}
-	callFrame := frame{vars: map[string]Value{}, className: fn.Owner}
+	if calledClass == "" {
+		calledClass = fn.Owner
+	}
+	callFrame := frame{vars: map[string]Value{}, className: fn.Owner, calledClass: calledClass}
 	if thisObj != nil {
 		callFrame.vars["this"] = ObjectValue(thisObj)
 	}
@@ -379,9 +386,16 @@ func (i *Interpreter) newObject(n *ast.NewExpr) (Value, error) {
 	if n.ClassName == "Exception" {
 		return i.newException(n.Args)
 	}
-	class, ok := i.classes[n.ClassName]
+	className, err := i.resolveClassName(n.ClassName)
+	if err != nil {
+		return NullValue(), err
+	}
+	class, ok := i.classes[className]
 	if !ok {
-		return NullValue(), fmt.Errorf("undefined class %s", n.ClassName)
+		return NullValue(), fmt.Errorf("undefined class %s", className)
+	}
+	if class.Abstract {
+		return NullValue(), fmt.Errorf("cannot instantiate abstract class %s", class.Name)
 	}
 	props, meta, err := i.instanceDefaults(class)
 	if err != nil {
@@ -389,7 +403,7 @@ func (i *Interpreter) newObject(n *ast.NewExpr) (Value, error) {
 	}
 	obj := NewObject(class.Name, i.methodsForClass(class), props, meta)
 	if constructor, ok := obj.Methods["__construct"]; ok {
-		if _, err := i.callFunction(constructor, n.Args, obj); err != nil {
+		if _, err := i.callFunction(constructor, n.Args, obj, obj.ClassName); err != nil {
 			return NullValue(), err
 		}
 	} else if len(n.Args) != 0 {
@@ -422,26 +436,37 @@ func (i *Interpreter) callMethod(n *ast.MethodCallExpr) (Value, error) {
 	if err := i.checkMethodAccess(obj.O.ClassName, method); err != nil {
 		return NullValue(), err
 	}
-	return i.callFunction(method, n.Args, obj.O)
+	return i.callFunction(method, n.Args, obj.O, obj.O.ClassName)
 }
 
 func (i *Interpreter) callStatic(n *ast.StaticCallExpr) (Value, error) {
-	class, ok := i.classes[n.ClassName]
+	className, err := i.resolveClassName(n.ClassName)
+	if err != nil {
+		return NullValue(), err
+	}
+	class, ok := i.classes[className]
 	if !ok {
-		return NullValue(), fmt.Errorf("undefined class %s", n.ClassName)
+		return NullValue(), fmt.Errorf("undefined class %s", className)
 	}
 	methods := i.methodsForClass(class)
 	method, ok := methods[n.Method]
 	if !ok {
-		return NullValue(), fmt.Errorf("undefined static method %s::%s", n.ClassName, n.Method)
+		return NullValue(), fmt.Errorf("undefined static method %s::%s", className, n.Method)
 	}
 	if !method.Static {
-		return NullValue(), fmt.Errorf("method %s::%s is not static", n.ClassName, n.Method)
+		thisObj := i.currentThis()
+		if thisObj == nil {
+			return NullValue(), fmt.Errorf("method %s::%s is not static", className, n.Method)
+		}
+		if err := i.checkMethodAccess(className, method); err != nil {
+			return NullValue(), err
+		}
+		return i.callFunction(method, n.Args, thisObj, thisObj.ClassName)
 	}
-	if err := i.checkMethodAccess(n.ClassName, method); err != nil {
+	if err := i.checkMethodAccess(className, method); err != nil {
 		return NullValue(), err
 	}
-	return i.callFunction(method, n.Args, nil)
+	return i.callFunction(method, n.Args, nil, className)
 }
 
 func (i *Interpreter) newException(args []ast.Expr) (Value, error) {
@@ -479,11 +504,32 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 	if _, exists := i.classes[class.Name]; exists {
 		return fmt.Errorf("cannot redeclare class %s", class.Name)
 	}
+	if class.Final && class.Abstract {
+		return fmt.Errorf("class %s cannot be both final and abstract", class.Name)
+	}
+	if class.Parent != "" {
+		parent, ok := i.classes[class.Parent]
+		if !ok {
+			return fmt.Errorf("undefined parent class %s", class.Parent)
+		}
+		if parent.Final {
+			return fmt.Errorf("class %s cannot extend final class %s", class.Name, parent.Name)
+		}
+		parentMethods := i.methodsForClass(parent)
+		for _, method := range class.Methods {
+			if parentMethod, ok := parentMethods[method.Name]; ok && parentMethod.Final {
+				return fmt.Errorf("cannot override final method %s::%s", parentMethod.Owner, parentMethod.Name)
+			}
+		}
+	}
 	i.classes[class.Name] = class
 	for _, method := range class.Methods {
 		method.Owner = class.Name
 		if method.Visibility == "" {
 			method.Visibility = "public"
+		}
+		if method.Final && method.Abstract {
+			return fmt.Errorf("method %s::%s cannot be both final and abstract", class.Name, method.Name)
 		}
 	}
 	for _, prop := range class.Properties {
@@ -512,6 +558,13 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 		}
 		i.statics[class.Name][prop.Name] = value
 		i.staticMeta[class.Name][prop.Name] = PropertyMeta{Owner: prop.Owner, Visibility: prop.Visibility, Static: true}
+	}
+	if !class.Abstract {
+		for _, method := range i.methodsForClass(class) {
+			if method.Abstract {
+				return fmt.Errorf("class %s contains abstract methods and must be abstract", class.Name)
+			}
+		}
 	}
 	return nil
 }
@@ -569,6 +622,10 @@ func (i *Interpreter) instanceDefaults(class *ast.ClassDeclStmt) (map[string]Val
 }
 
 func (i *Interpreter) getStaticProperty(className, property string) Value {
+	resolved, err := i.resolveClassName(className)
+	if err == nil {
+		className = resolved
+	}
 	if value, _, ok := i.findStaticProperty(className, property); ok {
 		return value
 	}
@@ -576,6 +633,10 @@ func (i *Interpreter) getStaticProperty(className, property string) Value {
 }
 
 func (i *Interpreter) setStaticProperty(className, property string, value Value) {
+	resolved, err := i.resolveClassName(className)
+	if err == nil {
+		className = resolved
+	}
 	owner := className
 	if _, info, ok := i.findStaticProperty(className, property); ok {
 		owner = info.Owner
@@ -586,7 +647,7 @@ func (i *Interpreter) setStaticProperty(className, property string, value Value)
 	i.statics[owner][property] = value
 }
 
-func (i *Interpreter) checkMethodAccess(receiverClass string, method *ast.FunctionDeclStmt) error {
+func (i *Interpreter) checkMethodAccess(_ string, method *ast.FunctionDeclStmt) error {
 	switch method.Visibility {
 	case "", "public":
 		return nil
@@ -623,6 +684,11 @@ func (i *Interpreter) checkPropertyAccess(obj *Object, property string) error {
 }
 
 func (i *Interpreter) checkStaticPropertyAccess(className, property string) error {
+	resolved, err := i.resolveClassName(className)
+	if err != nil {
+		return err
+	}
+	className = resolved
 	_, info, ok := i.findStaticProperty(className, property)
 	if !ok {
 		return fmt.Errorf("undefined static property %s::$%s", className, property)
@@ -662,6 +728,54 @@ func (i *Interpreter) currentClass() string {
 		return ""
 	}
 	return i.frames[len(i.frames)-1].className
+}
+
+func (i *Interpreter) currentCalledClass() string {
+	if len(i.frames) == 0 {
+		return ""
+	}
+	return i.frames[len(i.frames)-1].calledClass
+}
+
+func (i *Interpreter) currentThis() *Object {
+	if len(i.frames) == 0 {
+		return nil
+	}
+	value, ok := i.frames[len(i.frames)-1].vars["this"]
+	if !ok || value.Kind != ObjectKind {
+		return nil
+	}
+	return value.O
+}
+
+func (i *Interpreter) resolveClassName(name string) (string, error) {
+	switch name {
+	case "self":
+		if current := i.currentClass(); current != "" {
+			return current, nil
+		}
+		return "", fmt.Errorf("self used outside class context")
+	case "parent":
+		current := i.currentClass()
+		if current == "" {
+			return "", fmt.Errorf("parent used outside class context")
+		}
+		class, ok := i.classes[current]
+		if !ok || class.Parent == "" {
+			return "", fmt.Errorf("class %s has no parent", current)
+		}
+		return class.Parent, nil
+	case "static":
+		if called := i.currentCalledClass(); called != "" {
+			return called, nil
+		}
+		if current := i.currentClass(); current != "" {
+			return current, nil
+		}
+		return "", fmt.Errorf("static used outside class context")
+	default:
+		return name, nil
+	}
 }
 
 func (i *Interpreter) classesRelated(a, b string) bool {

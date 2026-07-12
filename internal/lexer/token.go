@@ -59,6 +59,10 @@ const (
 	Private    TokenType = "PRIVATE"
 	Protected  TokenType = "PROTECTED"
 	Static     TokenType = "STATIC"
+	Self       TokenType = "SELF"
+	Parent     TokenType = "PARENT"
+	Final      TokenType = "FINAL"
+	Abstract   TokenType = "ABSTRACT"
 	NewKeyword TokenType = "NEW"
 	Try        TokenType = "TRY"
 	Catch      TokenType = "CATCH"
@@ -86,6 +90,10 @@ var keywords = map[string]TokenType{
 	"private":   Private,
 	"protected": Protected,
 	"static":    Static,
+	"self":      Self,
+	"parent":    Parent,
+	"final":     Final,
+	"abstract":  Abstract,
 	"new":       NewKeyword,
 	"try":       Try,
 	"catch":     Catch,
