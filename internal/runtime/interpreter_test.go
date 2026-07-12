@@ -332,3 +332,33 @@ func TestConcreteClassMustImplementAbstractMethods(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestInterfaceImplementation(t *testing.T) {
+	src := "<?php interface Named { public function name(); } class User implements Named { public function name() { return 'Ada'; } } $u = new User(); echo $u->name();"
+	got := run(t, src)
+	if got != "Ada" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestInterfaceExtendsInterface(t *testing.T) {
+	src := "<?php interface A { public function a(); } interface B extends A { public function b(); } class C implements B { public function a() { return 'a'; } public function b() { return 'b'; } } $c = new C(); echo $c->a(); echo $c->b();"
+	got := run(t, src)
+	if got != "ab" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestClassMustImplementInterfaceMethod(t *testing.T) {
+	err := runErr(t, "<?php interface Named { public function name(); } class User implements Named {}")
+	if err == nil || err.Error() != "class User must implement interface method Named::name" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestInterfaceMethodMustBePublic(t *testing.T) {
+	err := runErr(t, "<?php interface Named { public function name(); } class User implements Named { protected function name() { return 'x'; } }")
+	if err == nil || err.Error() != "class User interface method name must be public" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

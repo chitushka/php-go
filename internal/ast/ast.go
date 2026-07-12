@@ -73,6 +73,7 @@ func (*IncludeStmt) stmtNode() {}
 type ClassDeclStmt struct {
 	Name       string
 	Parent     string
+	Implements []string
 	Properties []*ClassProperty
 	Methods    []*FunctionDeclStmt
 	Final      bool
@@ -80,6 +81,14 @@ type ClassDeclStmt struct {
 }
 
 func (*ClassDeclStmt) stmtNode() {}
+
+type InterfaceDeclStmt struct {
+	Name    string
+	Parents []string
+	Methods []*FunctionDeclStmt
+}
+
+func (*InterfaceDeclStmt) stmtNode() {}
 
 type ClassProperty struct {
 	Name       string

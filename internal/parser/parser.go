@@ -76,6 +76,8 @@ func (p *Parser) parseStatement() ast.Stmt {
 		return p.parseInclude(true)
 	case lexer.Class:
 		return p.parseClassDecl(false, false)
+	case lexer.Interface:
+		return p.parseInterfaceDecl()
 	case lexer.Final:
 		return p.parseClassDeclWithLeadingModifier("final")
 	case lexer.Abstract:
@@ -285,10 +287,11 @@ func (p *Parser) parseClassDecl(final bool, abstract bool) ast.Stmt {
 		}
 		parent = p.cur.Literal
 	}
+	implements := p.parseImplementsList()
 	if !p.expectPeek(lexer.LBrace) {
 		return nil
 	}
-	class := &ast.ClassDeclStmt{Name: name, Parent: parent, Final: final, Abstract: abstract}
+	class := &ast.ClassDeclStmt{Name: name, Parent: parent, Implements: implements, Final: final, Abstract: abstract}
 	p.next()
 	for p.cur.Type != lexer.RBrace && p.cur.Type != lexer.EOF {
 		visibility, static, finalMember, abstractMember := p.parseMemberModifiers()
@@ -307,6 +310,64 @@ func (p *Parser) parseClassDecl(final bool, abstract bool) ast.Stmt {
 		p.next()
 	}
 	return class
+}
+
+func (p *Parser) parseImplementsList() []string {
+	var names []string
+	if p.peek.Type != lexer.Implements {
+		return names
+	}
+	p.next()
+	for {
+		if !p.expectPeek(lexer.Ident) {
+			return names
+		}
+		names = append(names, p.cur.Literal)
+		if p.peek.Type != lexer.Comma {
+			break
+		}
+		p.next()
+	}
+	return names
+}
+
+func (p *Parser) parseInterfaceDecl() ast.Stmt {
+	if !p.expectPeek(lexer.Ident) {
+		return nil
+	}
+	name := p.cur.Literal
+	var parents []string
+	if p.peek.Type == lexer.Extends {
+		p.next()
+		for {
+			if !p.expectPeek(lexer.Ident) {
+				return nil
+			}
+			parents = append(parents, p.cur.Literal)
+			if p.peek.Type != lexer.Comma {
+				break
+			}
+			p.next()
+		}
+	}
+	if !p.expectPeek(lexer.LBrace) {
+		return nil
+	}
+	iface := &ast.InterfaceDeclStmt{Name: name, Parents: parents}
+	p.next()
+	for p.cur.Type != lexer.RBrace && p.cur.Type != lexer.EOF {
+		visibility, static, _, _ := p.parseMemberModifiers()
+		if p.cur.Type != lexer.Function {
+			p.errors = append(p.errors, fmt.Sprintf("expected interface method in %s, got %s", name, p.cur.Type))
+			return iface
+		}
+		method, ok := p.parseFunctionDeclFull(visibility, static, false, true).(*ast.FunctionDeclStmt)
+		if ok && method != nil {
+			iface.Methods = append(iface.Methods, method)
+		}
+		p.next()
+	}
+	return iface
 }
 
 func (p *Parser) parseMemberModifiers() (string, bool, bool, bool) {

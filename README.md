@@ -16,6 +16,7 @@
 - Базовые классы: `class`, `extends`, `new`, методы, `__construct`, `$this`, динамические свойства, `$obj->method()`, static methods/properties.
 - Модификаторы `public`, `protected`, `private`, `static` для методов и свойств, включая runtime-проверку доступа.
 - `self::`, `parent::`, `static::`, late static binding для static members, а также базовые проверки `final` и `abstract`.
+- `interface`, `extends` для интерфейсов, `implements` и runtime-проверка обязательных методов.
 - Исключения: `throw`, `try`, `catch (Exception $e)` и минимальный встроенный `Exception::getMessage()`.
 - PHPT-подобный runner с секциями `--TEST--`, `--FILE--`, `--EXPECT--`, `--EXPECTF--`, `--SKIPIF--`, `--INI--`.
 - Runtime со значениями `null`, `bool`, `int`, `float`, `string`, `array`, `object` и таблицей переменных.
@@ -30,5 +31,5 @@ go run ./cmd/php53test -- tests/phpt
 
 ## Следующие шаги переноса
 
-1. Добавить `interface`, `implements` и проверку реализации интерфейсов.
-2. Расширить PHPT runner секциями `--EXPECTREGEX--`, `--CLEAN--` и проверкой exit status.
+1. Расширить PHPT runner секциями `--EXPECTREGEX--`, `--CLEAN--` и проверкой exit status.
+2. Добавить больше семантики PHP 5.3: `instanceof`, constants, `self::class`-подобные class constants, magic methods.

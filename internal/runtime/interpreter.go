@@ -15,6 +15,7 @@ type Interpreter struct {
 	Vars       map[string]Value
 	functions  map[string]*ast.FunctionDeclStmt
 	classes    map[string]*ast.ClassDeclStmt
+	interfaces map[string]*ast.InterfaceDeclStmt
 	statics    map[string]map[string]Value
 	staticMeta map[string]map[string]PropertyMeta
 	frames     []frame
@@ -35,6 +36,7 @@ func NewInterpreterWithBaseDir(baseDir string) *Interpreter {
 		Vars:       map[string]Value{},
 		functions:  map[string]*ast.FunctionDeclStmt{},
 		classes:    map[string]*ast.ClassDeclStmt{},
+		interfaces: map[string]*ast.InterfaceDeclStmt{},
 		statics:    map[string]map[string]Value{},
 		staticMeta: map[string]map[string]PropertyMeta{},
 		baseDir:    baseDir,
@@ -43,6 +45,13 @@ func NewInterpreterWithBaseDir(baseDir string) *Interpreter {
 }
 
 func (i *Interpreter) Run(p *ast.Program) error {
+	for _, s := range p.Statements {
+		if iface, ok := s.(*ast.InterfaceDeclStmt); ok {
+			if err := i.defineInterface(iface); err != nil {
+				return err
+			}
+		}
+	}
 	for _, s := range p.Statements {
 		if fn, ok := s.(*ast.FunctionDeclStmt); ok {
 			if err := i.defineFunction(fn); err != nil {
@@ -61,6 +70,9 @@ func (i *Interpreter) Run(p *ast.Program) error {
 			continue
 		}
 		if _, ok := s.(*ast.ClassDeclStmt); ok {
+			continue
+		}
+		if _, ok := s.(*ast.InterfaceDeclStmt); ok {
 			continue
 		}
 		if _, err := i.exec(s); err != nil {
@@ -170,6 +182,10 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 		}
 	case *ast.ClassDeclStmt:
 		if err := i.defineClass(n); err != nil {
+			return nil, err
+		}
+	case *ast.InterfaceDeclStmt:
+		if err := i.defineInterface(n); err != nil {
 			return nil, err
 		}
 	case *ast.PropertyAssignStmt:
@@ -565,8 +581,73 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 				return fmt.Errorf("class %s contains abstract methods and must be abstract", class.Name)
 			}
 		}
+		if err := i.checkInterfaceImplementations(class); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+func (i *Interpreter) defineInterface(iface *ast.InterfaceDeclStmt) error {
+	if _, exists := i.interfaces[iface.Name]; exists {
+		return fmt.Errorf("cannot redeclare interface %s", iface.Name)
+	}
+	for _, parentName := range iface.Parents {
+		if _, ok := i.interfaces[parentName]; !ok {
+			return fmt.Errorf("undefined parent interface %s", parentName)
+		}
+	}
+	for _, method := range iface.Methods {
+		method.Owner = iface.Name
+		method.Visibility = "public"
+		method.Abstract = true
+	}
+	i.interfaces[iface.Name] = iface
+	return nil
+}
+
+func (i *Interpreter) checkInterfaceImplementations(class *ast.ClassDeclStmt) error {
+	methods := i.methodsForClass(class)
+	for _, ifaceName := range class.Implements {
+		required, err := i.interfaceMethods(ifaceName)
+		if err != nil {
+			return err
+		}
+		for name, ifaceMethod := range required {
+			method, ok := methods[name]
+			if !ok || method.Abstract {
+				return fmt.Errorf("class %s must implement interface method %s::%s", class.Name, ifaceName, name)
+			}
+			if len(method.Params) != len(ifaceMethod.Params) {
+				return fmt.Errorf("class %s method %s must have %d parameters for interface %s", class.Name, name, len(ifaceMethod.Params), ifaceName)
+			}
+			if method.Visibility != "" && method.Visibility != "public" {
+				return fmt.Errorf("class %s interface method %s must be public", class.Name, name)
+			}
+		}
+	}
+	return nil
+}
+
+func (i *Interpreter) interfaceMethods(name string) (map[string]*ast.FunctionDeclStmt, error) {
+	iface, ok := i.interfaces[name]
+	if !ok {
+		return nil, fmt.Errorf("undefined interface %s", name)
+	}
+	methods := map[string]*ast.FunctionDeclStmt{}
+	for _, parentName := range iface.Parents {
+		parentMethods, err := i.interfaceMethods(parentName)
+		if err != nil {
+			return nil, err
+		}
+		for methodName, method := range parentMethods {
+			methods[methodName] = method
+		}
+	}
+	for _, method := range iface.Methods {
+		methods[method.Name] = method
+	}
+	return methods, nil
 }
 
 func (i *Interpreter) methodsForClass(class *ast.ClassDeclStmt) map[string]*ast.FunctionDeclStmt {

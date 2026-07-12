@@ -55,6 +55,8 @@ const (
 	Require    TokenType = "REQUIRE"
 	Class      TokenType = "CLASS"
 	Extends    TokenType = "EXTENDS"
+	Interface  TokenType = "INTERFACE"
+	Implements TokenType = "IMPLEMENTS"
 	Public     TokenType = "PUBLIC"
 	Private    TokenType = "PRIVATE"
 	Protected  TokenType = "PROTECTED"
@@ -73,34 +75,36 @@ const (
 )
 
 var keywords = map[string]TokenType{
-	"echo":      Echo,
-	"if":        If,
-	"else":      Else,
-	"while":     While,
-	"foreach":   Foreach,
-	"as":        As,
-	"array":     Array,
-	"function":  Function,
-	"return":    Return,
-	"include":   Include,
-	"require":   Require,
-	"class":     Class,
-	"extends":   Extends,
-	"public":    Public,
-	"private":   Private,
-	"protected": Protected,
-	"static":    Static,
-	"self":      Self,
-	"parent":    Parent,
-	"final":     Final,
-	"abstract":  Abstract,
-	"new":       NewKeyword,
-	"try":       Try,
-	"catch":     Catch,
-	"throw":     Throw,
-	"true":      True,
-	"false":     False,
-	"null":      Null,
+	"echo":       Echo,
+	"if":         If,
+	"else":       Else,
+	"while":      While,
+	"foreach":    Foreach,
+	"as":         As,
+	"array":      Array,
+	"function":   Function,
+	"return":     Return,
+	"include":    Include,
+	"require":    Require,
+	"class":      Class,
+	"extends":    Extends,
+	"interface":  Interface,
+	"implements": Implements,
+	"public":     Public,
+	"private":    Private,
+	"protected":  Protected,
+	"static":     Static,
+	"self":       Self,
+	"parent":     Parent,
+	"final":      Final,
+	"abstract":   Abstract,
+	"new":        NewKeyword,
+	"try":        Try,
+	"catch":      Catch,
+	"throw":      Throw,
+	"true":       True,
+	"false":      False,
+	"null":       Null,
 }
 
 func LookupIdent(ident string) TokenType {
