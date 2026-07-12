@@ -3,19 +3,37 @@ package runtime
 import (
 	"bytes"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"php-src-go/internal/ast"
+	"php-src-go/internal/lexer"
+	"php-src-go/internal/parser"
 )
 
 type Interpreter struct {
 	Vars      map[string]Value
 	functions map[string]*ast.FunctionDeclStmt
 	frames    []map[string]Value
+	baseDir   string
+	dirStack  []string
 	Out       bytes.Buffer
 }
 
 func NewInterpreter() *Interpreter {
-	return &Interpreter{Vars: map[string]Value{}, functions: map[string]*ast.FunctionDeclStmt{}}
+	return NewInterpreterWithBaseDir(".")
+}
+
+func NewInterpreterWithBaseDir(baseDir string) *Interpreter {
+	if baseDir == "" {
+		baseDir = "."
+	}
+	return &Interpreter{
+		Vars:      map[string]Value{},
+		functions: map[string]*ast.FunctionDeclStmt{},
+		baseDir:   baseDir,
+		dirStack:  []string{baseDir},
+	}
 }
 
 func (i *Interpreter) Run(p *ast.Program) error {
@@ -124,6 +142,17 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 			return nil, err
 		}
 		return &returnSignal{value: v}, nil
+	case *ast.IncludeStmt:
+		path, err := i.eval(n.Path)
+		if err != nil {
+			return nil, err
+		}
+		if path.Kind != String {
+			return nil, fmt.Errorf("include/require path must be string")
+		}
+		if err := i.include(path.S, n.Require); err != nil {
+			return nil, err
+		}
 	case *ast.ExprStmt:
 		_, err := i.eval(n.Expr)
 		return nil, err
@@ -230,6 +259,39 @@ func (i *Interpreter) defineFunction(fn *ast.FunctionDeclStmt) error {
 	}
 	i.functions[fn.Name] = fn
 	return nil
+}
+
+func (i *Interpreter) include(path string, require bool) error {
+	resolved := path
+	if !filepath.IsAbs(resolved) {
+		resolved = filepath.Join(i.currentDir(), path)
+	}
+	data, err := os.ReadFile(resolved)
+	if err != nil {
+		kind := "include"
+		if require {
+			kind = "require"
+		}
+		return fmt.Errorf("%s failed for %q: %w", kind, path, err)
+	}
+
+	p := parser.New(lexer.New(string(data)))
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		return fmt.Errorf("parse errors in %s: %v", resolved, p.Errors())
+	}
+
+	i.dirStack = append(i.dirStack, filepath.Dir(resolved))
+	err = i.Run(program)
+	i.dirStack = i.dirStack[:len(i.dirStack)-1]
+	return err
+}
+
+func (i *Interpreter) currentDir() string {
+	if len(i.dirStack) == 0 {
+		return i.baseDir
+	}
+	return i.dirStack[len(i.dirStack)-1]
 }
 
 func (i *Interpreter) currentFrame() map[string]Value {

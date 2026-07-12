@@ -11,6 +11,7 @@
 - PHP-массивы через `array(...)` с ordered hash map, auto-index и ключами `int`/`string`.
 - `foreach ($items as $value)` и `foreach ($items as $key => $value)`.
 - Пользовательские функции: `function name($arg) { ... }`, вызовы, локальные frame-ы и `return`.
+- Ограниченные `include` и `require` для строковых путей, разрешаемых относительно текущего PHP-файла.
 - Runtime со значениями `null`, `bool`, `int`, `float`, `string`, `array` и таблицей переменных.
 
 ## Запуск
@@ -22,6 +23,5 @@ go run ./cmd/php53 -- examples/hello.php
 
 ## Следующие шаги переноса
 
-1. Добавить include/require в ограниченном статическом виде.
-2. Добавить классы, объекты, методы и исключения.
-3. Подключить PHPT-тесты как acceptance suite.
+1. Добавить классы, объекты, методы и исключения.
+2. Подключить PHPT-тесты как acceptance suite.

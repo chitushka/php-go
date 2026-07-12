@@ -1,6 +1,8 @@
 package runtime_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"php-src-go/internal/lexer"
@@ -84,6 +86,60 @@ func TestFunctionWithForeach(t *testing.T) {
 func TestFunctionCanBeCalledBeforeDeclaration(t *testing.T) {
 	got := run(t, "<?php echo add(2, 3); function add($a, $b) { return $a + $b; }")
 	if got != "5" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func runFile(t *testing.T, baseDir, src string) string {
+	t.Helper()
+	p := parser.New(lexer.New(src))
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i := runtime.NewInterpreterWithBaseDir(baseDir)
+	if err := i.Run(program); err != nil {
+		t.Fatalf("runtime error: %v", err)
+	}
+	return i.Out.String()
+}
+
+func TestIncludeSharesCurrentScope(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "vars.php"), []byte("<?php $x = $x + 2; echo $x;"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got := runFile(t, dir, "<?php $x = 3; include 'vars.php'; echo $x;")
+	if got != "55" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestRequireDefinesFunctions(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "math.php"), []byte("<?php function inc($v) { return $v + 1; }"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got := runFile(t, dir, "<?php require 'math.php'; echo inc(4);")
+	if got != "5" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestNestedIncludeUsesIncludedFileDirectory(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "lib")
+	if err := os.Mkdir(sub, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "value.php"), []byte("<?php $value = 8;"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "loader.php"), []byte("<?php include 'value.php';"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got := runFile(t, dir, "<?php include 'lib/loader.php'; echo $value;")
+	if got != "8" {
 		t.Fatalf("got %q", got)
 	}
 }

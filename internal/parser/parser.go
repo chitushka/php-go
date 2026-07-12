@@ -70,6 +70,10 @@ func (p *Parser) parseStatement() ast.Stmt {
 		return p.parseFunctionDecl()
 	case lexer.Return:
 		return p.parseReturn()
+	case lexer.Include:
+		return p.parseInclude(false)
+	case lexer.Require:
+		return p.parseInclude(true)
 	case lexer.LBrace:
 		return p.parseBlock()
 	default:
@@ -218,6 +222,17 @@ func (p *Parser) parseReturn() ast.Stmt {
 	value := p.parseExpression(lowest)
 	p.consumeSemi()
 	return &ast.ReturnStmt{Value: value}
+}
+
+func (p *Parser) parseInclude(require bool) ast.Stmt {
+	if p.peek.Type == lexer.Semicolon {
+		p.errors = append(p.errors, "include/require expects a path expression")
+		return nil
+	}
+	p.next()
+	path := p.parseExpression(lowest)
+	p.consumeSemi()
+	return &ast.IncludeStmt{Path: path, Require: require}
 }
 
 func (p *Parser) parseBlock() ast.Stmt {

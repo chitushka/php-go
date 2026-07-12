@@ -49,6 +49,8 @@ const (
 	Array    TokenType = "ARRAY"
 	Function TokenType = "FUNCTION"
 	Return   TokenType = "RETURN"
+	Include  TokenType = "INCLUDE"
+	Require  TokenType = "REQUIRE"
 	True     TokenType = "TRUE"
 	False    TokenType = "FALSE"
 	Null     TokenType = "NULL"
@@ -64,6 +66,8 @@ var keywords = map[string]TokenType{
 	"array":    Array,
 	"function": Function,
 	"return":   Return,
+	"include":  Include,
+	"require":  Require,
 	"true":     True,
 	"false":    False,
 	"null":     Null,

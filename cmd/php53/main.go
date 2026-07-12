@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"php-src-go/internal/lexer"
@@ -26,7 +27,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, strings.Join(p.Errors(), "\n"))
 		os.Exit(1)
 	}
-	interp := runtime.NewInterpreter()
+	interp := runtime.NewInterpreterWithBaseDir(filepath.Dir(os.Args[1]))
 	if err := interp.Run(program); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

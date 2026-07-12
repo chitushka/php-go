@@ -58,6 +58,13 @@ type ReturnStmt struct {
 
 func (*ReturnStmt) stmtNode() {}
 
+type IncludeStmt struct {
+	Path    Expr
+	Require bool
+}
+
+func (*IncludeStmt) stmtNode() {}
+
 type ExprStmt struct{ Expr Expr }
 
 func (*ExprStmt) stmtNode() {}
