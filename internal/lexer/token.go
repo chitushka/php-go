@@ -40,29 +40,33 @@ const (
 	LBrace    TokenType = "{"
 	RBrace    TokenType = "}"
 
-	Echo    TokenType = "ECHO"
-	If      TokenType = "IF"
-	Else    TokenType = "ELSE"
-	While   TokenType = "WHILE"
-	Foreach TokenType = "FOREACH"
-	As      TokenType = "AS"
-	Array   TokenType = "ARRAY"
-	True    TokenType = "TRUE"
-	False   TokenType = "FALSE"
-	Null    TokenType = "NULL"
+	Echo     TokenType = "ECHO"
+	If       TokenType = "IF"
+	Else     TokenType = "ELSE"
+	While    TokenType = "WHILE"
+	Foreach  TokenType = "FOREACH"
+	As       TokenType = "AS"
+	Array    TokenType = "ARRAY"
+	Function TokenType = "FUNCTION"
+	Return   TokenType = "RETURN"
+	True     TokenType = "TRUE"
+	False    TokenType = "FALSE"
+	Null     TokenType = "NULL"
 )
 
 var keywords = map[string]TokenType{
-	"echo":    Echo,
-	"if":      If,
-	"else":    Else,
-	"while":   While,
-	"foreach": Foreach,
-	"as":      As,
-	"array":   Array,
-	"true":    True,
-	"false":   False,
-	"null":    Null,
+	"echo":     Echo,
+	"if":       If,
+	"else":     Else,
+	"while":    While,
+	"foreach":  Foreach,
+	"as":       As,
+	"array":    Array,
+	"function": Function,
+	"return":   Return,
+	"true":     True,
+	"false":    False,
+	"null":     Null,
 }
 
 func LookupIdent(ident string) TokenType {

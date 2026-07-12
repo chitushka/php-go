@@ -66,6 +66,10 @@ func (p *Parser) parseStatement() ast.Stmt {
 		return p.parseWhile()
 	case lexer.Foreach:
 		return p.parseForeach()
+	case lexer.Function:
+		return p.parseFunctionDecl()
+	case lexer.Return:
+		return p.parseReturn()
 	case lexer.LBrace:
 		return p.parseBlock()
 	default:
@@ -169,6 +173,53 @@ func (p *Parser) parseForeach() ast.Stmt {
 	return &ast.ForeachStmt{Source: source, KeyVar: keyVar, ValueVar: valueVar, Body: body}
 }
 
+func (p *Parser) parseFunctionDecl() ast.Stmt {
+	if !p.expectPeek(lexer.Ident) {
+		return nil
+	}
+	name := p.cur.Literal
+	if !p.expectPeek(lexer.LParen) {
+		return nil
+	}
+	params := p.parseFunctionParams()
+	if !p.expectPeek(lexer.LBrace) {
+		return nil
+	}
+	body := p.parseBlock().(*ast.BlockStmt)
+	return &ast.FunctionDeclStmt{Name: name, Params: params, Body: body}
+}
+
+func (p *Parser) parseFunctionParams() []string {
+	var params []string
+	if p.peek.Type == lexer.RParen {
+		p.next()
+		return params
+	}
+	for {
+		if !p.expectPeek(lexer.Var) {
+			return params
+		}
+		params = append(params, p.cur.Literal)
+		if p.peek.Type != lexer.Comma {
+			break
+		}
+		p.next()
+	}
+	p.expectPeek(lexer.RParen)
+	return params
+}
+
+func (p *Parser) parseReturn() ast.Stmt {
+	if p.peek.Type == lexer.Semicolon {
+		p.next()
+		return &ast.ReturnStmt{}
+	}
+	p.next()
+	value := p.parseExpression(lowest)
+	p.consumeSemi()
+	return &ast.ReturnStmt{Value: value}
+}
+
 func (p *Parser) parseBlock() ast.Stmt {
 	block := &ast.BlockStmt{}
 	p.next()
@@ -193,6 +244,13 @@ func (p *Parser) parseExpression(precedence int) ast.Expr {
 	switch p.cur.Type {
 	case lexer.Var:
 		left = &ast.Ident{Name: p.cur.Literal}
+	case lexer.Ident:
+		if p.peek.Type == lexer.LParen {
+			left = p.parseCall()
+		} else {
+			p.errors = append(p.errors, fmt.Sprintf("unexpected bare identifier %s at %d:%d", p.cur.Literal, p.cur.Line, p.cur.Column))
+			return &ast.NullLit{}
+		}
 	case lexer.Int:
 		v, _ := strconv.ParseInt(p.cur.Literal, 10, 64)
 		left = &ast.IntLit{Value: v}
@@ -228,6 +286,27 @@ func (p *Parser) parseExpression(precedence int) ast.Expr {
 		left = p.parseInfix(left)
 	}
 	return left
+}
+
+func (p *Parser) parseCall() ast.Expr {
+	call := &ast.CallExpr{Name: p.cur.Literal}
+	if !p.expectPeek(lexer.LParen) {
+		return call
+	}
+	if p.peek.Type == lexer.RParen {
+		p.next()
+		return call
+	}
+	for {
+		p.next()
+		call.Args = append(call.Args, p.parseExpression(lowest))
+		if p.peek.Type != lexer.Comma {
+			break
+		}
+		p.next()
+	}
+	p.expectPeek(lexer.RParen)
+	return call
 }
 
 func (p *Parser) parseArray() ast.Expr {

@@ -51,3 +51,39 @@ func TestArrayForeachKeysAndValues(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestFunctionReturn(t *testing.T) {
+	got := run(t, "<?php function add($a, $b) { return $a + $b; } echo add(2, 5);")
+	if got != "7" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestFunctionLocalScope(t *testing.T) {
+	got := run(t, "<?php $x = 1; function setx() { $x = 9; return $x; } echo setx(); echo $x;")
+	if got != "91" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestFunctionImplicitNullReturn(t *testing.T) {
+	got := run(t, "<?php function noop() { $x = 1; } echo 'a'; echo noop(); echo 'b';")
+	if got != "ab" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestFunctionWithForeach(t *testing.T) {
+	src := "<?php function sum_values($items) { $sum = 0; foreach ($items as $v) { $sum = $sum + $v; } return $sum; } echo sum_values(array(1, 2, 3));"
+	got := run(t, src)
+	if got != "6" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestFunctionCanBeCalledBeforeDeclaration(t *testing.T) {
+	got := run(t, "<?php echo add(2, 3); function add($a, $b) { return $a + $b; }")
+	if got != "5" {
+		t.Fatalf("got %q", got)
+	}
+}

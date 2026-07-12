@@ -44,6 +44,20 @@ type ForeachStmt struct {
 
 func (*ForeachStmt) stmtNode() {}
 
+type FunctionDeclStmt struct {
+	Name   string
+	Params []string
+	Body   *BlockStmt
+}
+
+func (*FunctionDeclStmt) stmtNode() {}
+
+type ReturnStmt struct {
+	Value Expr
+}
+
+func (*ReturnStmt) stmtNode() {}
+
 type ExprStmt struct{ Expr Expr }
 
 func (*ExprStmt) stmtNode() {}
@@ -97,3 +111,10 @@ type ArrayLit struct {
 }
 
 func (*ArrayLit) exprNode() {}
+
+type CallExpr struct {
+	Name string
+	Args []Expr
+}
+
+func (*CallExpr) exprNode() {}

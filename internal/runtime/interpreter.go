@@ -8,47 +8,66 @@ import (
 )
 
 type Interpreter struct {
-	Vars map[string]Value
-	Out  bytes.Buffer
+	Vars      map[string]Value
+	functions map[string]*ast.FunctionDeclStmt
+	frames    []map[string]Value
+	Out       bytes.Buffer
 }
 
-func NewInterpreter() *Interpreter { return &Interpreter{Vars: map[string]Value{}} }
+func NewInterpreter() *Interpreter {
+	return &Interpreter{Vars: map[string]Value{}, functions: map[string]*ast.FunctionDeclStmt{}}
+}
 
 func (i *Interpreter) Run(p *ast.Program) error {
 	for _, s := range p.Statements {
-		if err := i.exec(s); err != nil {
+		if fn, ok := s.(*ast.FunctionDeclStmt); ok {
+			if err := i.defineFunction(fn); err != nil {
+				return err
+			}
+		}
+	}
+	for _, s := range p.Statements {
+		if _, ok := s.(*ast.FunctionDeclStmt); ok {
+			continue
+		}
+		if _, err := i.exec(s); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (i *Interpreter) exec(s ast.Stmt) error {
+type returnSignal struct {
+	value Value
+}
+
+func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 	switch n := s.(type) {
 	case *ast.BlockStmt:
 		for _, st := range n.Statements {
-			if err := i.exec(st); err != nil {
-				return err
+			ret, err := i.exec(st)
+			if err != nil || ret != nil {
+				return ret, err
 			}
 		}
 	case *ast.AssignStmt:
 		v, err := i.eval(n.Value)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		i.Vars[n.Name] = v
+		i.setVar(n.Name, v)
 	case *ast.EchoStmt:
 		for _, e := range n.Values {
 			v, err := i.eval(e)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			i.Out.WriteString(v.String())
 		}
 	case *ast.IfStmt:
 		v, err := i.eval(n.Cond)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if v.Truthy() {
 			return i.exec(n.Consequence)
@@ -60,49 +79,64 @@ func (i *Interpreter) exec(s ast.Stmt) error {
 		for {
 			v, err := i.eval(n.Cond)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			if !v.Truthy() {
 				break
 			}
-			if err := i.exec(n.Body); err != nil {
-				return err
+			ret, err := i.exec(n.Body)
+			if err != nil || ret != nil {
+				return ret, err
 			}
 			guard++
 			if guard > 1000000 {
-				return fmt.Errorf("while guard exceeded")
+				return nil, fmt.Errorf("while guard exceeded")
 			}
 		}
 	case *ast.ForeachStmt:
 		src, err := i.eval(n.Source)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if src.Kind != ArrayKind || src.A == nil {
-			return fmt.Errorf("foreach source must be array")
+			return nil, fmt.Errorf("foreach source must be array")
 		}
 		for _, entry := range src.A.Entries {
 			if n.KeyVar != "" {
-				i.Vars[n.KeyVar] = entry.Key.Value()
+				i.setVar(n.KeyVar, entry.Key.Value())
 			}
-			i.Vars[n.ValueVar] = entry.Value
-			if err := i.exec(n.Body); err != nil {
-				return err
+			i.setVar(n.ValueVar, entry.Value)
+			ret, err := i.exec(n.Body)
+			if err != nil || ret != nil {
+				return ret, err
 			}
 		}
+	case *ast.FunctionDeclStmt:
+		if err := i.defineFunction(n); err != nil {
+			return nil, err
+		}
+	case *ast.ReturnStmt:
+		if n.Value == nil {
+			return &returnSignal{value: NullValue()}, nil
+		}
+		v, err := i.eval(n.Value)
+		if err != nil {
+			return nil, err
+		}
+		return &returnSignal{value: v}, nil
 	case *ast.ExprStmt:
 		_, err := i.eval(n.Expr)
-		return err
+		return nil, err
 	default:
-		return fmt.Errorf("unsupported statement %T", s)
+		return nil, fmt.Errorf("unsupported statement %T", s)
 	}
-	return nil
+	return nil, nil
 }
 
 func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 	switch n := e.(type) {
 	case *ast.Ident:
-		if v, ok := i.Vars[n.Name]; ok {
+		if v, ok := i.getVar(n.Name); ok {
 			return v, nil
 		}
 		return NullValue(), nil
@@ -156,6 +190,68 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 			arr.Set(KeyFromValue(key), value)
 		}
 		return ArrayValue(arr), nil
+	case *ast.CallExpr:
+		return i.call(n)
 	}
 	return NullValue(), fmt.Errorf("unsupported expression %T", e)
+}
+
+func (i *Interpreter) call(c *ast.CallExpr) (Value, error) {
+	fn, ok := i.functions[c.Name]
+	if !ok {
+		return NullValue(), fmt.Errorf("undefined function %s", c.Name)
+	}
+	if len(c.Args) != len(fn.Params) {
+		return NullValue(), fmt.Errorf("function %s expects %d arguments, got %d", c.Name, len(fn.Params), len(c.Args))
+	}
+	frame := map[string]Value{}
+	for idx, param := range fn.Params {
+		arg, err := i.eval(c.Args[idx])
+		if err != nil {
+			return NullValue(), err
+		}
+		frame[param] = arg
+	}
+	i.frames = append(i.frames, frame)
+	ret, err := i.exec(fn.Body)
+	i.frames = i.frames[:len(i.frames)-1]
+	if err != nil {
+		return NullValue(), err
+	}
+	if ret == nil {
+		return NullValue(), nil
+	}
+	return ret.value, nil
+}
+
+func (i *Interpreter) defineFunction(fn *ast.FunctionDeclStmt) error {
+	if _, exists := i.functions[fn.Name]; exists {
+		return fmt.Errorf("cannot redeclare function %s", fn.Name)
+	}
+	i.functions[fn.Name] = fn
+	return nil
+}
+
+func (i *Interpreter) currentFrame() map[string]Value {
+	if len(i.frames) == 0 {
+		return nil
+	}
+	return i.frames[len(i.frames)-1]
+}
+
+func (i *Interpreter) getVar(name string) (Value, bool) {
+	if frame := i.currentFrame(); frame != nil {
+		v, ok := frame[name]
+		return v, ok
+	}
+	v, ok := i.Vars[name]
+	return v, ok
+}
+
+func (i *Interpreter) setVar(name string, v Value) {
+	if frame := i.currentFrame(); frame != nil {
+		frame[name] = v
+		return
+	}
+	i.Vars[name] = v
 }
