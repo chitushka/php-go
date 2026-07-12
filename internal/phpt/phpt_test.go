@@ -86,3 +86,49 @@ cannot access private property Sample::$a
 		t.Fatalf("expected pass, got output=%q expected=%q err=%v", result.Output, result.Expected, result.Err)
 	}
 }
+
+func TestRunExpectRegex(t *testing.T) {
+	input := `--TEST--
+expect regex
+--FILE--
+<?php echo 'user-42';
+--EXPECTREGEX--
+user-\d+
+`
+	result := phpt.Run("regex.phpt", input)
+	if !result.Passed {
+		t.Fatalf("expected pass, got output=%q expected=%q err=%v", result.Output, result.Expected, result.Err)
+	}
+}
+
+func TestRunExitCode(t *testing.T) {
+	input := `--TEST--
+expected failure exit code
+--FILE--
+<?php class Sample { private $a = 1; } $s = new Sample(); echo $s->a;
+--EXPECTF--
+cannot access private property Sample::$a
+--EXIT_CODE--
+1
+`
+	result := phpt.Run("exit.phpt", input)
+	if !result.Passed {
+		t.Fatalf("expected pass, got output=%q expected=%q err=%v", result.Output, result.Expected, result.Err)
+	}
+}
+
+func TestRunClean(t *testing.T) {
+	input := `--TEST--
+clean section
+--FILE--
+<?php echo 'ok';
+--CLEAN--
+<?php $x = 1;
+--EXPECT--
+ok
+`
+	result := phpt.Run("clean.phpt", input)
+	if !result.Passed {
+		t.Fatalf("expected pass, got output=%q expected=%q err=%v", result.Output, result.Expected, result.Err)
+	}
+}

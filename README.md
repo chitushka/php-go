@@ -18,7 +18,7 @@
 - `self::`, `parent::`, `static::`, late static binding для static members, а также базовые проверки `final` и `abstract`.
 - `interface`, `extends` для интерфейсов, `implements` и runtime-проверка обязательных методов.
 - Исключения: `throw`, `try`, `catch (Exception $e)` и минимальный встроенный `Exception::getMessage()`.
-- PHPT-подобный runner с секциями `--TEST--`, `--FILE--`, `--EXPECT--`, `--EXPECTF--`, `--SKIPIF--`, `--INI--`.
+- PHPT-подобный runner с секциями `--TEST--`, `--FILE--`, `--EXPECT--`, `--EXPECTF--`, `--EXPECTREGEX--`, `--SKIPIF--`, `--INI--`, `--CLEAN--`, `--EXIT_CODE--`.
 - Runtime со значениями `null`, `bool`, `int`, `float`, `string`, `array`, `object` и таблицей переменных.
 
 ## Запуск
@@ -31,5 +31,5 @@ go run ./cmd/php53test -- tests/phpt
 
 ## Следующие шаги переноса
 
-1. Расширить PHPT runner секциями `--EXPECTREGEX--`, `--CLEAN--` и проверкой exit status.
-2. Добавить больше семантики PHP 5.3: `instanceof`, constants, `self::class`-подобные class constants, magic methods.
+1. Добавить больше семантики PHP 5.3: `instanceof`, class constants, magic methods.
+2. Расширить PHPT runner поддержкой `--POST--`, `--GET--`, `--ENV--` для будущих SAPI-тестов.

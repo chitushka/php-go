@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"php-src-go/internal/lexer"
@@ -12,12 +13,16 @@ import (
 )
 
 type Test struct {
-	Name    string
-	File    string
-	SkipIf  string
-	Expect  string
-	ExpectF string
-	INI     string
+	Name        string
+	File        string
+	SkipIf      string
+	Expect      string
+	ExpectF     string
+	ExpectRegex string
+	INI         string
+	Clean       string
+	ExitCode    int
+	HasExitCode bool
 }
 
 type Result struct {
@@ -31,7 +36,7 @@ type Result struct {
 	Err        error
 }
 
-var sectionHeader = regexp.MustCompile(`^--([A-Z]+)--\s*$`)
+var sectionHeader = regexp.MustCompile(`^--([A-Z_]+)--\s*$`)
 
 func Parse(input string) (*Test, error) {
 	sections := map[string]string{}
@@ -58,12 +63,22 @@ func Parse(input string) (*Test, error) {
 	}
 
 	test := &Test{
-		Name:    strings.TrimSpace(sections["TEST"]),
-		File:    sections["FILE"],
-		SkipIf:  sections["SKIPIF"],
-		Expect:  sections["EXPECT"],
-		ExpectF: sections["EXPECTF"],
-		INI:     sections["INI"],
+		Name:        strings.TrimSpace(sections["TEST"]),
+		File:        sections["FILE"],
+		SkipIf:      sections["SKIPIF"],
+		Expect:      sections["EXPECT"],
+		ExpectF:     sections["EXPECTF"],
+		ExpectRegex: sections["EXPECTREGEX"],
+		INI:         sections["INI"],
+		Clean:       sections["CLEAN"],
+	}
+	if exitCode, ok := sections["EXIT_CODE"]; ok && strings.TrimSpace(exitCode) != "" {
+		parsed, err := strconv.Atoi(strings.TrimSpace(exitCode))
+		if err != nil {
+			return nil, fmt.Errorf("invalid --EXIT_CODE-- value %q", strings.TrimSpace(exitCode))
+		}
+		test.ExitCode = parsed
+		test.HasExitCode = true
 	}
 	if test.Name == "" {
 		test.Name = "unnamed test"
@@ -73,7 +88,9 @@ func Parse(input string) (*Test, error) {
 	}
 	if _, ok := sections["EXPECT"]; !ok {
 		if _, ok := sections["EXPECTF"]; !ok {
-			return nil, fmt.Errorf("missing --EXPECT-- or --EXPECTF-- section")
+			if _, ok := sections["EXPECTREGEX"]; !ok {
+				return nil, fmt.Errorf("missing --EXPECT--, --EXPECTF-- or --EXPECTREGEX-- section")
+			}
 		}
 	}
 	return test, nil
@@ -96,16 +113,35 @@ func Run(path string, input string) Result {
 	}
 
 	output, err := runPHP(path, test.File)
+	exitCode := 0
 	if err != nil {
 		output += err.Error()
+		exitCode = 1
 	}
 	expected := test.Expect
 	passed := false
-	if test.ExpectF != "" {
+	if test.ExpectRegex != "" {
+		expected = test.ExpectRegex
+		passed = expectRegexMatches(output, test.ExpectRegex)
+	} else if test.ExpectF != "" {
 		expected = test.ExpectF
 		passed = expectFMatches(output, test.ExpectF)
 	} else {
 		passed = comparable(output) == comparable(test.Expect)
+	}
+	if test.HasExitCode && exitCode != test.ExitCode {
+		passed = false
+		if err == nil {
+			err = fmt.Errorf("exit code mismatch: expected %d, got %d", test.ExitCode, exitCode)
+		}
+	}
+	if test.Clean != "" {
+		if _, cleanErr := runPHP(path, test.Clean); cleanErr != nil {
+			passed = false
+			if err == nil {
+				err = fmt.Errorf("CLEAN error: %w", cleanErr)
+			}
+		}
 	}
 	return Result{Path: path, Name: test.Name, Passed: passed, Output: output, Expected: expected, Err: err}
 }
@@ -145,5 +181,10 @@ func expectFMatches(output string, pattern string) bool {
 	re = strings.ReplaceAll(re, `%w`, `\s*`)
 	re = strings.ReplaceAll(re, `%%`, `%`)
 	matched, _ := regexp.MatchString(`(?s)^`+re+`$`, comparable(output))
+	return matched
+}
+
+func expectRegexMatches(output string, pattern string) bool {
+	matched, _ := regexp.MatchString(`(?s)^`+comparable(pattern)+`$`, comparable(output))
 	return matched
 }
