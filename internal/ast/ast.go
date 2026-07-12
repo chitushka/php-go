@@ -45,9 +45,11 @@ type ForeachStmt struct {
 func (*ForeachStmt) stmtNode() {}
 
 type FunctionDeclStmt struct {
-	Name   string
-	Params []string
-	Body   *BlockStmt
+	Name       string
+	Params     []string
+	Body       *BlockStmt
+	Visibility string
+	Static     bool
 }
 
 func (*FunctionDeclStmt) stmtNode() {}
@@ -66,11 +68,20 @@ type IncludeStmt struct {
 func (*IncludeStmt) stmtNode() {}
 
 type ClassDeclStmt struct {
-	Name    string
-	Methods []*FunctionDeclStmt
+	Name       string
+	Parent     string
+	Properties []*ClassProperty
+	Methods    []*FunctionDeclStmt
 }
 
 func (*ClassDeclStmt) stmtNode() {}
+
+type ClassProperty struct {
+	Name       string
+	Visibility string
+	Static     bool
+	Default    Expr
+}
 
 type PropertyAssignStmt struct {
 	Object   Expr
@@ -79,6 +90,14 @@ type PropertyAssignStmt struct {
 }
 
 func (*PropertyAssignStmt) stmtNode() {}
+
+type StaticPropertyAssignStmt struct {
+	ClassName string
+	Property  string
+	Value     Expr
+}
+
+func (*StaticPropertyAssignStmt) stmtNode() {}
 
 type ThrowStmt struct {
 	Value Expr
@@ -177,3 +196,18 @@ type MethodCallExpr struct {
 }
 
 func (*MethodCallExpr) exprNode() {}
+
+type StaticPropertyFetchExpr struct {
+	ClassName string
+	Property  string
+}
+
+func (*StaticPropertyFetchExpr) exprNode() {}
+
+type StaticCallExpr struct {
+	ClassName string
+	Method    string
+	Args      []Expr
+}
+
+func (*StaticCallExpr) exprNode() {}

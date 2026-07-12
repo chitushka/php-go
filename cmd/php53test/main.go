@@ -33,6 +33,14 @@ func main() {
 			continue
 		}
 		result := phpt.Run(path, string(data))
+		if result.Skipped {
+			fmt.Printf("SKIP %s - %s", path, result.Name)
+			if result.SkipReason != "" {
+				fmt.Printf(" (%s)", result.SkipReason)
+			}
+			fmt.Println()
+			continue
+		}
 		if result.Passed {
 			fmt.Printf("PASS %s - %s\n", path, result.Name)
 			continue

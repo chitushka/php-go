@@ -8,18 +8,9 @@ type Object struct {
 	Props     map[string]Value
 }
 
-func NewObject(class *ast.ClassDeclStmt) *Object {
-	methods := map[string]*ast.FunctionDeclStmt{}
-	for _, method := range class.Methods {
-		methods[method.Name] = method
+func NewObject(className string, methods map[string]*ast.FunctionDeclStmt, props map[string]Value) *Object {
+	if props == nil {
+		props = map[string]Value{}
 	}
-	return &Object{ClassName: class.Name, Methods: methods, Props: map[string]Value{}}
-}
-
-func methodsByName(class *ast.ClassDeclStmt) map[string]*ast.FunctionDeclStmt {
-	methods := map[string]*ast.FunctionDeclStmt{}
-	for _, method := range class.Methods {
-		methods[method.Name] = method
-	}
-	return methods
+	return &Object{ClassName: className, Methods: methods, Props: props}
 }

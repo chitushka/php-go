@@ -216,3 +216,27 @@ func TestUncaughtExceptionReturnsRuntimeError(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestClassExtendsInheritedMethodAndProperty(t *testing.T) {
+	src := "<?php class Base { public $value = 3; public function get() { return $this->value; } } class Child extends Base { public function double() { return $this->get() * 2; } } $c = new Child(); echo $c->double();"
+	got := run(t, src)
+	if got != "6" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestStaticPropertyAndMethod(t *testing.T) {
+	src := "<?php class Counter { public static $count = 0; public static function inc() { Counter::$count = Counter::$count + 1; return Counter::$count; } } echo Counter::inc(); echo Counter::inc();"
+	got := run(t, src)
+	if got != "12" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestVisibilityModifiersAreAccepted(t *testing.T) {
+	src := "<?php class Sample { private $a = 2; protected function getA() { return $this->a; } public function expose() { return $this->getA(); } } $s = new Sample(); echo $s->expose();"
+	got := run(t, src)
+	if got != "2" {
+		t.Fatalf("got %q", got)
+	}
+}

@@ -76,6 +76,14 @@ func (l *Lexer) NextToken() Token {
 		tok = l.token(Slash, string(l.ch), line, col)
 	case ',':
 		tok = l.token(Comma, string(l.ch), line, col)
+	case ':':
+		if l.peekChar() == ':' {
+			ch := l.ch
+			l.readChar()
+			tok = l.token(ScopeResolution, string(ch)+string(l.ch), line, col)
+		} else {
+			tok = l.token(Illegal, string(l.ch), line, col)
+		}
 	case ';':
 		tok = l.token(Semicolon, string(l.ch), line, col)
 	case '(':

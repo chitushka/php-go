@@ -42,3 +42,33 @@ func TestParseRequiresFileAndExpect(t *testing.T) {
 		t.Fatal("expected parse error")
 	}
 }
+
+func TestRunExpectF(t *testing.T) {
+	input := `--TEST--
+expectf wildcard
+--FILE--
+<?php echo 'value 123';
+--EXPECTF--
+value %d
+`
+	result := phpt.Run("expectf.phpt", input)
+	if !result.Passed {
+		t.Fatalf("expected pass, got output=%q expected=%q err=%v", result.Output, result.Expected, result.Err)
+	}
+}
+
+func TestRunSkipIf(t *testing.T) {
+	input := `--TEST--
+skip example
+--SKIPIF--
+<?php echo 'skip unsupported feature';
+--FILE--
+<?php echo 'no';
+--EXPECT--
+no
+`
+	result := phpt.Run("skip.phpt", input)
+	if !result.Skipped {
+		t.Fatalf("expected skip, got %+v", result)
+	}
+}

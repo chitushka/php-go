@@ -15,6 +15,7 @@ type Interpreter struct {
 	Vars      map[string]Value
 	functions map[string]*ast.FunctionDeclStmt
 	classes   map[string]*ast.ClassDeclStmt
+	statics   map[string]map[string]Value
 	frames    []map[string]Value
 	baseDir   string
 	dirStack  []string
@@ -33,6 +34,7 @@ func NewInterpreterWithBaseDir(baseDir string) *Interpreter {
 		Vars:      map[string]Value{},
 		functions: map[string]*ast.FunctionDeclStmt{},
 		classes:   map[string]*ast.ClassDeclStmt{},
+		statics:   map[string]map[string]Value{},
 		baseDir:   baseDir,
 		dirStack:  []string{baseDir},
 	}
@@ -175,6 +177,12 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 			return nil, err
 		}
 		obj.O.Props[n.Property] = value
+	case *ast.StaticPropertyAssignStmt:
+		value, err := i.eval(n.Value)
+		if err != nil {
+			return nil, err
+		}
+		i.setStaticProperty(n.ClassName, n.Property, value)
 	case *ast.ThrowStmt:
 		value, err := i.eval(n.Value)
 		if err != nil {
@@ -302,6 +310,10 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 		return NullValue(), nil
 	case *ast.MethodCallExpr:
 		return i.callMethod(n)
+	case *ast.StaticPropertyFetchExpr:
+		return i.getStaticProperty(n.ClassName, n.Property), nil
+	case *ast.StaticCallExpr:
+		return i.callStatic(n)
 	}
 	return NullValue(), fmt.Errorf("unsupported expression %T", e)
 }
@@ -352,7 +364,11 @@ func (i *Interpreter) newObject(n *ast.NewExpr) (Value, error) {
 	if !ok {
 		return NullValue(), fmt.Errorf("undefined class %s", n.ClassName)
 	}
-	obj := NewObject(class)
+	props, err := i.instanceDefaults(class)
+	if err != nil {
+		return NullValue(), err
+	}
+	obj := NewObject(class.Name, i.methodsForClass(class), props)
 	if constructor, ok := obj.Methods["__construct"]; ok {
 		if _, err := i.callFunction(constructor, n.Args, obj); err != nil {
 			return NullValue(), err
@@ -385,6 +401,22 @@ func (i *Interpreter) callMethod(n *ast.MethodCallExpr) (Value, error) {
 		return NullValue(), fmt.Errorf("undefined method %s::%s", obj.O.ClassName, n.Method)
 	}
 	return i.callFunction(method, n.Args, obj.O)
+}
+
+func (i *Interpreter) callStatic(n *ast.StaticCallExpr) (Value, error) {
+	class, ok := i.classes[n.ClassName]
+	if !ok {
+		return NullValue(), fmt.Errorf("undefined class %s", n.ClassName)
+	}
+	methods := i.methodsForClass(class)
+	method, ok := methods[n.Method]
+	if !ok {
+		return NullValue(), fmt.Errorf("undefined static method %s::%s", n.ClassName, n.Method)
+	}
+	if !method.Static {
+		return NullValue(), fmt.Errorf("method %s::%s is not static", n.ClassName, n.Method)
+	}
+	return i.callFunction(method, n.Args, nil)
 }
 
 func (i *Interpreter) newException(args []ast.Expr) (Value, error) {
@@ -423,7 +455,90 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 		return fmt.Errorf("cannot redeclare class %s", class.Name)
 	}
 	i.classes[class.Name] = class
+	if _, ok := i.statics[class.Name]; !ok {
+		i.statics[class.Name] = map[string]Value{}
+	}
+	for _, prop := range class.Properties {
+		if !prop.Static {
+			continue
+		}
+		value := NullValue()
+		if prop.Default != nil {
+			var err error
+			value, err = i.eval(prop.Default)
+			if err != nil {
+				return err
+			}
+		}
+		i.statics[class.Name][prop.Name] = value
+	}
 	return nil
+}
+
+func (i *Interpreter) methodsForClass(class *ast.ClassDeclStmt) map[string]*ast.FunctionDeclStmt {
+	methods := map[string]*ast.FunctionDeclStmt{}
+	if class.Parent != "" {
+		if parent, ok := i.classes[class.Parent]; ok {
+			for name, method := range i.methodsForClass(parent) {
+				methods[name] = method
+			}
+		}
+	}
+	for _, method := range class.Methods {
+		methods[method.Name] = method
+	}
+	return methods
+}
+
+func (i *Interpreter) instanceDefaults(class *ast.ClassDeclStmt) (map[string]Value, error) {
+	props := map[string]Value{}
+	if class.Parent != "" {
+		parent, ok := i.classes[class.Parent]
+		if !ok {
+			return nil, fmt.Errorf("undefined parent class %s", class.Parent)
+		}
+		parentProps, err := i.instanceDefaults(parent)
+		if err != nil {
+			return nil, err
+		}
+		for name, value := range parentProps {
+			props[name] = value
+		}
+	}
+	for _, prop := range class.Properties {
+		if prop.Static {
+			continue
+		}
+		value := NullValue()
+		if prop.Default != nil {
+			var err error
+			value, err = i.eval(prop.Default)
+			if err != nil {
+				return nil, err
+			}
+		}
+		props[prop.Name] = value
+	}
+	return props, nil
+}
+
+func (i *Interpreter) getStaticProperty(className, property string) Value {
+	if props, ok := i.statics[className]; ok {
+		if value, exists := props[property]; exists {
+			return value
+		}
+	}
+	if class, ok := i.classes[className]; ok && class.Parent != "" {
+		return i.getStaticProperty(class.Parent, property)
+	}
+	return NullValue()
+}
+
+func (i *Interpreter) setStaticProperty(className, property string, value Value) {
+	if _, ok := i.statics[className]; !ok {
+		i.statics[className] = map[string]Value{}
+	}
+	i.statics[className][property] = value
 }
 
 func (i *Interpreter) include(path string, require bool) error {

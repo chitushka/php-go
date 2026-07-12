@@ -76,6 +76,8 @@ func (p *Parser) parseStatement() ast.Stmt {
 		return p.parseInclude(true)
 	case lexer.Class:
 		return p.parseClassDecl()
+	case lexer.Ident:
+		return p.parseExprOrPropertyAssign()
 	case lexer.Throw:
 		return p.parseThrow()
 	case lexer.Try:
@@ -184,6 +186,10 @@ func (p *Parser) parseForeach() ast.Stmt {
 }
 
 func (p *Parser) parseFunctionDecl() ast.Stmt {
+	return p.parseFunctionDeclWith("", false)
+}
+
+func (p *Parser) parseFunctionDeclWith(visibility string, static bool) ast.Stmt {
 	if !p.expectPeek(lexer.Ident) {
 		return nil
 	}
@@ -196,7 +202,7 @@ func (p *Parser) parseFunctionDecl() ast.Stmt {
 		return nil
 	}
 	body := p.parseBlock().(*ast.BlockStmt)
-	return &ast.FunctionDeclStmt{Name: name, Params: params, Body: body}
+	return &ast.FunctionDeclStmt{Name: name, Params: params, Body: body, Visibility: visibility, Static: static}
 }
 
 func (p *Parser) parseFunctionParams() []string {
@@ -246,23 +252,67 @@ func (p *Parser) parseClassDecl() ast.Stmt {
 		return nil
 	}
 	name := p.cur.Literal
+	parent := ""
+	if p.peek.Type == lexer.Extends {
+		p.next()
+		if !p.expectPeek(lexer.Ident) {
+			return nil
+		}
+		parent = p.cur.Literal
+	}
 	if !p.expectPeek(lexer.LBrace) {
 		return nil
 	}
-	class := &ast.ClassDeclStmt{Name: name}
+	class := &ast.ClassDeclStmt{Name: name, Parent: parent}
 	p.next()
 	for p.cur.Type != lexer.RBrace && p.cur.Type != lexer.EOF {
-		if p.cur.Type != lexer.Function {
-			p.errors = append(p.errors, fmt.Sprintf("expected method declaration in class %s, got %s", name, p.cur.Type))
+		visibility, static := p.parseMemberModifiers()
+		switch p.cur.Type {
+		case lexer.Function:
+			method, ok := p.parseFunctionDeclWith(visibility, static).(*ast.FunctionDeclStmt)
+			if ok && method != nil {
+				class.Methods = append(class.Methods, method)
+			}
+		case lexer.Var:
+			class.Properties = append(class.Properties, p.parseClassProperty(visibility, static))
+		default:
+			p.errors = append(p.errors, fmt.Sprintf("expected class member in %s, got %s", name, p.cur.Type))
 			return class
-		}
-		method, ok := p.parseFunctionDecl().(*ast.FunctionDeclStmt)
-		if ok && method != nil {
-			class.Methods = append(class.Methods, method)
 		}
 		p.next()
 	}
 	return class
+}
+
+func (p *Parser) parseMemberModifiers() (string, bool) {
+	visibility := "public"
+	static := false
+	for {
+		switch p.cur.Type {
+		case lexer.Public:
+			visibility = "public"
+		case lexer.Private:
+			visibility = "private"
+		case lexer.Protected:
+			visibility = "protected"
+		case lexer.Static:
+			static = true
+		default:
+			return visibility, static
+		}
+		p.next()
+	}
+}
+
+func (p *Parser) parseClassProperty(visibility string, static bool) *ast.ClassProperty {
+	prop := &ast.ClassProperty{Name: p.cur.Literal, Visibility: visibility, Static: static}
+	if p.peek.Type == lexer.Assign {
+		p.next()
+		p.next()
+		prop.Default = p.parseExpression(lowest)
+	}
+	p.consumeSemi()
+	return prop
 }
 
 func (p *Parser) parseThrow() ast.Stmt {
@@ -308,16 +358,19 @@ func (p *Parser) parseTryCatch() ast.Stmt {
 func (p *Parser) parseExprOrPropertyAssign() ast.Stmt {
 	expr := p.parseExpression(lowest)
 	if p.peek.Type == lexer.Assign {
-		prop, ok := expr.(*ast.PropertyFetchExpr)
-		if !ok {
-			p.errors = append(p.errors, "only variables and object properties can be assigned")
-			return &ast.ExprStmt{Expr: expr}
-		}
 		p.next()
 		p.next()
 		value := p.parseExpression(lowest)
 		p.consumeSemi()
-		return &ast.PropertyAssignStmt{Object: prop.Object, Property: prop.Property, Value: value}
+		switch target := expr.(type) {
+		case *ast.PropertyFetchExpr:
+			return &ast.PropertyAssignStmt{Object: target.Object, Property: target.Property, Value: value}
+		case *ast.StaticPropertyFetchExpr:
+			return &ast.StaticPropertyAssignStmt{ClassName: target.ClassName, Property: target.Property, Value: value}
+		default:
+			p.errors = append(p.errors, "only variables and object properties can be assigned")
+			return &ast.ExprStmt{Expr: expr}
+		}
 	}
 	p.consumeSemi()
 	return &ast.ExprStmt{Expr: expr}
@@ -348,7 +401,9 @@ func (p *Parser) parseExpression(precedence int) ast.Expr {
 	case lexer.Var:
 		left = &ast.Ident{Name: p.cur.Literal}
 	case lexer.Ident:
-		if p.peek.Type == lexer.LParen {
+		if p.peek.Type == lexer.ScopeResolution {
+			left = p.parseStaticAccess()
+		} else if p.peek.Type == lexer.LParen {
 			left = p.parseCall()
 		} else {
 			p.errors = append(p.errors, fmt.Sprintf("unexpected bare identifier %s at %d:%d", p.cur.Literal, p.cur.Line, p.cur.Column))
@@ -399,6 +454,30 @@ func (p *Parser) parseExpression(precedence int) ast.Expr {
 		}
 	}
 	return left
+}
+
+func (p *Parser) parseStaticAccess() ast.Expr {
+	className := p.cur.Literal
+	if !p.expectPeek(lexer.ScopeResolution) {
+		return &ast.NullLit{}
+	}
+	switch p.peek.Type {
+	case lexer.Var:
+		p.next()
+		return &ast.StaticPropertyFetchExpr{ClassName: className, Property: p.cur.Literal}
+	case lexer.Ident:
+		p.next()
+		method := p.cur.Literal
+		if p.peek.Type != lexer.LParen {
+			p.errors = append(p.errors, fmt.Sprintf("expected static method call after %s::%s", className, method))
+			return &ast.NullLit{}
+		}
+		p.next()
+		return &ast.StaticCallExpr{ClassName: className, Method: method, Args: p.parseCallArgs()}
+	default:
+		p.errors = append(p.errors, fmt.Sprintf("expected static member after %s::", className))
+		return &ast.NullLit{}
+	}
 }
 
 func (p *Parser) parseNew() ast.Expr {
