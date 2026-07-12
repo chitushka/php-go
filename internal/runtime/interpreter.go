@@ -12,14 +12,15 @@ import (
 )
 
 type Interpreter struct {
-	Vars      map[string]Value
-	functions map[string]*ast.FunctionDeclStmt
-	classes   map[string]*ast.ClassDeclStmt
-	statics   map[string]map[string]Value
-	frames    []map[string]Value
-	baseDir   string
-	dirStack  []string
-	Out       bytes.Buffer
+	Vars       map[string]Value
+	functions  map[string]*ast.FunctionDeclStmt
+	classes    map[string]*ast.ClassDeclStmt
+	statics    map[string]map[string]Value
+	staticMeta map[string]map[string]PropertyMeta
+	frames     []frame
+	baseDir    string
+	dirStack   []string
+	Out        bytes.Buffer
 }
 
 func NewInterpreter() *Interpreter {
@@ -31,12 +32,13 @@ func NewInterpreterWithBaseDir(baseDir string) *Interpreter {
 		baseDir = "."
 	}
 	return &Interpreter{
-		Vars:      map[string]Value{},
-		functions: map[string]*ast.FunctionDeclStmt{},
-		classes:   map[string]*ast.ClassDeclStmt{},
-		statics:   map[string]map[string]Value{},
-		baseDir:   baseDir,
-		dirStack:  []string{baseDir},
+		Vars:       map[string]Value{},
+		functions:  map[string]*ast.FunctionDeclStmt{},
+		classes:    map[string]*ast.ClassDeclStmt{},
+		statics:    map[string]map[string]Value{},
+		staticMeta: map[string]map[string]PropertyMeta{},
+		baseDir:    baseDir,
+		dirStack:   []string{baseDir},
 	}
 }
 
@@ -70,6 +72,11 @@ func (i *Interpreter) Run(p *ast.Program) error {
 
 type returnSignal struct {
 	value Value
+}
+
+type frame struct {
+	vars      map[string]Value
+	className string
 }
 
 type thrownError struct {
@@ -172,6 +179,9 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 		if obj.Kind != ObjectKind || obj.O == nil {
 			return nil, fmt.Errorf("cannot assign property %s on non-object", n.Property)
 		}
+		if err := i.checkPropertyAccess(obj.O, n.Property); err != nil {
+			return nil, err
+		}
 		value, err := i.eval(n.Value)
 		if err != nil {
 			return nil, err
@@ -180,6 +190,9 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 	case *ast.StaticPropertyAssignStmt:
 		value, err := i.eval(n.Value)
 		if err != nil {
+			return nil, err
+		}
+		if err := i.checkStaticPropertyAccess(n.ClassName, n.Property); err != nil {
 			return nil, err
 		}
 		i.setStaticProperty(n.ClassName, n.Property, value)
@@ -304,6 +317,9 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 		if obj.Kind != ObjectKind || obj.O == nil {
 			return NullValue(), fmt.Errorf("cannot fetch property %s on non-object", n.Property)
 		}
+		if err := i.checkPropertyAccess(obj.O, n.Property); err != nil {
+			return NullValue(), err
+		}
 		if value, ok := obj.O.Props[n.Property]; ok {
 			return value, nil
 		}
@@ -311,6 +327,9 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 	case *ast.MethodCallExpr:
 		return i.callMethod(n)
 	case *ast.StaticPropertyFetchExpr:
+		if err := i.checkStaticPropertyAccess(n.ClassName, n.Property); err != nil {
+			return NullValue(), err
+		}
 		return i.getStaticProperty(n.ClassName, n.Property), nil
 	case *ast.StaticCallExpr:
 		return i.callStatic(n)
@@ -333,18 +352,18 @@ func (i *Interpreter) callFunction(fn *ast.FunctionDeclStmt, args []ast.Expr, th
 	if len(args) != len(fn.Params) {
 		return NullValue(), fmt.Errorf("function %s expects %d arguments, got %d", fn.Name, len(fn.Params), len(args))
 	}
-	frame := map[string]Value{}
+	callFrame := frame{vars: map[string]Value{}, className: fn.Owner}
 	if thisObj != nil {
-		frame["this"] = ObjectValue(thisObj)
+		callFrame.vars["this"] = ObjectValue(thisObj)
 	}
 	for idx, param := range fn.Params {
 		arg, err := i.eval(args[idx])
 		if err != nil {
 			return NullValue(), err
 		}
-		frame[param] = arg
+		callFrame.vars[param] = arg
 	}
-	i.frames = append(i.frames, frame)
+	i.frames = append(i.frames, callFrame)
 	ret, err := i.exec(fn.Body)
 	i.frames = i.frames[:len(i.frames)-1]
 	if err != nil {
@@ -364,11 +383,11 @@ func (i *Interpreter) newObject(n *ast.NewExpr) (Value, error) {
 	if !ok {
 		return NullValue(), fmt.Errorf("undefined class %s", n.ClassName)
 	}
-	props, err := i.instanceDefaults(class)
+	props, meta, err := i.instanceDefaults(class)
 	if err != nil {
 		return NullValue(), err
 	}
-	obj := NewObject(class.Name, i.methodsForClass(class), props)
+	obj := NewObject(class.Name, i.methodsForClass(class), props, meta)
 	if constructor, ok := obj.Methods["__construct"]; ok {
 		if _, err := i.callFunction(constructor, n.Args, obj); err != nil {
 			return NullValue(), err
@@ -400,6 +419,9 @@ func (i *Interpreter) callMethod(n *ast.MethodCallExpr) (Value, error) {
 	if !ok {
 		return NullValue(), fmt.Errorf("undefined method %s::%s", obj.O.ClassName, n.Method)
 	}
+	if err := i.checkMethodAccess(obj.O.ClassName, method); err != nil {
+		return NullValue(), err
+	}
 	return i.callFunction(method, n.Args, obj.O)
 }
 
@@ -416,6 +438,9 @@ func (i *Interpreter) callStatic(n *ast.StaticCallExpr) (Value, error) {
 	if !method.Static {
 		return NullValue(), fmt.Errorf("method %s::%s is not static", n.ClassName, n.Method)
 	}
+	if err := i.checkMethodAccess(n.ClassName, method); err != nil {
+		return NullValue(), err
+	}
 	return i.callFunction(method, n.Args, nil)
 }
 
@@ -431,7 +456,7 @@ func (i *Interpreter) newException(args []ast.Expr) (Value, error) {
 		}
 		message = StringValue(value.String())
 	}
-	obj := &Object{ClassName: "Exception", Methods: map[string]*ast.FunctionDeclStmt{}, Props: map[string]Value{"message": message}}
+	obj := NewObject("Exception", map[string]*ast.FunctionDeclStmt{}, map[string]Value{"message": message}, map[string]PropertyMeta{"message": {Owner: "Exception", Visibility: "private"}})
 	return ObjectValue(obj), nil
 }
 
@@ -455,8 +480,23 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 		return fmt.Errorf("cannot redeclare class %s", class.Name)
 	}
 	i.classes[class.Name] = class
+	for _, method := range class.Methods {
+		method.Owner = class.Name
+		if method.Visibility == "" {
+			method.Visibility = "public"
+		}
+	}
+	for _, prop := range class.Properties {
+		prop.Owner = class.Name
+		if prop.Visibility == "" {
+			prop.Visibility = "public"
+		}
+	}
 	if _, ok := i.statics[class.Name]; !ok {
 		i.statics[class.Name] = map[string]Value{}
+	}
+	if _, ok := i.staticMeta[class.Name]; !ok {
+		i.staticMeta[class.Name] = map[string]PropertyMeta{}
 	}
 	for _, prop := range class.Properties {
 		if !prop.Static {
@@ -471,6 +511,7 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 			}
 		}
 		i.statics[class.Name][prop.Name] = value
+		i.staticMeta[class.Name][prop.Name] = PropertyMeta{Owner: prop.Owner, Visibility: prop.Visibility, Static: true}
 	}
 	return nil
 }
@@ -490,19 +531,23 @@ func (i *Interpreter) methodsForClass(class *ast.ClassDeclStmt) map[string]*ast.
 	return methods
 }
 
-func (i *Interpreter) instanceDefaults(class *ast.ClassDeclStmt) (map[string]Value, error) {
+func (i *Interpreter) instanceDefaults(class *ast.ClassDeclStmt) (map[string]Value, map[string]PropertyMeta, error) {
 	props := map[string]Value{}
+	meta := map[string]PropertyMeta{}
 	if class.Parent != "" {
 		parent, ok := i.classes[class.Parent]
 		if !ok {
-			return nil, fmt.Errorf("undefined parent class %s", class.Parent)
+			return nil, nil, fmt.Errorf("undefined parent class %s", class.Parent)
 		}
-		parentProps, err := i.instanceDefaults(parent)
+		parentProps, parentMeta, err := i.instanceDefaults(parent)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for name, value := range parentProps {
 			props[name] = value
+		}
+		for name, info := range parentMeta {
+			meta[name] = info
 		}
 	}
 	for _, prop := range class.Properties {
@@ -514,31 +559,130 @@ func (i *Interpreter) instanceDefaults(class *ast.ClassDeclStmt) (map[string]Val
 			var err error
 			value, err = i.eval(prop.Default)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 		}
 		props[prop.Name] = value
+		meta[prop.Name] = PropertyMeta{Owner: prop.Owner, Visibility: prop.Visibility}
 	}
-	return props, nil
+	return props, meta, nil
 }
 
 func (i *Interpreter) getStaticProperty(className, property string) Value {
-	if props, ok := i.statics[className]; ok {
-		if value, exists := props[property]; exists {
-			return value
-		}
-	}
-	if class, ok := i.classes[className]; ok && class.Parent != "" {
-		return i.getStaticProperty(class.Parent, property)
+	if value, _, ok := i.findStaticProperty(className, property); ok {
+		return value
 	}
 	return NullValue()
 }
 
 func (i *Interpreter) setStaticProperty(className, property string, value Value) {
-	if _, ok := i.statics[className]; !ok {
-		i.statics[className] = map[string]Value{}
+	owner := className
+	if _, info, ok := i.findStaticProperty(className, property); ok {
+		owner = info.Owner
 	}
-	i.statics[className][property] = value
+	if _, ok := i.statics[owner]; !ok {
+		i.statics[owner] = map[string]Value{}
+	}
+	i.statics[owner][property] = value
+}
+
+func (i *Interpreter) checkMethodAccess(receiverClass string, method *ast.FunctionDeclStmt) error {
+	switch method.Visibility {
+	case "", "public":
+		return nil
+	case "private":
+		if i.currentClass() == method.Owner {
+			return nil
+		}
+	case "protected":
+		if i.classesRelated(i.currentClass(), method.Owner) {
+			return nil
+		}
+	}
+	return fmt.Errorf("cannot access %s method %s::%s", method.Visibility, method.Owner, method.Name)
+}
+
+func (i *Interpreter) checkPropertyAccess(obj *Object, property string) error {
+	info, ok := obj.PropMeta[property]
+	if !ok {
+		return nil
+	}
+	switch info.Visibility {
+	case "", "public":
+		return nil
+	case "private":
+		if i.currentClass() == info.Owner {
+			return nil
+		}
+	case "protected":
+		if i.classesRelated(i.currentClass(), info.Owner) {
+			return nil
+		}
+	}
+	return fmt.Errorf("cannot access %s property %s::$%s", info.Visibility, info.Owner, property)
+}
+
+func (i *Interpreter) checkStaticPropertyAccess(className, property string) error {
+	_, info, ok := i.findStaticProperty(className, property)
+	if !ok {
+		return fmt.Errorf("undefined static property %s::$%s", className, property)
+	}
+	switch info.Visibility {
+	case "", "public":
+		return nil
+	case "private":
+		if i.currentClass() == info.Owner {
+			return nil
+		}
+	case "protected":
+		if i.classesRelated(i.currentClass(), info.Owner) {
+			return nil
+		}
+	}
+	return fmt.Errorf("cannot access %s static property %s::$%s", info.Visibility, info.Owner, property)
+}
+
+func (i *Interpreter) findStaticProperty(className, property string) (Value, PropertyMeta, bool) {
+	if props, ok := i.statics[className]; ok {
+		if value, exists := props[property]; exists {
+			if meta, metaOK := i.staticMeta[className][property]; metaOK {
+				return value, meta, true
+			}
+			return value, PropertyMeta{Owner: className, Visibility: "public", Static: true}, true
+		}
+	}
+	if class, ok := i.classes[className]; ok && class.Parent != "" {
+		return i.findStaticProperty(class.Parent, property)
+	}
+	return NullValue(), PropertyMeta{}, false
+}
+
+func (i *Interpreter) currentClass() string {
+	if len(i.frames) == 0 {
+		return ""
+	}
+	return i.frames[len(i.frames)-1].className
+}
+
+func (i *Interpreter) classesRelated(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	return i.isSameOrSubclass(a, b) || i.isSameOrSubclass(b, a)
+}
+
+func (i *Interpreter) isSameOrSubclass(className, ancestor string) bool {
+	for className != "" {
+		if className == ancestor {
+			return true
+		}
+		class, ok := i.classes[className]
+		if !ok {
+			return false
+		}
+		className = class.Parent
+	}
+	return false
 }
 
 func (i *Interpreter) include(path string, require bool) error {
@@ -578,7 +722,7 @@ func (i *Interpreter) currentFrame() map[string]Value {
 	if len(i.frames) == 0 {
 		return nil
 	}
-	return i.frames[len(i.frames)-1]
+	return i.frames[len(i.frames)-1].vars
 }
 
 func (i *Interpreter) getVar(name string) (Value, bool) {

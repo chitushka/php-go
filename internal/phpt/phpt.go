@@ -96,15 +96,16 @@ func Run(path string, input string) Result {
 	}
 
 	output, err := runPHP(path, test.File)
+	if err != nil {
+		output += err.Error()
+	}
 	expected := test.Expect
 	passed := false
-	if err == nil {
-		if test.ExpectF != "" {
-			expected = test.ExpectF
-			passed = expectFMatches(output, test.ExpectF)
-		} else {
-			passed = comparable(output) == comparable(test.Expect)
-		}
+	if test.ExpectF != "" {
+		expected = test.ExpectF
+		passed = expectFMatches(output, test.ExpectF)
+	} else {
+		passed = comparable(output) == comparable(test.Expect)
 	}
 	return Result{Path: path, Name: test.Name, Passed: passed, Output: output, Expected: expected, Err: err}
 }

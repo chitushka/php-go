@@ -24,6 +24,17 @@ func run(t *testing.T, src string) string {
 	return i.Out.String()
 }
 
+func runErr(t *testing.T, src string) error {
+	t.Helper()
+	p := parser.New(lexer.New(src))
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i := runtime.NewInterpreter()
+	return i.Run(program)
+}
+
 func TestEchoArithmetic(t *testing.T) {
 	if got := run(t, "<?php echo 1 + 2 * 3;"); got != "7" {
 		t.Fatalf("got %q", got)
@@ -238,5 +249,34 @@ func TestVisibilityModifiersAreAccepted(t *testing.T) {
 	got := run(t, src)
 	if got != "2" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestPrivatePropertyAccessDeniedOutsideClass(t *testing.T) {
+	err := runErr(t, "<?php class Sample { private $a = 2; } $s = new Sample(); echo $s->a;")
+	if err == nil || err.Error() != "cannot access private property Sample::$a" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestProtectedMethodAccessDeniedOutsideHierarchy(t *testing.T) {
+	err := runErr(t, "<?php class Sample { protected function hidden() { return 1; } } $s = new Sample(); echo $s->hidden();")
+	if err == nil || err.Error() != "cannot access protected method Sample::hidden" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestProtectedAccessAllowedFromChild(t *testing.T) {
+	src := "<?php class Base { protected $value = 4; protected function getValue() { return $this->value; } } class Child extends Base { public function expose() { return $this->getValue(); } } $c = new Child(); echo $c->expose();"
+	got := run(t, src)
+	if got != "4" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestPrivateStaticPropertyAccessDeniedOutsideClass(t *testing.T) {
+	err := runErr(t, "<?php class Sample { private static $count = 1; } echo Sample::$count;")
+	if err == nil || err.Error() != "cannot access private static property Sample::$count" {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

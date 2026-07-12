@@ -14,7 +14,7 @@
 - Пользовательские функции: `function name($arg) { ... }`, вызовы, локальные frame-ы и `return`.
 - Ограниченные `include` и `require` для строковых путей, разрешаемых относительно текущего PHP-файла.
 - Базовые классы: `class`, `extends`, `new`, методы, `__construct`, `$this`, динамические свойства, `$obj->method()`, static methods/properties.
-- Модификаторы `public`, `protected`, `private`, `static` разбираются и сохраняются; строгая проверка доступа пока не реализована.
+- Модификаторы `public`, `protected`, `private`, `static` для методов и свойств, включая runtime-проверку доступа.
 - Исключения: `throw`, `try`, `catch (Exception $e)` и минимальный встроенный `Exception::getMessage()`.
 - PHPT-подобный runner с секциями `--TEST--`, `--FILE--`, `--EXPECT--`, `--EXPECTF--`, `--SKIPIF--`, `--INI--`.
 - Runtime со значениями `null`, `bool`, `int`, `float`, `string`, `array`, `object` и таблицей переменных.
@@ -29,5 +29,5 @@ go run ./cmd/php53test -- tests/phpt
 
 ## Следующие шаги переноса
 
-1. Реализовать строгую проверку доступа для `public/private/protected`.
-2. Добавить `parent::`, `self::`, interfaces, abstract/final и static binding.
+1. Добавить `parent::`, `self::`, interfaces, abstract/final и static binding.
+2. Расширить PHPT runner секциями `--EXPECTREGEX--`, `--CLEAN--` и проверкой exit status.

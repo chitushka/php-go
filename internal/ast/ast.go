@@ -50,6 +50,7 @@ type FunctionDeclStmt struct {
 	Body       *BlockStmt
 	Visibility string
 	Static     bool
+	Owner      string
 }
 
 func (*FunctionDeclStmt) stmtNode() {}
@@ -81,6 +82,7 @@ type ClassProperty struct {
 	Visibility string
 	Static     bool
 	Default    Expr
+	Owner      string
 }
 
 type PropertyAssignStmt struct {

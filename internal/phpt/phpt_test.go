@@ -72,3 +72,17 @@ no
 		t.Fatalf("expected skip, got %+v", result)
 	}
 }
+
+func TestRunExpectedRuntimeError(t *testing.T) {
+	input := `--TEST--
+expected runtime error
+--FILE--
+<?php class Sample { private $a = 1; } $s = new Sample(); echo $s->a;
+--EXPECTF--
+cannot access private property Sample::$a
+`
+	result := phpt.Run("error.phpt", input)
+	if !result.Passed {
+		t.Fatalf("expected pass, got output=%q expected=%q err=%v", result.Output, result.Expected, result.Err)
+	}
+}
