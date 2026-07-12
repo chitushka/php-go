@@ -37,3 +37,17 @@ func TestWhile(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestArrayForeachValues(t *testing.T) {
+	got := run(t, "<?php $items = array('a', 'b', 'c'); foreach ($items as $v) { echo $v; }")
+	if got != "abc" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestArrayForeachKeysAndValues(t *testing.T) {
+	got := run(t, "<?php $items = array('x' => 7, 3 => 'z', 'last'); foreach ($items as $k => $v) { echo $k; echo ':'; echo $v; echo ';'; }")
+	if got != "x:7;3:z;4:last;" {
+		t.Fatalf("got %q", got)
+	}
+}

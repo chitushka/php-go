@@ -25,7 +25,11 @@ func (l *Lexer) NextToken() Token {
 
 	switch l.ch {
 	case '=':
-		if l.peekChar() == '=' {
+		if l.peekChar() == '>' {
+			ch := l.ch
+			l.readChar()
+			tok = l.token(DoubleArrow, string(ch)+string(l.ch), line, col)
+		} else if l.peekChar() == '=' {
 			ch := l.ch
 			l.readChar()
 			tok = l.token(EQ, string(ch)+string(l.ch), line, col)

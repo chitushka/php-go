@@ -14,6 +14,7 @@ const (
 	Int
 	Float
 	String
+	ArrayKind
 )
 
 type Value struct {
@@ -22,6 +23,7 @@ type Value struct {
 	I    int64
 	F    float64
 	S    string
+	A    *Array
 }
 
 func NullValue() Value           { return Value{Kind: Null} }
@@ -29,6 +31,7 @@ func BoolValue(v bool) Value     { return Value{Kind: Bool, B: v} }
 func IntValue(v int64) Value     { return Value{Kind: Int, I: v} }
 func FloatValue(v float64) Value { return Value{Kind: Float, F: v} }
 func StringValue(v string) Value { return Value{Kind: String, S: v} }
+func ArrayValue(v *Array) Value  { return Value{Kind: ArrayKind, A: v} }
 
 func (v Value) Truthy() bool {
 	switch v.Kind {
@@ -42,6 +45,8 @@ func (v Value) Truthy() bool {
 		return v.F != 0
 	case String:
 		return v.S != "" && v.S != "0"
+	case ArrayKind:
+		return v.A != nil && len(v.A.Entries) > 0
 	}
 	return false
 }
@@ -61,6 +66,8 @@ func (v Value) String() string {
 		return strconv.FormatFloat(v.F, 'f', -1, 64)
 	case String:
 		return v.S
+	case ArrayKind:
+		return "Array"
 	}
 	return ""
 }

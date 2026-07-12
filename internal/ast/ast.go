@@ -35,6 +35,15 @@ type WhileStmt struct {
 
 func (*WhileStmt) stmtNode() {}
 
+type ForeachStmt struct {
+	Source   Expr
+	KeyVar   string
+	ValueVar string
+	Body     *BlockStmt
+}
+
+func (*ForeachStmt) stmtNode() {}
+
 type ExprStmt struct{ Expr Expr }
 
 func (*ExprStmt) stmtNode() {}
@@ -77,3 +86,14 @@ type InfixExpr struct {
 }
 
 func (*InfixExpr) exprNode() {}
+
+type ArrayElement struct {
+	Key   Expr
+	Value Expr
+}
+
+type ArrayLit struct {
+	Elements []ArrayElement
+}
+
+func (*ArrayLit) exprNode() {}

@@ -73,6 +73,23 @@ func (i *Interpreter) exec(s ast.Stmt) error {
 				return fmt.Errorf("while guard exceeded")
 			}
 		}
+	case *ast.ForeachStmt:
+		src, err := i.eval(n.Source)
+		if err != nil {
+			return err
+		}
+		if src.Kind != ArrayKind || src.A == nil {
+			return fmt.Errorf("foreach source must be array")
+		}
+		for _, entry := range src.A.Entries {
+			if n.KeyVar != "" {
+				i.Vars[n.KeyVar] = entry.Key.Value()
+			}
+			i.Vars[n.ValueVar] = entry.Value
+			if err := i.exec(n.Body); err != nil {
+				return err
+			}
+		}
 	case *ast.ExprStmt:
 		_, err := i.eval(n.Expr)
 		return err
@@ -121,6 +138,24 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 			return NullValue(), err
 		}
 		return Binary(n.Op, l, r)
+	case *ast.ArrayLit:
+		arr := NewArray()
+		for _, elem := range n.Elements {
+			value, err := i.eval(elem.Value)
+			if err != nil {
+				return NullValue(), err
+			}
+			if elem.Key == nil {
+				arr.Append(value)
+				continue
+			}
+			key, err := i.eval(elem.Key)
+			if err != nil {
+				return NullValue(), err
+			}
+			arr.Set(KeyFromValue(key), value)
+		}
+		return ArrayValue(arr), nil
 	}
 	return NullValue(), fmt.Errorf("unsupported expression %T", e)
 }

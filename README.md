@@ -8,7 +8,9 @@
 - Лексер для `<?php`, чисел, строк, переменных, идентификаторов, `echo`, `if`, `else`, `while`, `true`, `false`, `null`.
 - Парсер выражений с приоритетами для `+`, `-`, `*`, `/`, сравнений, `==`, `!=`.
 - Операторы присваивания, `echo`, блоки, `if/else`, `while`.
-- Runtime со значениями `null`, `bool`, `int`, `float`, `string` и таблицей переменных.
+- PHP-массивы через `array(...)` с ordered hash map, auto-index и ключами `int`/`string`.
+- `foreach ($items as $value)` и `foreach ($items as $key => $value)`.
+- Runtime со значениями `null`, `bool`, `int`, `float`, `string`, `array` и таблицей переменных.
 
 ## Запуск
 
@@ -19,9 +21,7 @@ go run ./cmd/php53 -- examples/hello.php
 
 ## Следующие шаги переноса
 
-1. Добавить массивы PHP 5.3 и ordered hash map.
-2. Добавить `foreach` поверх массива.
-3. Добавить функции, call frames и `return`.
-4. Добавить include/require в ограниченном статическом виде.
-5. Добавить классы, объекты, методы и исключения.
-6. Подключить PHPT-тесты как acceptance suite.
+1. Добавить функции, call frames и `return`.
+2. Добавить include/require в ограниченном статическом виде.
+3. Добавить классы, объекты, методы и исключения.
+4. Подключить PHPT-тесты как acceptance suite.

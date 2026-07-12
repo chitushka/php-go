@@ -64,6 +64,8 @@ func (p *Parser) parseStatement() ast.Stmt {
 		return p.parseIf()
 	case lexer.While:
 		return p.parseWhile()
+	case lexer.Foreach:
+		return p.parseForeach()
 	case lexer.LBrace:
 		return p.parseBlock()
 	default:
@@ -133,6 +135,40 @@ func (p *Parser) parseWhile() ast.Stmt {
 	return &ast.WhileStmt{Cond: cond, Body: body}
 }
 
+func (p *Parser) parseForeach() ast.Stmt {
+	if !p.expectPeek(lexer.LParen) {
+		return nil
+	}
+	p.next()
+	source := p.parseExpression(lowest)
+	if !p.expectPeek(lexer.As) {
+		return nil
+	}
+	if !p.expectPeek(lexer.Var) {
+		return nil
+	}
+
+	valueVar := p.cur.Literal
+	keyVar := ""
+	if p.peek.Type == lexer.DoubleArrow {
+		keyVar = valueVar
+		p.next()
+		if !p.expectPeek(lexer.Var) {
+			return nil
+		}
+		valueVar = p.cur.Literal
+	}
+
+	if !p.expectPeek(lexer.RParen) {
+		return nil
+	}
+	if !p.expectPeek(lexer.LBrace) {
+		return nil
+	}
+	body := p.parseBlock().(*ast.BlockStmt)
+	return &ast.ForeachStmt{Source: source, KeyVar: keyVar, ValueVar: valueVar, Body: body}
+}
+
 func (p *Parser) parseBlock() ast.Stmt {
 	block := &ast.BlockStmt{}
 	p.next()
@@ -171,6 +207,8 @@ func (p *Parser) parseExpression(precedence int) ast.Expr {
 		left = &ast.BoolLit{Value: false}
 	case lexer.Null:
 		left = &ast.NullLit{}
+	case lexer.Array:
+		left = p.parseArray()
 	case lexer.Bang, lexer.Minus:
 		op := p.cur.Literal
 		p.next()
@@ -190,6 +228,44 @@ func (p *Parser) parseExpression(precedence int) ast.Expr {
 		left = p.parseInfix(left)
 	}
 	return left
+}
+
+func (p *Parser) parseArray() ast.Expr {
+	lit := &ast.ArrayLit{}
+	if !p.expectPeek(lexer.LParen) {
+		return lit
+	}
+	if p.peek.Type == lexer.RParen {
+		p.next()
+		return lit
+	}
+
+	for {
+		p.next()
+		first := p.parseExpression(lowest)
+		elem := ast.ArrayElement{Value: first}
+		if p.peek.Type == lexer.DoubleArrow {
+			elem.Key = first
+			p.next()
+			p.next()
+			elem.Value = p.parseExpression(lowest)
+		}
+		lit.Elements = append(lit.Elements, elem)
+
+		if p.peek.Type != lexer.Comma {
+			break
+		}
+		p.next()
+		if p.peek.Type == lexer.RParen {
+			p.next()
+			return lit
+		}
+	}
+
+	if !p.expectPeek(lexer.RParen) {
+		return lit
+	}
+	return lit
 }
 
 func (p *Parser) parseInfix(left ast.Expr) ast.Expr {
