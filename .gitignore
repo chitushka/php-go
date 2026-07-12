@@ -1,0 +1,14 @@
+.gitattributes
+
+*.so
+*.o
+*.a
+*.exe
+*.out
+
+php.exe
+
+.idea/
+.vscode/
+.DS_Store
+temp
