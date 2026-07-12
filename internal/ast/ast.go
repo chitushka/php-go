@@ -80,6 +80,21 @@ type PropertyAssignStmt struct {
 
 func (*PropertyAssignStmt) stmtNode() {}
 
+type ThrowStmt struct {
+	Value Expr
+}
+
+func (*ThrowStmt) stmtNode() {}
+
+type TryCatchStmt struct {
+	TryBlock   *BlockStmt
+	CatchClass string
+	CatchVar   string
+	CatchBlock *BlockStmt
+}
+
+func (*TryCatchStmt) stmtNode() {}
+
 type ExprStmt struct{ Expr Expr }
 
 func (*ExprStmt) stmtNode() {}

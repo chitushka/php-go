@@ -13,6 +13,7 @@
 - Пользовательские функции: `function name($arg) { ... }`, вызовы, локальные frame-ы и `return`.
 - Ограниченные `include` и `require` для строковых путей, разрешаемых относительно текущего PHP-файла.
 - Базовые классы: `class`, `new`, методы, `__construct`, `$this`, динамические свойства и `$obj->method()`.
+- Исключения: `throw`, `try`, `catch (Exception $e)` и минимальный встроенный `Exception::getMessage()`.
 - Runtime со значениями `null`, `bool`, `int`, `float`, `string`, `array`, `object` и таблицей переменных.
 
 ## Запуск
@@ -24,5 +25,5 @@ go run ./cmd/php53 -- examples/hello.php
 
 ## Следующие шаги переноса
 
-1. Добавить исключения: `throw`, `try`, `catch` и базовый объект `Exception`.
-2. Подключить PHPT-тесты как acceptance suite.
+1. Подключить PHPT-тесты как acceptance suite.
+2. Расширить объектную модель: `public/private/protected`, `extends`, static members.

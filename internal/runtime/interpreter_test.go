@@ -179,3 +179,40 @@ func TestIncludedClass(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestThrowAndCatchException(t *testing.T) {
+	src := "<?php try { throw new Exception('boom'); } catch (Exception $e) { echo $e->getMessage(); } echo ' done';"
+	got := run(t, src)
+	if got != "boom done" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestExceptionPropagatesFromFunction(t *testing.T) {
+	src := "<?php function fail() { throw new Exception('bad'); } try { fail(); echo 'no'; } catch (Exception $e) { echo $e->getMessage(); }"
+	got := run(t, src)
+	if got != "bad" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestExceptionPropagatesFromMethod(t *testing.T) {
+	src := "<?php class Failer { function run() { throw new Exception('method'); } } try { $f = new Failer(); $f->run(); } catch (Exception $e) { echo $e->getMessage(); }"
+	got := run(t, src)
+	if got != "method" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestUncaughtExceptionReturnsRuntimeError(t *testing.T) {
+	p := parser.New(lexer.New("<?php throw new Exception('uncaught');"))
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i := runtime.NewInterpreter()
+	err := i.Run(program)
+	if err == nil || err.Error() != "uncaught Exception: uncaught" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

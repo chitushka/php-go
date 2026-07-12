@@ -76,6 +76,10 @@ func (p *Parser) parseStatement() ast.Stmt {
 		return p.parseInclude(true)
 	case lexer.Class:
 		return p.parseClassDecl()
+	case lexer.Throw:
+		return p.parseThrow()
+	case lexer.Try:
+		return p.parseTryCatch()
 	case lexer.LBrace:
 		return p.parseBlock()
 	default:
@@ -259,6 +263,46 @@ func (p *Parser) parseClassDecl() ast.Stmt {
 		p.next()
 	}
 	return class
+}
+
+func (p *Parser) parseThrow() ast.Stmt {
+	if p.peek.Type == lexer.Semicolon {
+		p.errors = append(p.errors, "throw expects an expression")
+		return nil
+	}
+	p.next()
+	value := p.parseExpression(lowest)
+	p.consumeSemi()
+	return &ast.ThrowStmt{Value: value}
+}
+
+func (p *Parser) parseTryCatch() ast.Stmt {
+	if !p.expectPeek(lexer.LBrace) {
+		return nil
+	}
+	tryBlock := p.parseBlock().(*ast.BlockStmt)
+	if !p.expectPeek(lexer.Catch) {
+		return nil
+	}
+	if !p.expectPeek(lexer.LParen) {
+		return nil
+	}
+	if !p.expectPeek(lexer.Ident) {
+		return nil
+	}
+	catchClass := p.cur.Literal
+	if !p.expectPeek(lexer.Var) {
+		return nil
+	}
+	catchVar := p.cur.Literal
+	if !p.expectPeek(lexer.RParen) {
+		return nil
+	}
+	if !p.expectPeek(lexer.LBrace) {
+		return nil
+	}
+	catchBlock := p.parseBlock().(*ast.BlockStmt)
+	return &ast.TryCatchStmt{TryBlock: tryBlock, CatchClass: catchClass, CatchVar: catchVar, CatchBlock: catchBlock}
 }
 
 func (p *Parser) parseExprOrPropertyAssign() ast.Stmt {

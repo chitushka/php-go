@@ -70,6 +70,20 @@ type returnSignal struct {
 	value Value
 }
 
+type thrownError struct {
+	value Value
+}
+
+func (e *thrownError) Error() string {
+	if e.value.Kind == ObjectKind && e.value.O != nil {
+		if message, ok := e.value.O.Props["message"]; ok {
+			return "uncaught " + e.value.O.ClassName + ": " + message.String()
+		}
+		return "uncaught " + e.value.O.ClassName
+	}
+	return "uncaught non-object"
+}
+
 func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 	switch n := s.(type) {
 	case *ast.BlockStmt:
@@ -161,6 +175,29 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 			return nil, err
 		}
 		obj.O.Props[n.Property] = value
+	case *ast.ThrowStmt:
+		value, err := i.eval(n.Value)
+		if err != nil {
+			return nil, err
+		}
+		if value.Kind != ObjectKind || value.O == nil {
+			return nil, fmt.Errorf("can only throw objects")
+		}
+		return nil, &thrownError{value: value}
+	case *ast.TryCatchStmt:
+		ret, err := i.exec(n.TryBlock)
+		if err == nil || ret != nil {
+			return ret, err
+		}
+		thrown, ok := err.(*thrownError)
+		if !ok {
+			return nil, err
+		}
+		if !i.exceptionMatches(thrown.value, n.CatchClass) {
+			return nil, err
+		}
+		i.setVar(n.CatchVar, thrown.value)
+		return i.exec(n.CatchBlock)
 	case *ast.ReturnStmt:
 		if n.Value == nil {
 			return &returnSignal{value: NullValue()}, nil
@@ -308,6 +345,9 @@ func (i *Interpreter) callFunction(fn *ast.FunctionDeclStmt, args []ast.Expr, th
 }
 
 func (i *Interpreter) newObject(n *ast.NewExpr) (Value, error) {
+	if n.ClassName == "Exception" {
+		return i.newException(n.Args)
+	}
 	class, ok := i.classes[n.ClassName]
 	if !ok {
 		return NullValue(), fmt.Errorf("undefined class %s", n.ClassName)
@@ -331,11 +371,43 @@ func (i *Interpreter) callMethod(n *ast.MethodCallExpr) (Value, error) {
 	if obj.Kind != ObjectKind || obj.O == nil {
 		return NullValue(), fmt.Errorf("cannot call method %s on non-object", n.Method)
 	}
+	if obj.O.ClassName == "Exception" && n.Method == "getMessage" {
+		if len(n.Args) != 0 {
+			return NullValue(), fmt.Errorf("Exception::getMessage expects 0 arguments, got %d", len(n.Args))
+		}
+		if message, ok := obj.O.Props["message"]; ok {
+			return message, nil
+		}
+		return StringValue(""), nil
+	}
 	method, ok := obj.O.Methods[n.Method]
 	if !ok {
 		return NullValue(), fmt.Errorf("undefined method %s::%s", obj.O.ClassName, n.Method)
 	}
 	return i.callFunction(method, n.Args, obj.O)
+}
+
+func (i *Interpreter) newException(args []ast.Expr) (Value, error) {
+	if len(args) > 1 {
+		return NullValue(), fmt.Errorf("Exception expects at most 1 argument, got %d", len(args))
+	}
+	message := StringValue("")
+	if len(args) == 1 {
+		value, err := i.eval(args[0])
+		if err != nil {
+			return NullValue(), err
+		}
+		message = StringValue(value.String())
+	}
+	obj := &Object{ClassName: "Exception", Methods: map[string]*ast.FunctionDeclStmt{}, Props: map[string]Value{"message": message}}
+	return ObjectValue(obj), nil
+}
+
+func (i *Interpreter) exceptionMatches(value Value, catchClass string) bool {
+	if value.Kind != ObjectKind || value.O == nil {
+		return false
+	}
+	return catchClass == value.O.ClassName || catchClass == "Exception"
 }
 
 func (i *Interpreter) defineFunction(fn *ast.FunctionDeclStmt) error {

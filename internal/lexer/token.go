@@ -54,6 +54,9 @@ const (
 	Require    TokenType = "REQUIRE"
 	Class      TokenType = "CLASS"
 	NewKeyword TokenType = "NEW"
+	Try        TokenType = "TRY"
+	Catch      TokenType = "CATCH"
+	Throw      TokenType = "THROW"
 	True       TokenType = "TRUE"
 	False      TokenType = "FALSE"
 	Null       TokenType = "NULL"
@@ -73,6 +76,9 @@ var keywords = map[string]TokenType{
 	"require":  Require,
 	"class":    Class,
 	"new":      NewKeyword,
+	"try":      Try,
+	"catch":    Catch,
+	"throw":    Throw,
 	"true":     True,
 	"false":    False,
 	"null":     Null,
