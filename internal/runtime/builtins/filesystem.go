@@ -64,3 +64,13 @@ func filePutContents(args []Value) (Value, error) {
 	}
 	return IntValue(int64(len(data))), nil
 }
+
+func unlinkFn(args []Value) (Value, error) {
+	if err := checkArgCount("unlink", len(args), 1, 1); err != nil {
+		return NullValue(), err
+	}
+	if err := os.Remove(args[0].String()); err != nil {
+		return BoolValue(false), nil
+	}
+	return BoolValue(true), nil
+}

@@ -40,6 +40,7 @@ var funcs = map[string]Func{
 	"dirname":           dirname,
 	"file_get_contents": fileGetContents,
 	"file_put_contents": filePutContents,
+	"unlink":            unlinkFn,
 	"preg_match":        pregMatch,
 	"preg_replace":      pregReplace,
 	"json_encode":       jsonEncode,

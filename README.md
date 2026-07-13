@@ -14,7 +14,7 @@
 - `foreach ($items as $value)` и `foreach ($items as $key => $value)`.
 - Пользовательские функции: `function name($arg = null, &$ref) { ... }`, вызовы, default parameters, pass-by-reference parameters, локальные frame-ы и `return`.
 - Переменные функций: `global $name` и persistent `static $local = ...`.
-- Встроенные функции ядра: `isset`, `empty`, `count`, `strlen`, `substr`, `strpos`, `strtolower`, `strtoupper`, `trim`, `str_replace`, `array_key_exists`, `in_array`, `implode`, `explode`, `print_r`, `var_dump`, `round`, `floor`, `ceil`, `abs`, `min`, `max`, `time`, `date`, `file_exists`, `is_file`, `is_dir`, `basename`, `dirname`, `file_get_contents`, `file_put_contents`, `preg_match` с capture-массивом, `preg_replace`, `json_encode`, `json_decode`, `md5`, `sha1`, `hash`, `serialize`, `unserialize`, базовые `is_*`.
+- Встроенные функции ядра: `isset`, `empty`, `count`, `strlen`, `substr`, `strpos`, `strtolower`, `strtoupper`, `trim`, `str_replace`, `array_key_exists`, `in_array`, `implode`, `explode`, `print_r`, `var_dump`, `round`, `floor`, `ceil`, `abs`, `min`, `max`, `time`, `date`, `file_exists`, `is_file`, `is_dir`, `basename`, `dirname`, `file_get_contents`, `file_put_contents`, `unlink`, `preg_match` с capture-массивом, `preg_replace`, `json_encode`, `json_decode`, `md5`, `sha1`, `hash`, `serialize`, `unserialize`, базовые `is_*`.
 - Builtins вынесены в пакет `internal/runtime/builtins`; новые функции добавляются по функциональным файлам (`strings.go`, `arrays.go`, `filesystem.go`, `regex.go`, `json.go`, `hash.go`, `serialization.go`) и регистрируются в `registry.go`.
 - Ограниченные `include` и `require` для строковых путей, разрешаемых относительно текущего PHP-файла.
 - Базовые классы: `class`, `extends`, `new`, методы, `__construct`, `$this`, динамические свойства, `$obj->method()`, static methods/properties.
@@ -26,7 +26,7 @@
 - Magic methods `__get`, `__set`, `__call`, `__toString` для базового property/method overloading и строкового вывода объектов.
 - Исключения: `throw`, `try`, `catch (Exception $e)` и минимальный встроенный `Exception::getMessage()`.
 - PHPT-подобный runner с секциями `--TEST--`, `--FILE--`, `--EXPECT--`, `--EXPECTF--`, `--EXPECTREGEX--`, `--SKIPIF--`, `--INI--`, `--CLEAN--`, `--EXIT_CODE--`, `--GET--`, `--POST--`, `--ENV--`, `--COOKIE--`, `--HEADERS--`.
-- SAPI-модель PHPT runner подготавливает `$_GET`, `$_POST`, `$_COOKIE`, `$_FILES`, `$_REQUEST`, `$_ENV`, `$_SERVER` с базовыми request/server/header полями; поддержаны синтетический `--FILES--` и `--POST_RAW--` multipart/form-data с временными upload-файлами.
+- SAPI-модель PHPT runner подготавливает `$_GET`, `$_POST`, `$_COOKIE`, `$_FILES`, `$_REQUEST`, `$_ENV`, `$_SERVER` с базовыми request/server/header полями; поддержаны синтетический `--FILES--`, `--POST_RAW--` multipart/form-data, простые `file[]` upload-поля, `is_uploaded_file()` и `move_uploaded_file()`.
 - Response headers: runtime поддерживает `header()` и `headers_list()`.
 - Runtime со значениями `null`, `bool`, `int`, `float`, `string`, `array`, `object` и таблицей переменных.
 
@@ -40,5 +40,5 @@ go run ./cmd/php53test tests/phpt
 
 ## Следующие шаги переноса
 
-1. Расширить multipart/SAPI совместимость PHP 5.3: nested upload names (`file[]`), лимиты upload/max file size, `is_uploaded_file()` и `move_uploaded_file()`.
+1. Расширить multipart/SAPI совместимость PHP 5.3: глубокие nested upload names (`file[group][]`), лимиты upload/max file size и INI-настройки загрузок.
 2. Продолжить P0-языковые конструкции из `AGENTS.md`: inline HTML/short echo, string escapes/interpolation, alternative control syntax, `list(...)`, `include_once`/`require_once`, bitwise/shift/logical word operators, ternary, casts и writable `$a[]`.

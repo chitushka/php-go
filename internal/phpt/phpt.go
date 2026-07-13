@@ -250,6 +250,7 @@ func runPHP(path string, source string, ctx sapiContext) (string, error) {
 	}
 
 	interp := runtime.NewInterpreterWithBaseDir(filepath.Dir(path))
+	interp.SetUploadedFiles(ctx.Temps)
 	installSAPIContext(interp, ctx, path)
 	err := interp.Run(program)
 	return interp.Out.String(), err
@@ -368,13 +369,56 @@ func arrayFromEntries(values []sapiEntry) *runtime.Array {
 func filesArray(files []sapiFile) *runtime.Array {
 	arr := runtime.NewArray()
 	for _, file := range files {
-		fileArr := runtime.NewArray()
-		for _, prop := range file.Props {
-			fileArr.Set(runtime.StringKey(prop.Key), fileValue(prop.Key, prop.Value))
+		field := file.Field
+		if strings.HasSuffix(field, "[]") {
+			base := strings.TrimSuffix(field, "[]")
+			fileArr, ok := existingFileArray(arr, base)
+			if !ok {
+				fileArr = newArrayUploadFile()
+				arr.Set(runtime.StringKey(base), runtime.ArrayValue(fileArr))
+			}
+			appendArrayUploadFile(fileArr, file.Props)
+			continue
 		}
-		arr.Set(runtime.StringKey(file.Field), runtime.ArrayValue(fileArr))
+		fileArr := scalarUploadFile(file.Props)
+		arr.Set(runtime.StringKey(field), runtime.ArrayValue(fileArr))
 	}
 	return arr
+}
+
+func scalarUploadFile(props []sapiEntry) *runtime.Array {
+	fileArr := runtime.NewArray()
+	for _, prop := range props {
+		fileArr.Set(runtime.StringKey(prop.Key), fileValue(prop.Key, prop.Value))
+	}
+	return fileArr
+}
+
+func newArrayUploadFile() *runtime.Array {
+	fileArr := runtime.NewArray()
+	for _, key := range []string{"name", "type", "tmp_name", "error", "size"} {
+		fileArr.Set(runtime.StringKey(key), runtime.ArrayValue(runtime.NewArray()))
+	}
+	return fileArr
+}
+
+func existingFileArray(files *runtime.Array, field string) (*runtime.Array, bool) {
+	value, ok := files.Get(runtime.StringKey(field))
+	if !ok || value.Kind != runtime.ArrayKind || value.A == nil {
+		return nil, false
+	}
+	return value.A, true
+}
+
+func appendArrayUploadFile(fileArr *runtime.Array, props []sapiEntry) {
+	for _, prop := range props {
+		value, ok := fileArr.Get(runtime.StringKey(prop.Key))
+		if !ok || value.Kind != runtime.ArrayKind || value.A == nil {
+			value = runtime.ArrayValue(runtime.NewArray())
+			fileArr.Set(runtime.StringKey(prop.Key), value)
+		}
+		value.A.Append(fileValue(prop.Key, prop.Value))
+	}
 }
 
 func fileValue(key string, value string) runtime.Value {

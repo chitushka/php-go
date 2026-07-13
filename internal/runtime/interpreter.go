@@ -26,6 +26,7 @@ type Interpreter struct {
 	staticMeta      map[string]map[string]PropertyMeta
 	frames          []frame
 	responseHeaders []string
+	uploadedFiles   map[string]bool
 	baseDir         string
 	dirStack        []string
 	Out             bytes.Buffer
@@ -40,17 +41,18 @@ func NewInterpreterWithBaseDir(baseDir string) *Interpreter {
 		baseDir = "."
 	}
 	return &Interpreter{
-		Vars:       map[string]Value{},
-		globals:    map[string]*variableSlot{},
-		functions:  map[string]*ast.FunctionDeclStmt{},
-		classes:    map[string]*ast.ClassDeclStmt{},
-		interfaces: map[string]*ast.InterfaceDeclStmt{},
-		constants:  map[string]map[string]Value{},
-		staticVars: map[string]map[string]*variableSlot{},
-		statics:    map[string]map[string]Value{},
-		staticMeta: map[string]map[string]PropertyMeta{},
-		baseDir:    baseDir,
-		dirStack:   []string{baseDir},
+		Vars:          map[string]Value{},
+		globals:       map[string]*variableSlot{},
+		functions:     map[string]*ast.FunctionDeclStmt{},
+		classes:       map[string]*ast.ClassDeclStmt{},
+		interfaces:    map[string]*ast.InterfaceDeclStmt{},
+		constants:     map[string]map[string]Value{},
+		staticVars:    map[string]map[string]*variableSlot{},
+		statics:       map[string]map[string]Value{},
+		staticMeta:    map[string]map[string]PropertyMeta{},
+		uploadedFiles: map[string]bool{},
+		baseDir:       baseDir,
+		dirStack:      []string{baseDir},
 	}
 }
 
@@ -733,6 +735,39 @@ func (i *Interpreter) callSAPIBuiltin(name string, args []Value) (Value, bool, e
 			arr.Append(StringValue(header))
 		}
 		return ArrayValue(arr), true, nil
+	case "is_uploaded_file":
+		if len(args) != 1 {
+			return NullValue(), true, fmt.Errorf("is_uploaded_file expects 1 arguments, got %d", len(args))
+		}
+		path := args[0].String()
+		if !i.uploadedFiles[path] {
+			return BoolValue(false), true, nil
+		}
+		info, err := os.Stat(path)
+		return BoolValue(err == nil && !info.IsDir()), true, nil
+	case "move_uploaded_file":
+		if len(args) != 2 {
+			return NullValue(), true, fmt.Errorf("move_uploaded_file expects 2 arguments, got %d", len(args))
+		}
+		src := args[0].String()
+		dst := args[1].String()
+		if !i.uploadedFiles[src] {
+			return BoolValue(false), true, nil
+		}
+		if err := os.Rename(src, dst); err != nil {
+			data, readErr := os.ReadFile(src)
+			if readErr != nil {
+				return BoolValue(false), true, nil
+			}
+			if writeErr := os.WriteFile(dst, data, 0644); writeErr != nil {
+				return BoolValue(false), true, nil
+			}
+			if removeErr := os.Remove(src); removeErr != nil {
+				return BoolValue(false), true, nil
+			}
+		}
+		delete(i.uploadedFiles, src)
+		return BoolValue(true), true, nil
 	default:
 		return NullValue(), false, nil
 	}
@@ -1841,6 +1876,17 @@ func (i *Interpreter) deleteVar(name string) {
 
 func (i *Interpreter) SetGlobal(name string, value Value) {
 	i.setVar(name, value)
+}
+
+func (i *Interpreter) SetUploadedFiles(paths []string) {
+	if i.uploadedFiles == nil {
+		i.uploadedFiles = map[string]bool{}
+	}
+	for _, path := range paths {
+		if path != "" {
+			i.uploadedFiles[path] = true
+		}
+	}
 }
 
 func (i *Interpreter) ensureSlot(name string) *variableSlot {
