@@ -584,3 +584,12 @@ func TestHeaderAndHeadersList(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestFilesystemRegexAndSerializationBuiltins(t *testing.T) {
+	src := "<?php echo basename('tests/phpt/basic.phpt'); echo ':'; echo basename(dirname('tests/phpt/basic.phpt')); echo ':'; echo file_exists('interpreter_test.go'); echo ':'; echo preg_match('/php/', 'php-src'); echo ':'; echo preg_replace('/5[.]3/', 'go', 'php 5.3'); echo ':'; $data = array('name' => 'php', 'version' => 53); $encoded = serialize($data); echo $encoded; echo ':'; $copy = unserialize($encoded); echo $copy['name']; echo ':'; echo $copy['version'];"
+	got := run(t, src)
+	want := `basic.phpt:phpt:1:1:php go:a:2:{s:4:"name";s:3:"php";s:7:"version";i:53;}:php:53`
+	if got != want {
+		t.Fatalf("got %q", got)
+	}
+}

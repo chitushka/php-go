@@ -1,6 +1,8 @@
 package builtins
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -77,5 +79,54 @@ func TestOutputBuiltins(t *testing.T) {
 	_, output, ok, err = CallWithOutput("var_dump", []Value{StringValue("php")})
 	if err != nil || !ok || output != "string(3) \"php\"\n" {
 		t.Fatalf("var_dump got output=%q ok=%v err=%v", output, ok, err)
+	}
+}
+
+func TestFilesystemBuiltins(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "sample.txt")
+	if err := os.WriteFile(file, []byte("php"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	value, ok, err := Call("file_exists", []Value{StringValue(file)})
+	if err != nil || !ok || !value.Truthy() {
+		t.Fatalf("file_exists got value=%+v ok=%v err=%v", value, ok, err)
+	}
+	value, ok, err = Call("is_file", []Value{StringValue(file)})
+	if err != nil || !ok || !value.Truthy() {
+		t.Fatalf("is_file got value=%+v ok=%v err=%v", value, ok, err)
+	}
+	value, ok, err = Call("is_dir", []Value{StringValue(dir)})
+	if err != nil || !ok || !value.Truthy() {
+		t.Fatalf("is_dir got value=%+v ok=%v err=%v", value, ok, err)
+	}
+}
+
+func TestRegexBuiltins(t *testing.T) {
+	value, ok, err := Call("preg_match", []Value{StringValue("/php/"), StringValue("php-src")})
+	if err != nil || !ok || value.Kind != IntKind || value.I != 1 {
+		t.Fatalf("preg_match got value=%+v ok=%v err=%v", value, ok, err)
+	}
+	value, ok, err = Call("preg_replace", []Value{StringValue("/5\\.3/"), StringValue("go"), StringValue("php 5.3")})
+	if err != nil || !ok || value.String() != "php go" {
+		t.Fatalf("preg_replace got value=%q ok=%v err=%v", value.String(), ok, err)
+	}
+}
+
+func TestSerializationBuiltins(t *testing.T) {
+	arr := NewArray()
+	arr.Set(StringKey("name"), StringValue("php"))
+	arr.Set(StringKey("version"), IntValue(53))
+	value, ok, err := Call("serialize", []Value{ArrayValue(arr)})
+	if err != nil || !ok || value.String() != `a:2:{s:4:"name";s:3:"php";s:7:"version";i:53;}` {
+		t.Fatalf("serialize got value=%q ok=%v err=%v", value.String(), ok, err)
+	}
+	value, ok, err = Call("unserialize", []Value{value})
+	if err != nil || !ok || value.Kind != ArrayKind {
+		t.Fatalf("unserialize got value=%+v ok=%v err=%v", value, ok, err)
+	}
+	name, ok := value.A.Get(StringKey("name"))
+	if !ok || name.String() != "php" {
+		t.Fatalf("unserialized name got %q ok=%v", name.String(), ok)
 	}
 }

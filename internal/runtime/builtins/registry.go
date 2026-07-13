@@ -33,6 +33,15 @@ var funcs = map[string]Func{
 	"max":              max,
 	"time":             timeFn,
 	"date":             dateFn,
+	"file_exists":      fileExists,
+	"is_file":          isFile,
+	"is_dir":           isDir,
+	"basename":         basename,
+	"dirname":          dirname,
+	"preg_match":       pregMatch,
+	"preg_replace":     pregReplace,
+	"serialize":        serializeFn,
+	"unserialize":      unserializeFn,
 }
 
 var outputFuncs = map[string]OutputFunc{
