@@ -11,6 +11,8 @@ import (
 const (
 	_ int = iota
 	lowest
+	logicalOr
+	logicalAnd
 	equals
 	lessGreater
 	sum
@@ -19,10 +21,12 @@ const (
 )
 
 var precedences = map[lexer.TokenType]int{
-	lexer.EQ: equals, lexer.NotEQ: equals,
+	lexer.OrOr:   logicalOr,
+	lexer.AndAnd: logicalAnd,
+	lexer.EQ:     equals, lexer.NotEQ: equals,
 	lexer.LT: lessGreater, lexer.GT: lessGreater, lexer.LTE: lessGreater, lexer.GTE: lessGreater,
 	lexer.InstanceOf: lessGreater,
-	lexer.Plus:       sum, lexer.Minus: sum,
+	lexer.Plus:       sum, lexer.Minus: sum, lexer.Dot: sum,
 	lexer.Asterisk: product, lexer.Slash: product,
 }
 
@@ -484,8 +488,10 @@ func (p *Parser) parseExprOrPropertyAssign() ast.Stmt {
 			return &ast.PropertyAssignStmt{Object: target.Object, Property: target.Property, Value: value}
 		case *ast.StaticPropertyFetchExpr:
 			return &ast.StaticPropertyAssignStmt{ClassName: target.ClassName, Property: target.Property, Value: value}
+		case *ast.IndexExpr:
+			return &ast.IndexAssignStmt{Target: target, Value: value}
 		default:
-			p.errors = append(p.errors, "only variables and object properties can be assigned")
+			p.errors = append(p.errors, "only variables, object properties and indexes can be assigned")
 			return &ast.ExprStmt{Expr: expr}
 		}
 	}
@@ -565,19 +571,28 @@ func (p *Parser) parseExpression(precedence int) ast.Expr {
 		p.errors = append(p.errors, fmt.Sprintf("unexpected token %s at %d:%d", p.cur.Type, p.cur.Line, p.cur.Column))
 		return &ast.NullLit{}
 	}
-	for p.peek.Type == lexer.ObjectOp {
-		p.next()
-		left = p.parseObjectAccess(left)
-	}
-	for p.peek.Type != lexer.Semicolon && p.peek.Type != lexer.RParen && precedence < p.peekPrecedence() {
+	left = p.parsePostfix(left)
+	for p.peek.Type != lexer.Semicolon && p.peek.Type != lexer.RParen && p.peek.Type != lexer.RBracket && precedence < p.peekPrecedence() {
 		p.next()
 		left = p.parseInfix(left)
-		for p.peek.Type == lexer.ObjectOp {
-			p.next()
-			left = p.parseObjectAccess(left)
-		}
+		left = p.parsePostfix(left)
 	}
 	return left
+}
+
+func (p *Parser) parsePostfix(left ast.Expr) ast.Expr {
+	for {
+		switch p.peek.Type {
+		case lexer.ObjectOp:
+			p.next()
+			left = p.parseObjectAccess(left)
+		case lexer.LBracket:
+			p.next()
+			left = p.parseIndexAccess(left)
+		default:
+			return left
+		}
+	}
 }
 
 func (p *Parser) parseStaticAccess() ast.Expr {
@@ -635,6 +650,20 @@ func (p *Parser) parseObjectAccess(object ast.Expr) ast.Expr {
 		return &ast.MethodCallExpr{Object: object, Method: name, Args: p.parseCallArgs()}
 	}
 	return &ast.PropertyFetchExpr{Object: object, Property: name}
+}
+
+func (p *Parser) parseIndexAccess(left ast.Expr) ast.Expr {
+	if p.peek.Type == lexer.RBracket {
+		p.errors = append(p.errors, "empty index fetch is not supported")
+		p.next()
+		return left
+	}
+	p.next()
+	index := p.parseExpression(lowest)
+	if !p.expectPeek(lexer.RBracket) {
+		return left
+	}
+	return &ast.IndexExpr{Left: left, Index: index}
 }
 
 func (p *Parser) parseCall() ast.Expr {

@@ -227,6 +227,14 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 			return nil, err
 		}
 		i.setStaticProperty(n.ClassName, n.Property, value)
+	case *ast.IndexAssignStmt:
+		value, err := i.eval(n.Value)
+		if err != nil {
+			return nil, err
+		}
+		if err := i.assignIndex(n.Target, value); err != nil {
+			return nil, err
+		}
 	case *ast.ThrowStmt:
 		value, err := i.eval(n.Value)
 		if err != nil {
@@ -313,9 +321,40 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 		if err != nil {
 			return NullValue(), err
 		}
+		switch n.Op {
+		case "&&":
+			if !l.Truthy() {
+				return BoolValue(false), nil
+			}
+			r, err := i.eval(n.Right)
+			if err != nil {
+				return NullValue(), err
+			}
+			return BoolValue(r.Truthy()), nil
+		case "||":
+			if l.Truthy() {
+				return BoolValue(true), nil
+			}
+			r, err := i.eval(n.Right)
+			if err != nil {
+				return NullValue(), err
+			}
+			return BoolValue(r.Truthy()), nil
+		}
 		r, err := i.eval(n.Right)
 		if err != nil {
 			return NullValue(), err
+		}
+		if n.Op == "." {
+			left, err := i.stringify(l)
+			if err != nil {
+				return NullValue(), err
+			}
+			right, err := i.stringify(r)
+			if err != nil {
+				return NullValue(), err
+			}
+			return StringValue(left + right), nil
 		}
 		return Binary(n.Op, l, r)
 	case *ast.InstanceOfExpr:
@@ -346,6 +385,8 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 			arr.Set(KeyFromValue(key), value)
 		}
 		return ArrayValue(arr), nil
+	case *ast.IndexExpr:
+		return i.evalIndex(n)
 	case *ast.CallExpr:
 		return i.call(n)
 	case *ast.NewExpr:
@@ -532,6 +573,84 @@ func (i *Interpreter) callStatic(n *ast.StaticCallExpr) (Value, error) {
 		return NullValue(), err
 	}
 	return i.callFunction(method, n.Args, nil, className)
+}
+
+func (i *Interpreter) evalIndex(n *ast.IndexExpr) (Value, error) {
+	left, err := i.eval(n.Left)
+	if err != nil {
+		return NullValue(), err
+	}
+	index, err := i.eval(n.Index)
+	if err != nil {
+		return NullValue(), err
+	}
+	switch left.Kind {
+	case ArrayKind:
+		if left.A == nil {
+			return NullValue(), nil
+		}
+		value, _ := left.A.Get(KeyFromValue(index))
+		return value, nil
+	case String:
+		offset, ok := indexOffset(index)
+		if !ok || offset < 0 || offset >= len(left.S) {
+			return NullValue(), nil
+		}
+		return StringValue(left.S[offset : offset+1]), nil
+	default:
+		return NullValue(), fmt.Errorf("cannot use index on %s", left.String())
+	}
+}
+
+func (i *Interpreter) assignIndex(target *ast.IndexExpr, value Value) error {
+	index, err := i.eval(target.Index)
+	if err != nil {
+		return err
+	}
+	key := KeyFromValue(index)
+	if ident, ok := target.Left.(*ast.Ident); ok {
+		current, exists := i.getVar(ident.Name)
+		if !exists || current.Kind == Null {
+			arr := NewArray()
+			arr.Set(key, value)
+			i.setVar(ident.Name, ArrayValue(arr))
+			return nil
+		}
+		if current.Kind != ArrayKind || current.A == nil {
+			return fmt.Errorf("cannot assign index on non-array")
+		}
+		current.A.Set(key, value)
+		return nil
+	}
+	left, err := i.eval(target.Left)
+	if err != nil {
+		return err
+	}
+	if left.Kind != ArrayKind || left.A == nil {
+		return fmt.Errorf("cannot assign index on non-array")
+	}
+	left.A.Set(key, value)
+	return nil
+}
+
+func indexOffset(value Value) (int, bool) {
+	switch value.Kind {
+	case Int:
+		return int(value.I), true
+	case Bool:
+		if value.B {
+			return 1, true
+		}
+		return 0, true
+	case Float:
+		return int(value.F), true
+	case String:
+		var n int
+		_, err := fmt.Sscanf(value.S, "%d", &n)
+		return n, err == nil
+	default:
+		return 0, false
+	}
 }
 
 func (i *Interpreter) stringify(value Value) (string, error) {

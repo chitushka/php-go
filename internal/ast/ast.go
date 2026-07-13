@@ -121,6 +121,13 @@ type StaticPropertyAssignStmt struct {
 
 func (*StaticPropertyAssignStmt) stmtNode() {}
 
+type IndexAssignStmt struct {
+	Target *IndexExpr
+	Value  Expr
+}
+
+func (*IndexAssignStmt) stmtNode() {}
+
 type ThrowStmt struct {
 	Value Expr
 }
@@ -189,6 +196,13 @@ type ArrayLit struct {
 }
 
 func (*ArrayLit) exprNode() {}
+
+type IndexExpr struct {
+	Left  Expr
+	Index Expr
+}
+
+func (*IndexExpr) exprNode() {}
 
 type CallExpr struct {
 	Name string

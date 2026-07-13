@@ -62,6 +62,24 @@ func (l *Lexer) NextToken() Token {
 		}
 	case '+':
 		tok = l.token(Plus, string(l.ch), line, col)
+	case '.':
+		tok = l.token(Dot, string(l.ch), line, col)
+	case '&':
+		if l.peekChar() == '&' {
+			ch := l.ch
+			l.readChar()
+			tok = l.token(AndAnd, string(ch)+string(l.ch), line, col)
+		} else {
+			tok = l.token(Illegal, string(l.ch), line, col)
+		}
+	case '|':
+		if l.peekChar() == '|' {
+			ch := l.ch
+			l.readChar()
+			tok = l.token(OrOr, string(ch)+string(l.ch), line, col)
+		} else {
+			tok = l.token(Illegal, string(l.ch), line, col)
+		}
 	case '-':
 		if l.peekChar() == '>' {
 			ch := l.ch
@@ -90,6 +108,10 @@ func (l *Lexer) NextToken() Token {
 		tok = l.token(LParen, string(l.ch), line, col)
 	case ')':
 		tok = l.token(RParen, string(l.ch), line, col)
+	case '[':
+		tok = l.token(LBracket, string(l.ch), line, col)
+	case ']':
+		tok = l.token(RBracket, string(l.ch), line, col)
 	case '{':
 		tok = l.token(LBrace, string(l.ch), line, col)
 	case '}':

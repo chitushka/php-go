@@ -59,6 +59,13 @@ func (a *Array) Set(key ArrayKey, v Value) {
 	}
 }
 
+func (a *Array) Get(key ArrayKey) (Value, bool) {
+	if pos, ok := a.index[key.identity()]; ok {
+		return a.Entries[pos].Value, true
+	}
+	return NullValue(), false
+}
+
 func KeyFromValue(v Value) ArrayKey {
 	switch v.Kind {
 	case Int:

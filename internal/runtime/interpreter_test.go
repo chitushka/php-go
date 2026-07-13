@@ -426,3 +426,33 @@ func TestMagicToString(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestConcatAndMagicToString(t *testing.T) {
+	src := "<?php class Label { public function __toString() { return 'B'; } } $label = new Label(); echo 'A' . $label . 3;"
+	got := run(t, src)
+	if got != "AB3" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestLogicalAndOrShortCircuit(t *testing.T) {
+	src := "<?php $x = 0; function fail() { return 1 / 0; } if ($x && fail()) { echo 'bad'; } else { echo 'and'; } if (1 || fail()) { echo 'or'; }"
+	got := run(t, src)
+	if got != "andor" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestArrayIndexFetchAndAssign(t *testing.T) {
+	got := run(t, "<?php $items = array('a' => 1, 2 => 'b'); echo $items['a']; echo $items[2]; $items['a'] = 7; echo $items['a'];")
+	if got != "1b7" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestStringIndexFetch(t *testing.T) {
+	got := run(t, "<?php $s = 'php'; echo $s[0]; echo $s[1]; echo $s[2];")
+	if got != "php" {
+		t.Fatalf("got %q", got)
+	}
+}
