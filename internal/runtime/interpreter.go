@@ -1456,6 +1456,10 @@ func (i *Interpreter) setVar(name string, v Value) {
 	i.setSlot(slot, v)
 }
 
+func (i *Interpreter) SetGlobal(name string, value Value) {
+	i.setVar(name, value)
+}
+
 func (i *Interpreter) ensureSlot(name string) *variableSlot {
 	if frame := i.currentFrame(); frame != nil {
 		if slot, ok := frame[name]; ok {

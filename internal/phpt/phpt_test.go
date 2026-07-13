@@ -132,3 +132,52 @@ ok
 		t.Fatalf("expected pass, got output=%q expected=%q err=%v", result.Output, result.Expected, result.Err)
 	}
 }
+
+func TestRunSAPISections(t *testing.T) {
+	input := `--TEST--
+sapi sections
+--GET--
+name=php&version=5.3
+--POST--
+action=run
+--ENV--
+APP_ENV=test
+--FILE--
+<?php
+echo $_GET['name'];
+echo ':';
+echo $_GET['version'];
+echo ':';
+echo $_POST['action'];
+echo ':';
+echo $_REQUEST['name'];
+echo ':';
+echo $_REQUEST['action'];
+echo ':';
+echo $_ENV['APP_ENV'];
+echo ':';
+echo $_SERVER['REQUEST_METHOD'];
+--EXPECT--
+php:5.3:run:php:run:test:POST
+`
+	result := phpt.Run("sapi.phpt", input)
+	if !result.Passed {
+		t.Fatalf("expected pass, got output=%q expected=%q err=%v", result.Output, result.Expected, result.Err)
+	}
+}
+
+func TestRunGetPreservesOrder(t *testing.T) {
+	input := `--TEST--
+get order
+--GET--
+a=1&b=2&c=3
+--FILE--
+<?php foreach ($_GET as $k => $v) { echo $k; echo $v; }
+--EXPECT--
+a1b2c3
+`
+	result := phpt.Run("get_order.phpt", input)
+	if !result.Passed {
+		t.Fatalf("expected pass, got output=%q expected=%q err=%v", result.Output, result.Expected, result.Err)
+	}
+}

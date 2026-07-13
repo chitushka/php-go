@@ -23,7 +23,7 @@
 - `instanceof` для классов, родителей и интерфейсов.
 - Magic methods `__get`, `__set`, `__call`, `__toString` для базового property/method overloading и строкового вывода объектов.
 - Исключения: `throw`, `try`, `catch (Exception $e)` и минимальный встроенный `Exception::getMessage()`.
-- PHPT-подобный runner с секциями `--TEST--`, `--FILE--`, `--EXPECT--`, `--EXPECTF--`, `--EXPECTREGEX--`, `--SKIPIF--`, `--INI--`, `--CLEAN--`, `--EXIT_CODE--`.
+- PHPT-подобный runner с секциями `--TEST--`, `--FILE--`, `--EXPECT--`, `--EXPECTF--`, `--EXPECTREGEX--`, `--SKIPIF--`, `--INI--`, `--CLEAN--`, `--EXIT_CODE--`, `--GET--`, `--POST--`, `--ENV--`.
 - Runtime со значениями `null`, `bool`, `int`, `float`, `string`, `array`, `object` и таблицей переменных.
 
 ## Запуск
@@ -36,5 +36,5 @@ go run ./cmd/php53test -- tests/phpt
 
 ## Следующие шаги переноса
 
-1. Расширить PHPT runner поддержкой `--POST--`, `--GET--`, `--ENV--` для будущих SAPI-тестов.
-2. Добавить больше встроенных функций ядра, необходимых для реальных PHP 5.3 тестов (`isset`, `empty`, `count`, string/array helpers).
+1. Добавить больше встроенных функций ядра, необходимых для реальных PHP 5.3 тестов (`isset`, `empty`, `count`, string/array helpers).
+2. Расширить SAPI-модель раннера: cookies, files, headers и более полная `$_SERVER`.
