@@ -14,7 +14,7 @@
 - `foreach ($items as $value)` и `foreach ($items as $key => $value)`.
 - Пользовательские функции: `function name($arg = null, &$ref) { ... }`, вызовы, default parameters, pass-by-reference parameters, локальные frame-ы и `return`.
 - Переменные функций: `global $name` и persistent `static $local = ...`.
-- Встроенные функции ядра: `isset`, `empty`, `count`, `strlen`, `substr`, `strpos`, `strtolower`, `strtoupper`, `array_key_exists`, `in_array`, `implode`, `explode`, базовые `is_*`.
+- Встроенные функции ядра: `isset`, `empty`, `count`, `strlen`, `substr`, `strpos`, `strtolower`, `strtoupper`, `trim`, `str_replace`, `array_key_exists`, `in_array`, `implode`, `explode`, `print_r`, `var_dump`, `round`, `floor`, `ceil`, `abs`, `min`, `max`, `time`, `date`, базовые `is_*`.
 - Builtins вынесены в пакет `internal/runtime/builtins`; новые функции добавляются по функциональным файлам (`strings.go`, `arrays.go`, `types.go`, `variables.go`) и регистрируются в `registry.go`.
 - Ограниченные `include` и `require` для строковых путей, разрешаемых относительно текущего PHP-файла.
 - Базовые классы: `class`, `extends`, `new`, методы, `__construct`, `$this`, динамические свойства, `$obj->method()`, static methods/properties.
@@ -39,5 +39,5 @@ go run ./cmd/php53test -- tests/phpt
 
 ## Следующие шаги переноса
 
-1. Добавить дополнительные встроенные функции ядра для совместимости с PHP 5.3 PHPT (`print_r`, `var_dump`, math/date/string helpers).
-2. Расширить SAPI-модель раннера настоящей multipart/files обработкой и response headers.
+1. Расширить SAPI-модель раннера настоящей multipart/files обработкой и response headers.
+2. Добавить дополнительные встроенные функции ядра для совместимости с PHP 5.3 PHPT (filesystem, regex, serialization helpers).

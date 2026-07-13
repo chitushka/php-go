@@ -78,3 +78,43 @@ func strtoupper(args []Value) (Value, error) {
 	}
 	return StringValue(strings.ToUpper(args[0].String())), nil
 }
+
+func trim(args []Value) (Value, error) {
+	if err := checkArgCount("trim", len(args), 1, 2); err != nil {
+		return NullValue(), err
+	}
+	cutset := " \n\r\t\v\x00"
+	if len(args) == 2 {
+		cutset = args[1].String()
+	}
+	return StringValue(strings.Trim(args[0].String(), cutset)), nil
+}
+
+func ltrim(args []Value) (Value, error) {
+	if err := checkArgCount("ltrim", len(args), 1, 2); err != nil {
+		return NullValue(), err
+	}
+	cutset := " \n\r\t\v\x00"
+	if len(args) == 2 {
+		cutset = args[1].String()
+	}
+	return StringValue(strings.TrimLeft(args[0].String(), cutset)), nil
+}
+
+func rtrim(args []Value) (Value, error) {
+	if err := checkArgCount("rtrim", len(args), 1, 2); err != nil {
+		return NullValue(), err
+	}
+	cutset := " \n\r\t\v\x00"
+	if len(args) == 2 {
+		cutset = args[1].String()
+	}
+	return StringValue(strings.TrimRight(args[0].String(), cutset)), nil
+}
+
+func strReplace(args []Value) (Value, error) {
+	if err := checkArgCount("str_replace", len(args), 3, 3); err != nil {
+		return NullValue(), err
+	}
+	return StringValue(strings.ReplaceAll(args[2].String(), args[0].String(), args[1].String())), nil
+}

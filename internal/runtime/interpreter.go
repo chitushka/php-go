@@ -565,6 +565,15 @@ func (i *Interpreter) callBuiltin(c *ast.CallExpr) (Value, bool, error) {
 		}
 		args = append(args, toBuiltinValue(value))
 	}
+	if value, output, ok, err := builtins.CallWithOutput(c.Name, args); ok || err != nil {
+		if output != "" {
+			i.Out.WriteString(output)
+		}
+		if err != nil {
+			return NullValue(), true, err
+		}
+		return fromBuiltinValue(value), true, nil
+	}
 	value, ok, err := builtins.Call(c.Name, args)
 	if !ok || err != nil {
 		return NullValue(), ok, err

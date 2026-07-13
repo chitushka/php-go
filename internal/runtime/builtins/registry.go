@@ -3,6 +3,7 @@ package builtins
 import "strings"
 
 type Func func([]Value) (Value, error)
+type OutputFunc func([]Value) (Value, string, error)
 
 var funcs = map[string]Func{
 	"isset":            isset,
@@ -20,6 +21,23 @@ var funcs = map[string]Func{
 	"is_array":         isArray,
 	"is_string":        isString,
 	"is_null":          isNull,
+	"trim":             trim,
+	"ltrim":            ltrim,
+	"rtrim":            rtrim,
+	"str_replace":      strReplace,
+	"round":            round,
+	"floor":            floor,
+	"ceil":             ceil,
+	"abs":              abs,
+	"min":              min,
+	"max":              max,
+	"time":             timeFn,
+	"date":             dateFn,
+}
+
+var outputFuncs = map[string]OutputFunc{
+	"print_r":  printR,
+	"var_dump": varDump,
 }
 
 func Call(name string, args []Value) (Value, bool, error) {
@@ -29,4 +47,13 @@ func Call(name string, args []Value) (Value, bool, error) {
 	}
 	value, err := fn(args)
 	return value, true, err
+}
+
+func CallWithOutput(name string, args []Value) (Value, string, bool, error) {
+	fn, ok := outputFuncs[strings.ToLower(name)]
+	if !ok {
+		return NullValue(), "", false, nil
+	}
+	value, output, err := fn(args)
+	return value, output, true, err
 }
