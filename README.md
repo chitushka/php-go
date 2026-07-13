@@ -6,10 +6,10 @@
 
 - CLI `php53`, читающий PHP-файл и выполняющий поддерживаемое подмножество.
 - CLI `php53test`, запускающий PHPT-подобные acceptance-тесты.
-- Лексер для `<?php`, чисел, строк, переменных, идентификаторов, `echo`, `if`, `else`, `while`, `true`, `false`, `null`.
+- Лексер для `<?php`, чисел, строк, переменных, идентификаторов, `echo`, `if`, `else`, `while`, `do`, `for`, `switch`, `true`, `false`, `null`.
 - Парсер выражений с приоритетами для `+`, `-`, `*`, `/`, сравнений, `==`, `!=`.
 - Выражения конкатенации `.`, логические `&&`/`||` с short-circuit, индексный доступ `$array[$key]`, `$string[$offset]` и присваивание в массив по индексу.
-- Операторы присваивания, `echo`, блоки, `if/else`, `while`.
+- Операторы присваивания, `echo`, блоки, `if/else`, `while`, `do/while`, `for`, `switch`, `break`, `continue`.
 - PHP-массивы через `array(...)` с ordered hash map, auto-index и ключами `int`/`string`.
 - `foreach ($items as $value)` и `foreach ($items as $key => $value)`.
 - Пользовательские функции: `function name($arg) { ... }`, вызовы, локальные frame-ы и `return`.
@@ -35,5 +35,5 @@ go run ./cmd/php53test -- tests/phpt
 
 ## Следующие шаги переноса
 
-1. Добавить управляющие конструкции PHP 5.3: `for`, `do/while`, `switch`, `break`, `continue`.
+1. Расширить семантику функций и переменных PHP 5.3: значения по умолчанию для параметров, `global`, `static` locals, pass-by-reference.
 2. Расширить PHPT runner поддержкой `--POST--`, `--GET--`, `--ENV--` для будущих SAPI-тестов.

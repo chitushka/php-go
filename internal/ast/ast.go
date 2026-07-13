@@ -35,6 +35,22 @@ type WhileStmt struct {
 
 func (*WhileStmt) stmtNode() {}
 
+type DoWhileStmt struct {
+	Body *BlockStmt
+	Cond Expr
+}
+
+func (*DoWhileStmt) stmtNode() {}
+
+type ForStmt struct {
+	Init Stmt
+	Cond Expr
+	Post Stmt
+	Body *BlockStmt
+}
+
+func (*ForStmt) stmtNode() {}
+
 type ForeachStmt struct {
 	Source   Expr
 	KeyVar   string
@@ -43,6 +59,27 @@ type ForeachStmt struct {
 }
 
 func (*ForeachStmt) stmtNode() {}
+
+type SwitchStmt struct {
+	Value Expr
+	Cases []SwitchCase
+}
+
+func (*SwitchStmt) stmtNode() {}
+
+type SwitchCase struct {
+	Expr       Expr
+	Statements []Stmt
+	Default    bool
+}
+
+type BreakStmt struct{}
+
+func (*BreakStmt) stmtNode() {}
+
+type ContinueStmt struct{}
+
+func (*ContinueStmt) stmtNode() {}
 
 type FunctionDeclStmt struct {
 	Name       string

@@ -40,6 +40,7 @@ const (
 
 	Comma     TokenType = ","
 	Semicolon TokenType = ";"
+	Colon     TokenType = ":"
 	LParen    TokenType = "("
 	RParen    TokenType = ")"
 	LBracket  TokenType = "["
@@ -51,7 +52,14 @@ const (
 	If         TokenType = "IF"
 	Else       TokenType = "ELSE"
 	While      TokenType = "WHILE"
+	Do         TokenType = "DO"
+	For        TokenType = "FOR"
 	Foreach    TokenType = "FOREACH"
+	Switch     TokenType = "SWITCH"
+	Case       TokenType = "CASE"
+	Default    TokenType = "DEFAULT"
+	Break      TokenType = "BREAK"
+	Continue   TokenType = "CONTINUE"
 	As         TokenType = "AS"
 	Array      TokenType = "ARRAY"
 	Function   TokenType = "FUNCTION"
@@ -86,7 +94,14 @@ var keywords = map[string]TokenType{
 	"if":         If,
 	"else":       Else,
 	"while":      While,
+	"do":         Do,
+	"for":        For,
 	"foreach":    Foreach,
+	"switch":     Switch,
+	"case":       Case,
+	"default":    Default,
+	"break":      Break,
+	"continue":   Continue,
 	"as":         As,
 	"array":      Array,
 	"function":   Function,

@@ -88,6 +88,14 @@ type returnSignal struct {
 	value Value
 }
 
+type breakSignal struct{}
+
+func (*breakSignal) Error() string { return "break used outside loop or switch" }
+
+type continueSignal struct{}
+
+func (*continueSignal) Error() string { return "continue used outside loop" }
+
 type frame struct {
 	vars        map[string]Value
 	className   string
@@ -156,12 +164,82 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 				break
 			}
 			ret, err := i.exec(n.Body)
+			if _, ok := err.(*breakSignal); ok {
+				break
+			}
+			if _, ok := err.(*continueSignal); ok {
+				guard++
+				if guard > 1000000 {
+					return nil, fmt.Errorf("while guard exceeded")
+				}
+				continue
+			}
 			if err != nil || ret != nil {
 				return ret, err
 			}
 			guard++
 			if guard > 1000000 {
 				return nil, fmt.Errorf("while guard exceeded")
+			}
+		}
+	case *ast.DoWhileStmt:
+		guard := 0
+		for {
+			ret, err := i.exec(n.Body)
+			if _, ok := err.(*breakSignal); ok {
+				break
+			}
+			if _, ok := err.(*continueSignal); !ok {
+				if err != nil || ret != nil {
+					return ret, err
+				}
+			}
+			guard++
+			if guard > 1000000 {
+				return nil, fmt.Errorf("do/while guard exceeded")
+			}
+			v, err := i.eval(n.Cond)
+			if err != nil {
+				return nil, err
+			}
+			if !v.Truthy() {
+				break
+			}
+		}
+	case *ast.ForStmt:
+		if n.Init != nil {
+			if ret, err := i.exec(n.Init); err != nil || ret != nil {
+				return ret, err
+			}
+		}
+		guard := 0
+		for {
+			if n.Cond != nil {
+				v, err := i.eval(n.Cond)
+				if err != nil {
+					return nil, err
+				}
+				if !v.Truthy() {
+					break
+				}
+			}
+			ret, err := i.exec(n.Body)
+			if _, ok := err.(*breakSignal); ok {
+				break
+			}
+			if _, ok := err.(*continueSignal); !ok {
+				if err != nil || ret != nil {
+					return ret, err
+				}
+			}
+			if n.Post != nil {
+				if ret, err := i.exec(n.Post); err != nil || ret != nil {
+					return ret, err
+				}
+			}
+			guard++
+			if guard > 1000000 {
+				return nil, fmt.Errorf("for guard exceeded")
 			}
 		}
 	case *ast.ForeachStmt:
@@ -178,9 +256,26 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 			}
 			i.setVar(n.ValueVar, entry.Value)
 			ret, err := i.exec(n.Body)
+			if _, ok := err.(*breakSignal); ok {
+				break
+			}
+			if _, ok := err.(*continueSignal); ok {
+				continue
+			}
 			if err != nil || ret != nil {
 				return ret, err
 			}
+		}
+	case *ast.SwitchStmt:
+		ret, err := i.execSwitch(n)
+		if ret != nil {
+			return ret, nil
+		}
+		if err != nil {
+			if _, ok := err.(*breakSignal); ok {
+				return nil, nil
+			}
+			return nil, err
 		}
 	case *ast.FunctionDeclStmt:
 		if err := i.defineFunction(n); err != nil {
@@ -281,6 +376,10 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 	case *ast.ExprStmt:
 		_, err := i.eval(n.Expr)
 		return nil, err
+	case *ast.BreakStmt:
+		return nil, &breakSignal{}
+	case *ast.ContinueStmt:
+		return nil, &continueSignal{}
 	default:
 		return nil, fmt.Errorf("unsupported statement %T", s)
 	}
@@ -573,6 +672,50 @@ func (i *Interpreter) callStatic(n *ast.StaticCallExpr) (Value, error) {
 		return NullValue(), err
 	}
 	return i.callFunction(method, n.Args, nil, className)
+}
+
+func (i *Interpreter) execSwitch(n *ast.SwitchStmt) (*returnSignal, error) {
+	switchValue, err := i.eval(n.Value)
+	if err != nil {
+		return nil, err
+	}
+	start := -1
+	defaultIndex := -1
+	for idx, c := range n.Cases {
+		if c.Default {
+			if defaultIndex == -1 {
+				defaultIndex = idx
+			}
+			continue
+		}
+		value, err := i.eval(c.Expr)
+		if err != nil {
+			return nil, err
+		}
+		matched, err := Binary("==", switchValue, value)
+		if err != nil {
+			return nil, err
+		}
+		if matched.Truthy() {
+			start = idx
+			break
+		}
+	}
+	if start == -1 {
+		start = defaultIndex
+	}
+	if start == -1 {
+		return nil, nil
+	}
+	for idx := start; idx < len(n.Cases); idx++ {
+		for _, stmt := range n.Cases[idx].Statements {
+			ret, err := i.exec(stmt)
+			if err != nil || ret != nil {
+				return ret, err
+			}
+		}
+	}
+	return nil, nil
 }
 
 func (i *Interpreter) evalIndex(n *ast.IndexExpr) (Value, error) {

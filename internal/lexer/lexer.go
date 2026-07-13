@@ -100,7 +100,7 @@ func (l *Lexer) NextToken() Token {
 			l.readChar()
 			tok = l.token(ScopeResolution, string(ch)+string(l.ch), line, col)
 		} else {
-			tok = l.token(Illegal, string(l.ch), line, col)
+			tok = l.token(Colon, string(l.ch), line, col)
 		}
 	case ';':
 		tok = l.token(Semicolon, string(l.ch), line, col)

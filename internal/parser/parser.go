@@ -69,8 +69,20 @@ func (p *Parser) parseStatement() ast.Stmt {
 		return p.parseIf()
 	case lexer.While:
 		return p.parseWhile()
+	case lexer.Do:
+		return p.parseDoWhile()
+	case lexer.For:
+		return p.parseFor()
 	case lexer.Foreach:
 		return p.parseForeach()
+	case lexer.Switch:
+		return p.parseSwitch()
+	case lexer.Break:
+		p.consumeSemi()
+		return &ast.BreakStmt{}
+	case lexer.Continue:
+		p.consumeSemi()
+		return &ast.ContinueStmt{}
 	case lexer.Function:
 		return p.parseFunctionDecl()
 	case lexer.Return:
@@ -164,6 +176,93 @@ func (p *Parser) parseWhile() ast.Stmt {
 	return &ast.WhileStmt{Cond: cond, Body: body}
 }
 
+func (p *Parser) parseDoWhile() ast.Stmt {
+	if !p.expectPeek(lexer.LBrace) {
+		return nil
+	}
+	body := p.parseBlock().(*ast.BlockStmt)
+	if !p.expectPeek(lexer.While) {
+		return nil
+	}
+	if !p.expectPeek(lexer.LParen) {
+		return nil
+	}
+	p.next()
+	cond := p.parseExpression(lowest)
+	if !p.expectPeek(lexer.RParen) {
+		return nil
+	}
+	p.consumeSemi()
+	return &ast.DoWhileStmt{Body: body, Cond: cond}
+}
+
+func (p *Parser) parseFor() ast.Stmt {
+	if !p.expectPeek(lexer.LParen) {
+		return nil
+	}
+	p.next()
+	var init ast.Stmt
+	if p.cur.Type != lexer.Semicolon {
+		init = p.parseForClauseStmt()
+		if !p.expectPeek(lexer.Semicolon) {
+			return nil
+		}
+	}
+
+	var cond ast.Expr
+	if p.peek.Type == lexer.Semicolon {
+		p.next()
+	} else {
+		p.next()
+		cond = p.parseExpression(lowest)
+		if !p.expectPeek(lexer.Semicolon) {
+			return nil
+		}
+	}
+
+	var post ast.Stmt
+	if p.peek.Type == lexer.RParen {
+		p.next()
+	} else {
+		p.next()
+		post = p.parseForClauseStmt()
+		if !p.expectPeek(lexer.RParen) {
+			return nil
+		}
+	}
+	if !p.expectPeek(lexer.LBrace) {
+		return nil
+	}
+	body := p.parseBlock().(*ast.BlockStmt)
+	return &ast.ForStmt{Init: init, Cond: cond, Post: post, Body: body}
+}
+
+func (p *Parser) parseForClauseStmt() ast.Stmt {
+	if p.cur.Type == lexer.Var && p.peek.Type == lexer.Assign {
+		name := p.cur.Literal
+		p.next()
+		p.next()
+		return &ast.AssignStmt{Name: name, Value: p.parseExpression(lowest)}
+	}
+	expr := p.parseExpression(lowest)
+	if p.peek.Type == lexer.Assign {
+		p.next()
+		p.next()
+		value := p.parseExpression(lowest)
+		switch target := expr.(type) {
+		case *ast.PropertyFetchExpr:
+			return &ast.PropertyAssignStmt{Object: target.Object, Property: target.Property, Value: value}
+		case *ast.StaticPropertyFetchExpr:
+			return &ast.StaticPropertyAssignStmt{ClassName: target.ClassName, Property: target.Property, Value: value}
+		case *ast.IndexExpr:
+			return &ast.IndexAssignStmt{Target: target, Value: value}
+		default:
+			p.errors = append(p.errors, "only variables, object properties and indexes can be assigned")
+		}
+	}
+	return &ast.ExprStmt{Expr: expr}
+}
+
 func (p *Parser) parseForeach() ast.Stmt {
 	if !p.expectPeek(lexer.LParen) {
 		return nil
@@ -196,6 +295,59 @@ func (p *Parser) parseForeach() ast.Stmt {
 	}
 	body := p.parseBlock().(*ast.BlockStmt)
 	return &ast.ForeachStmt{Source: source, KeyVar: keyVar, ValueVar: valueVar, Body: body}
+}
+
+func (p *Parser) parseSwitch() ast.Stmt {
+	if !p.expectPeek(lexer.LParen) {
+		return nil
+	}
+	p.next()
+	value := p.parseExpression(lowest)
+	if !p.expectPeek(lexer.RParen) {
+		return nil
+	}
+	if !p.expectPeek(lexer.LBrace) {
+		return nil
+	}
+	stmt := &ast.SwitchStmt{Value: value}
+	p.next()
+	for p.cur.Type != lexer.RBrace && p.cur.Type != lexer.EOF {
+		caseStmt, ok := p.parseSwitchCase()
+		if !ok {
+			return stmt
+		}
+		stmt.Cases = append(stmt.Cases, caseStmt)
+	}
+	return stmt
+}
+
+func (p *Parser) parseSwitchCase() (ast.SwitchCase, bool) {
+	c := ast.SwitchCase{}
+	switch p.cur.Type {
+	case lexer.Case:
+		p.next()
+		c.Expr = p.parseExpression(lowest)
+		if !p.expectPeek(lexer.Colon) {
+			return c, false
+		}
+	case lexer.Default:
+		c.Default = true
+		if !p.expectPeek(lexer.Colon) {
+			return c, false
+		}
+	default:
+		p.errors = append(p.errors, fmt.Sprintf("expected switch case/default, got %s", p.cur.Type))
+		return c, false
+	}
+	p.next()
+	for p.cur.Type != lexer.Case && p.cur.Type != lexer.Default && p.cur.Type != lexer.RBrace && p.cur.Type != lexer.EOF {
+		stmt := p.parseStatement()
+		if stmt != nil {
+			c.Statements = append(c.Statements, stmt)
+		}
+		p.next()
+	}
+	return c, true
 }
 
 func (p *Parser) parseFunctionDecl() ast.Stmt {

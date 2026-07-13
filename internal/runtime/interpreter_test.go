@@ -456,3 +456,35 @@ func TestStringIndexFetch(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestForLoopBreakAndContinue(t *testing.T) {
+	src := "<?php for ($i = 0; $i < 6; $i = $i + 1) { if ($i == 1) { continue; } if ($i == 4) { break; } echo $i; }"
+	got := run(t, src)
+	if got != "023" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestDoWhileRunsAtLeastOnce(t *testing.T) {
+	src := "<?php $i = 0; do { echo $i; $i = $i + 1; } while ($i < 3);"
+	got := run(t, src)
+	if got != "012" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestWhileBreakAndForeachContinue(t *testing.T) {
+	src := "<?php $i = 0; while (1) { $i = $i + 1; if ($i == 2) { continue; } if ($i == 4) { break; } echo $i; } foreach (array(1, 2, 3) as $v) { if ($v == 2) { continue; } echo $v; }"
+	got := run(t, src)
+	if got != "1313" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestSwitchCaseDefaultAndFallthrough(t *testing.T) {
+	src := "<?php $x = 2; switch ($x) { case 1: echo 'a'; break; case 2: echo 'b'; case 3: echo 'c'; break; default: echo 'd'; } switch (9) { case 1: echo 'x'; break; default: echo 'z'; }"
+	got := run(t, src)
+	if got != "bcz" {
+		t.Fatalf("got %q", got)
+	}
+}
