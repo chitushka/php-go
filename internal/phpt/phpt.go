@@ -25,14 +25,18 @@ type Test struct {
 	Get         string
 	Post        string
 	Env         string
+	Cookie      string
+	Headers     string
 	ExitCode    int
 	HasExitCode bool
 }
 
 type sapiContext struct {
-	Get  []sapiEntry
-	Post []sapiEntry
-	Env  []sapiEntry
+	Get     []sapiEntry
+	Post    []sapiEntry
+	Env     []sapiEntry
+	Cookie  []sapiEntry
+	Headers []sapiEntry
 }
 
 type sapiEntry struct {
@@ -89,6 +93,8 @@ func Parse(input string) (*Test, error) {
 		Get:         sections["GET"],
 		Post:        sections["POST"],
 		Env:         sections["ENV"],
+		Cookie:      sections["COOKIE"],
+		Headers:     sections["HEADERS"],
 	}
 	if exitCode, ok := sections["EXIT_CODE"]; ok && strings.TrimSpace(exitCode) != "" {
 		parsed, err := strconv.Atoi(strings.TrimSpace(exitCode))
@@ -166,9 +172,11 @@ func Run(path string, input string) Result {
 
 func (t *Test) sapiContext() sapiContext {
 	return sapiContext{
-		Get:  parseQuerySection(t.Get),
-		Post: parseQuerySection(t.Post),
-		Env:  parseEnvSection(t.Env),
+		Get:     parseQuerySection(t.Get),
+		Post:    parseQuerySection(t.Post),
+		Env:     parseEnvSection(t.Env),
+		Cookie:  parseCookieSection(t.Cookie),
+		Headers: parseHeadersSection(t.Headers),
 	}
 }
 
@@ -180,25 +188,46 @@ func runPHP(path string, source string, ctx sapiContext) (string, error) {
 	}
 
 	interp := runtime.NewInterpreterWithBaseDir(filepath.Dir(path))
-	installSAPIContext(interp, ctx)
+	installSAPIContext(interp, ctx, path)
 	err := interp.Run(program)
 	return interp.Out.String(), err
 }
 
-func installSAPIContext(interp *runtime.Interpreter, ctx sapiContext) {
+func installSAPIContext(interp *runtime.Interpreter, ctx sapiContext, path string) {
 	get := arrayFromEntries(ctx.Get)
 	post := arrayFromEntries(ctx.Post)
 	env := arrayFromEntries(ctx.Env)
+	cookie := arrayFromEntries(ctx.Cookie)
+	files := runtime.NewArray()
 	request := runtime.NewArray()
 	copyArrayEntries(request, get)
 	copyArrayEntries(request, post)
+	copyArrayEntries(request, cookie)
 
 	server := runtime.NewArray()
 	server.Set(runtime.StringKey("REQUEST_METHOD"), runtime.StringValue(requestMethod(ctx)))
 	server.Set(runtime.StringKey("QUERY_STRING"), runtime.StringValue(encodeValues(ctx.Get)))
+	server.Set(runtime.StringKey("REQUEST_URI"), runtime.StringValue(requestURI(ctx)))
+	server.Set(runtime.StringKey("SCRIPT_FILENAME"), runtime.StringValue(path))
+	server.Set(runtime.StringKey("SCRIPT_NAME"), runtime.StringValue("/"+filepath.Base(path)))
+	server.Set(runtime.StringKey("PHP_SELF"), runtime.StringValue("/"+filepath.Base(path)))
+	server.Set(runtime.StringKey("DOCUMENT_ROOT"), runtime.StringValue(filepath.Dir(path)))
+	server.Set(runtime.StringKey("SERVER_NAME"), runtime.StringValue("localhost"))
+	server.Set(runtime.StringKey("SERVER_PORT"), runtime.StringValue("80"))
+	server.Set(runtime.StringKey("SERVER_PROTOCOL"), runtime.StringValue("HTTP/1.1"))
+	if len(ctx.Post) != 0 {
+		server.Set(runtime.StringKey("CONTENT_TYPE"), runtime.StringValue("application/x-www-form-urlencoded"))
+		server.Set(runtime.StringKey("CONTENT_LENGTH"), runtime.StringValue(strconv.Itoa(len(encodeValues(ctx.Post)))))
+	}
+	if len(ctx.Cookie) != 0 {
+		server.Set(runtime.StringKey("HTTP_COOKIE"), runtime.StringValue(cookieHeader(ctx.Cookie)))
+	}
+	installHeaders(server, ctx.Headers)
 
 	interp.SetGlobal("_GET", runtime.ArrayValue(get))
 	interp.SetGlobal("_POST", runtime.ArrayValue(post))
+	interp.SetGlobal("_COOKIE", runtime.ArrayValue(cookie))
+	interp.SetGlobal("_FILES", runtime.ArrayValue(files))
 	interp.SetGlobal("_REQUEST", runtime.ArrayValue(request))
 	interp.SetGlobal("_ENV", runtime.ArrayValue(env))
 	interp.SetGlobal("_SERVER", runtime.ArrayValue(server))
@@ -209,6 +238,46 @@ func requestMethod(ctx sapiContext) string {
 		return "POST"
 	}
 	return "GET"
+}
+
+func requestURI(ctx sapiContext) string {
+	query := encodeValues(ctx.Get)
+	if query == "" {
+		return "/"
+	}
+	return "/?" + query
+}
+
+func cookieHeader(entries []sapiEntry) string {
+	parts := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		parts = append(parts, entry.Key+"="+entry.Value)
+	}
+	return strings.Join(parts, "; ")
+}
+
+func installHeaders(server *runtime.Array, headers []sapiEntry) {
+	for _, header := range headers {
+		key := serverHeaderKey(header.Key)
+		if key == "" {
+			continue
+		}
+		server.Set(runtime.StringKey(key), runtime.StringValue(header.Value))
+	}
+}
+
+func serverHeaderKey(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	upper := strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
+	switch upper {
+	case "CONTENT_TYPE", "CONTENT_LENGTH":
+		return upper
+	default:
+		return "HTTP_" + upper
+	}
 }
 
 func arrayFromEntries(values []sapiEntry) *runtime.Array {
@@ -245,6 +314,48 @@ func parseQuerySection(section string) []sapiEntry {
 			decodedValue = value
 		}
 		out = append(out, sapiEntry{Key: decodedKey, Value: decodedValue})
+	}
+	return out
+}
+
+func parseCookieSection(section string) []sapiEntry {
+	var out []sapiEntry
+	section = strings.TrimSpace(section)
+	if section == "" {
+		return out
+	}
+	section = strings.ReplaceAll(section, "\n", ";")
+	for _, part := range strings.FieldsFunc(section, func(r rune) bool { return r == ';' || r == '&' }) {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		key, value, _ := strings.Cut(part, "=")
+		decodedKey, err := url.QueryUnescape(strings.TrimSpace(key))
+		if err != nil {
+			decodedKey = strings.TrimSpace(key)
+		}
+		decodedValue, err := url.QueryUnescape(strings.TrimSpace(value))
+		if err != nil {
+			decodedValue = strings.TrimSpace(value)
+		}
+		out = append(out, sapiEntry{Key: decodedKey, Value: decodedValue})
+	}
+	return out
+}
+
+func parseHeadersSection(section string) []sapiEntry {
+	var out []sapiEntry
+	for _, line := range strings.Split(normalizeLineEndings(section), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		key, value, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		out = append(out, sapiEntry{Key: strings.TrimSpace(key), Value: strings.TrimSpace(value)})
 	}
 	return out
 }

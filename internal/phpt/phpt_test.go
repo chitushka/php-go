@@ -181,3 +181,44 @@ a1b2c3
 		t.Fatalf("expected pass, got output=%q expected=%q err=%v", result.Output, result.Expected, result.Err)
 	}
 }
+
+func TestRunExtendedSAPISections(t *testing.T) {
+	input := `--TEST--
+extended sapi sections
+--GET--
+page=1
+--POST--
+action=save
+--COOKIE--
+sid=abc; theme=dark
+--HEADERS--
+Host: example.test
+User-Agent: php-src-go
+Content-Type: text/plain
+--FILE--
+<?php
+echo $_COOKIE['sid'];
+echo ':';
+echo $_COOKIE['theme'];
+echo ':';
+echo $_REQUEST['sid'];
+echo ':';
+echo $_SERVER['HTTP_HOST'];
+echo ':';
+echo $_SERVER['HTTP_USER_AGENT'];
+echo ':';
+echo $_SERVER['CONTENT_TYPE'];
+echo ':';
+echo $_SERVER['HTTP_COOKIE'];
+echo ':';
+echo $_SERVER['REQUEST_URI'];
+echo ':';
+echo count($_FILES);
+--EXPECT--
+abc:dark:abc:example.test:php-src-go:text/plain:sid=abc; theme=dark:/?page=1:0
+`
+	result := phpt.Run("extended_sapi.phpt", input)
+	if !result.Passed {
+		t.Fatalf("expected pass, got output=%q expected=%q err=%v", result.Output, result.Expected, result.Err)
+	}
+}

@@ -25,7 +25,8 @@
 - `instanceof` для классов, родителей и интерфейсов.
 - Magic methods `__get`, `__set`, `__call`, `__toString` для базового property/method overloading и строкового вывода объектов.
 - Исключения: `throw`, `try`, `catch (Exception $e)` и минимальный встроенный `Exception::getMessage()`.
-- PHPT-подобный runner с секциями `--TEST--`, `--FILE--`, `--EXPECT--`, `--EXPECTF--`, `--EXPECTREGEX--`, `--SKIPIF--`, `--INI--`, `--CLEAN--`, `--EXIT_CODE--`, `--GET--`, `--POST--`, `--ENV--`.
+- PHPT-подобный runner с секциями `--TEST--`, `--FILE--`, `--EXPECT--`, `--EXPECTF--`, `--EXPECTREGEX--`, `--SKIPIF--`, `--INI--`, `--CLEAN--`, `--EXIT_CODE--`, `--GET--`, `--POST--`, `--ENV--`, `--COOKIE--`, `--HEADERS--`.
+- SAPI-модель PHPT runner подготавливает `$_GET`, `$_POST`, `$_COOKIE`, `$_FILES`, `$_REQUEST`, `$_ENV`, `$_SERVER` с базовыми request/server/header полями.
 - Runtime со значениями `null`, `bool`, `int`, `float`, `string`, `array`, `object` и таблицей переменных.
 
 ## Запуск
@@ -38,5 +39,5 @@ go run ./cmd/php53test -- tests/phpt
 
 ## Следующие шаги переноса
 
-1. Расширить SAPI-модель раннера: cookies, files, headers и более полная `$_SERVER`.
-2. Добавить дополнительные встроенные функции ядра для совместимости с PHP 5.3 PHPT (`print_r`, `var_dump`, math/date/string helpers).
+1. Добавить дополнительные встроенные функции ядра для совместимости с PHP 5.3 PHPT (`print_r`, `var_dump`, math/date/string helpers).
+2. Расширить SAPI-модель раннера настоящей multipart/files обработкой и response headers.
