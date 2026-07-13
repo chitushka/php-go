@@ -527,3 +527,35 @@ func TestPassByReferenceRequiresVariable(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestBuiltinIssetAndEmpty(t *testing.T) {
+	src := "<?php $items = array('a' => 1, 'b' => null, 'c' => 'x'); if (isset($items['a'])) { echo 'a'; } if (!isset($items['b'])) { echo 'b'; } if (!isset($missing)) { echo 'c'; } if (empty($items['b'])) { echo 'd'; } if (empty(0)) { echo 'e'; } if (!empty($items['c'])) { echo 'f'; }"
+	got := run(t, src)
+	if got != "abcdef" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestBuiltinStringHelpers(t *testing.T) {
+	src := "<?php echo strlen('abcdef'); echo ':'; echo substr('abcdef', 1, 3); echo ':'; echo substr('abcdef', -2); echo ':'; echo strpos('abcdef', 'de'); echo ':'; echo strtoupper('php'); echo ':'; echo strtolower('GO');"
+	got := run(t, src)
+	if got != "6:bcd:ef:3:PHP:go" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestBuiltinArrayHelpers(t *testing.T) {
+	src := "<?php $items = array('a' => 'x', 'b' => 'y'); echo count($items); echo ':'; echo array_key_exists('b', $items); echo ':'; echo in_array('x', $items); echo ':'; echo implode('-', array('a', 'b')); echo ':'; $parts = explode(',', 'x,y,z'); echo count($parts); echo ':'; echo $parts[1];"
+	got := run(t, src)
+	if got != "2:1:1:a-b:3:y" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestBuiltinTypeChecks(t *testing.T) {
+	src := "<?php if (is_array(array(1))) { echo 'a'; } if (is_string('x')) { echo 'b'; } if (is_null($missing)) { echo 'c'; }"
+	got := run(t, src)
+	if got != "abc" {
+		t.Fatalf("got %q", got)
+	}
+}

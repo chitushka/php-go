@@ -14,6 +14,7 @@
 - `foreach ($items as $value)` и `foreach ($items as $key => $value)`.
 - Пользовательские функции: `function name($arg = null, &$ref) { ... }`, вызовы, default parameters, pass-by-reference parameters, локальные frame-ы и `return`.
 - Переменные функций: `global $name` и persistent `static $local = ...`.
+- Встроенные функции ядра: `isset`, `empty`, `count`, `strlen`, `substr`, `strpos`, `strtolower`, `strtoupper`, `array_key_exists`, `in_array`, `implode`, `explode`, базовые `is_*`.
 - Ограниченные `include` и `require` для строковых путей, разрешаемых относительно текущего PHP-файла.
 - Базовые классы: `class`, `extends`, `new`, методы, `__construct`, `$this`, динамические свойства, `$obj->method()`, static methods/properties.
 - Модификаторы `public`, `protected`, `private`, `static` для методов и свойств, включая runtime-проверку доступа.
@@ -36,5 +37,5 @@ go run ./cmd/php53test -- tests/phpt
 
 ## Следующие шаги переноса
 
-1. Добавить больше встроенных функций ядра, необходимых для реальных PHP 5.3 тестов (`isset`, `empty`, `count`, string/array helpers).
-2. Расширить SAPI-модель раннера: cookies, files, headers и более полная `$_SERVER`.
+1. Расширить SAPI-модель раннера: cookies, files, headers и более полная `$_SERVER`.
+2. Добавить дополнительные встроенные функции ядра для совместимости с PHP 5.3 PHPT (`print_r`, `var_dump`, math/date/string helpers).

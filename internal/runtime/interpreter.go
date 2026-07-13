@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"php-src-go/internal/ast"
 	"php-src-go/internal/lexer"
@@ -545,11 +546,239 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 }
 
 func (i *Interpreter) call(c *ast.CallExpr) (Value, error) {
+	if value, ok, err := i.callBuiltin(c); ok || err != nil {
+		return value, err
+	}
 	fn, ok := i.functions[c.Name]
 	if !ok {
 		return NullValue(), fmt.Errorf("undefined function %s", c.Name)
 	}
 	return i.callFunction(fn, c.Args, nil, "")
+}
+
+func (i *Interpreter) callBuiltin(c *ast.CallExpr) (Value, bool, error) {
+	name := strings.ToLower(c.Name)
+	switch name {
+	case "isset":
+		if len(c.Args) == 0 {
+			return NullValue(), true, fmt.Errorf("isset expects at least 1 argument")
+		}
+		for _, arg := range c.Args {
+			value, err := i.eval(arg)
+			if err != nil {
+				return NullValue(), true, err
+			}
+			if value.Kind == Null {
+				return BoolValue(false), true, nil
+			}
+		}
+		return BoolValue(true), true, nil
+	case "empty":
+		args, err := i.evalBuiltinArgs(c, 1, 1)
+		if err != nil {
+			return NullValue(), true, err
+		}
+		return BoolValue(!args[0].Truthy()), true, nil
+	case "count":
+		args, err := i.evalBuiltinArgs(c, 1, 1)
+		if err != nil {
+			return NullValue(), true, err
+		}
+		if args[0].Kind == ArrayKind && args[0].A != nil {
+			return IntValue(int64(len(args[0].A.Entries))), true, nil
+		}
+		if args[0].Kind == Null {
+			return IntValue(0), true, nil
+		}
+		return IntValue(1), true, nil
+	case "strlen":
+		args, err := i.evalBuiltinArgs(c, 1, 1)
+		if err != nil {
+			return NullValue(), true, err
+		}
+		return IntValue(int64(len(args[0].String()))), true, nil
+	case "substr":
+		args, err := i.evalBuiltinArgs(c, 2, 3)
+		if err != nil {
+			return NullValue(), true, err
+		}
+		return builtinSubstr(args), true, nil
+	case "strpos":
+		args, err := i.evalBuiltinArgs(c, 2, 3)
+		if err != nil {
+			return NullValue(), true, err
+		}
+		return builtinStrpos(args), true, nil
+	case "strtolower":
+		args, err := i.evalBuiltinArgs(c, 1, 1)
+		if err != nil {
+			return NullValue(), true, err
+		}
+		return StringValue(strings.ToLower(args[0].String())), true, nil
+	case "strtoupper":
+		args, err := i.evalBuiltinArgs(c, 1, 1)
+		if err != nil {
+			return NullValue(), true, err
+		}
+		return StringValue(strings.ToUpper(args[0].String())), true, nil
+	case "array_key_exists":
+		args, err := i.evalBuiltinArgs(c, 2, 2)
+		if err != nil {
+			return NullValue(), true, err
+		}
+		if args[1].Kind != ArrayKind || args[1].A == nil {
+			return BoolValue(false), true, nil
+		}
+		_, ok := args[1].A.Get(KeyFromValue(args[0]))
+		return BoolValue(ok), true, nil
+	case "in_array":
+		args, err := i.evalBuiltinArgs(c, 2, 2)
+		if err != nil {
+			return NullValue(), true, err
+		}
+		if args[1].Kind != ArrayKind || args[1].A == nil {
+			return BoolValue(false), true, nil
+		}
+		for _, entry := range args[1].A.Entries {
+			if entry.Value.String() == args[0].String() {
+				return BoolValue(true), true, nil
+			}
+		}
+		return BoolValue(false), true, nil
+	case "implode":
+		args, err := i.evalBuiltinArgs(c, 2, 2)
+		if err != nil {
+			return NullValue(), true, err
+		}
+		return builtinImplode(args), true, nil
+	case "explode":
+		args, err := i.evalBuiltinArgs(c, 2, 2)
+		if err != nil {
+			return NullValue(), true, err
+		}
+		return builtinExplode(args), true, nil
+	case "is_array":
+		args, err := i.evalBuiltinArgs(c, 1, 1)
+		if err != nil {
+			return NullValue(), true, err
+		}
+		return BoolValue(args[0].Kind == ArrayKind), true, nil
+	case "is_string":
+		args, err := i.evalBuiltinArgs(c, 1, 1)
+		if err != nil {
+			return NullValue(), true, err
+		}
+		return BoolValue(args[0].Kind == String), true, nil
+	case "is_null":
+		args, err := i.evalBuiltinArgs(c, 1, 1)
+		if err != nil {
+			return NullValue(), true, err
+		}
+		return BoolValue(args[0].Kind == Null), true, nil
+	}
+	return NullValue(), false, nil
+}
+
+func (i *Interpreter) evalBuiltinArgs(c *ast.CallExpr, min int, max int) ([]Value, error) {
+	if len(c.Args) < min || len(c.Args) > max {
+		if min == max {
+			return nil, fmt.Errorf("%s expects %d arguments, got %d", c.Name, min, len(c.Args))
+		}
+		return nil, fmt.Errorf("%s expects between %d and %d arguments, got %d", c.Name, min, max, len(c.Args))
+	}
+	args := make([]Value, 0, len(c.Args))
+	for _, arg := range c.Args {
+		value, err := i.eval(arg)
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, value)
+	}
+	return args, nil
+}
+
+func builtinSubstr(args []Value) Value {
+	s := args[0].String()
+	start := intValue(args[1])
+	if start < 0 {
+		start = len(s) + start
+	}
+	if start < 0 {
+		start = 0
+	}
+	if start > len(s) {
+		return StringValue("")
+	}
+	end := len(s)
+	if len(args) == 3 {
+		length := intValue(args[2])
+		if length < 0 {
+			end = len(s) + length
+		} else {
+			end = start + length
+		}
+	}
+	if end < start {
+		end = start
+	}
+	if end > len(s) {
+		end = len(s)
+	}
+	return StringValue(s[start:end])
+}
+
+func builtinStrpos(args []Value) Value {
+	haystack := args[0].String()
+	needle := args[1].String()
+	offset := 0
+	if len(args) == 3 {
+		offset = intValue(args[2])
+		if offset < 0 {
+			offset = 0
+		}
+	}
+	if offset > len(haystack) {
+		return BoolValue(false)
+	}
+	pos := strings.Index(haystack[offset:], needle)
+	if pos < 0 {
+		return BoolValue(false)
+	}
+	return IntValue(int64(offset + pos))
+}
+
+func builtinImplode(args []Value) Value {
+	glue := args[0].String()
+	if args[1].Kind != ArrayKind || args[1].A == nil {
+		return StringValue("")
+	}
+	parts := make([]string, 0, len(args[1].A.Entries))
+	for _, entry := range args[1].A.Entries {
+		parts = append(parts, entry.Value.String())
+	}
+	return StringValue(strings.Join(parts, glue))
+}
+
+func builtinExplode(args []Value) Value {
+	delimiter := args[0].String()
+	s := args[1].String()
+	arr := NewArray()
+	if delimiter == "" {
+		arr.Append(StringValue(s))
+		return ArrayValue(arr)
+	}
+	for _, part := range strings.Split(s, delimiter) {
+		arr.Append(StringValue(part))
+	}
+	return ArrayValue(arr)
+}
+
+func intValue(value Value) int {
+	number, ok := value.number()
+	if !ok {
+		return 0
+	}
+	return int(number)
 }
 
 func (i *Interpreter) callFunction(fn *ast.FunctionDeclStmt, args []ast.Expr, thisObj *Object, calledClass string) (Value, error) {
