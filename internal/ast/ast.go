@@ -16,9 +16,32 @@ type AssignStmt struct {
 
 func (*AssignStmt) stmtNode() {}
 
+type CompoundAssignStmt struct {
+	Target Expr
+	Op     string
+	Value  Expr
+}
+
+func (*CompoundAssignStmt) stmtNode() {}
+
+type IncDecStmt struct {
+	Target Expr
+	Op     string
+}
+
+func (*IncDecStmt) stmtNode() {}
+
 type EchoStmt struct{ Values []Expr }
 
 func (*EchoStmt) stmtNode() {}
+
+type UnsetStmt struct{ Targets []Expr }
+
+func (*UnsetStmt) stmtNode() {}
+
+type ExitStmt struct{ Value Expr }
+
+func (*ExitStmt) stmtNode() {}
 
 type IfStmt struct {
 	Cond        Expr

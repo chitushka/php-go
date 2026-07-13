@@ -19,7 +19,7 @@ func New(input string) *Lexer {
 }
 
 func (l *Lexer) NextToken() Token {
-	l.skipWhitespace()
+	l.skipIgnored()
 	line, col := l.line, l.column
 	var tok Token
 
@@ -32,7 +32,12 @@ func (l *Lexer) NextToken() Token {
 		} else if l.peekChar() == '=' {
 			ch := l.ch
 			l.readChar()
-			tok = l.token(EQ, string(ch)+string(l.ch), line, col)
+			if l.peekChar() == '=' {
+				l.readChar()
+				tok = l.token(StrictEQ, string(ch)+"==", line, col)
+			} else {
+				tok = l.token(EQ, string(ch)+string(l.ch), line, col)
+			}
 		} else {
 			tok = l.token(Assign, string(l.ch), line, col)
 		}
@@ -40,7 +45,12 @@ func (l *Lexer) NextToken() Token {
 		if l.peekChar() == '=' {
 			ch := l.ch
 			l.readChar()
-			tok = l.token(NotEQ, string(ch)+string(l.ch), line, col)
+			if l.peekChar() == '=' {
+				l.readChar()
+				tok = l.token(StrictNotEQ, string(ch)+"==", line, col)
+			} else {
+				tok = l.token(NotEQ, string(ch)+string(l.ch), line, col)
+			}
 		} else {
 			tok = l.token(Bang, string(l.ch), line, col)
 		}
@@ -49,6 +59,10 @@ func (l *Lexer) NextToken() Token {
 			ch := l.ch
 			l.readChar()
 			tok = l.token(LTE, string(ch)+string(l.ch), line, col)
+		} else if l.peekChar() == '>' {
+			ch := l.ch
+			l.readChar()
+			tok = l.token(NotEQ, string(ch)+string(l.ch), line, col)
 		} else {
 			tok = l.token(LT, string(l.ch), line, col)
 		}
@@ -61,9 +75,25 @@ func (l *Lexer) NextToken() Token {
 			tok = l.token(GT, string(l.ch), line, col)
 		}
 	case '+':
-		tok = l.token(Plus, string(l.ch), line, col)
+		if l.peekChar() == '=' {
+			ch := l.ch
+			l.readChar()
+			tok = l.token(PlusAssign, string(ch)+string(l.ch), line, col)
+		} else if l.peekChar() == '+' {
+			ch := l.ch
+			l.readChar()
+			tok = l.token(Increment, string(ch)+string(l.ch), line, col)
+		} else {
+			tok = l.token(Plus, string(l.ch), line, col)
+		}
 	case '.':
-		tok = l.token(Dot, string(l.ch), line, col)
+		if l.peekChar() == '=' {
+			ch := l.ch
+			l.readChar()
+			tok = l.token(ConcatAssign, string(ch)+string(l.ch), line, col)
+		} else {
+			tok = l.token(Dot, string(l.ch), line, col)
+		}
 	case '&':
 		if l.peekChar() == '&' {
 			ch := l.ch
@@ -85,13 +115,48 @@ func (l *Lexer) NextToken() Token {
 			ch := l.ch
 			l.readChar()
 			tok = l.token(ObjectOp, string(ch)+string(l.ch), line, col)
+		} else if l.peekChar() == '=' {
+			ch := l.ch
+			l.readChar()
+			tok = l.token(MinusAssign, string(ch)+string(l.ch), line, col)
+		} else if l.peekChar() == '-' {
+			ch := l.ch
+			l.readChar()
+			tok = l.token(Decrement, string(ch)+string(l.ch), line, col)
 		} else {
 			tok = l.token(Minus, string(l.ch), line, col)
 		}
 	case '*':
-		tok = l.token(Asterisk, string(l.ch), line, col)
+		if l.peekChar() == '=' {
+			ch := l.ch
+			l.readChar()
+			tok = l.token(MulAssign, string(ch)+string(l.ch), line, col)
+		} else {
+			tok = l.token(Asterisk, string(l.ch), line, col)
+		}
 	case '/':
-		tok = l.token(Slash, string(l.ch), line, col)
+		if l.peekChar() == '=' {
+			ch := l.ch
+			l.readChar()
+			tok = l.token(DivAssign, string(ch)+string(l.ch), line, col)
+		} else {
+			tok = l.token(Slash, string(l.ch), line, col)
+		}
+	case '%':
+		if l.peekChar() == '=' {
+			ch := l.ch
+			l.readChar()
+			tok = l.token(ModAssign, string(ch)+string(l.ch), line, col)
+		} else {
+			tok = l.token(Percent, string(l.ch), line, col)
+		}
+	case '?':
+		if l.peekChar() == '>' {
+			l.readChar()
+			tok = l.token(EOF, "", line, col)
+		} else {
+			tok = l.token(Illegal, string(l.ch), line, col)
+		}
 	case ',':
 		tok = l.token(Comma, string(l.ch), line, col)
 	case ':':
@@ -168,8 +233,42 @@ func (l *Lexer) peekChar() byte {
 	return l.input[l.readPosition]
 }
 
-func (l *Lexer) skipWhitespace() {
-	for l.ch == ' ' || l.ch == '\t' || l.ch == '\r' || l.ch == '\n' {
+func (l *Lexer) skipIgnored() {
+	for {
+		for l.ch == ' ' || l.ch == '\t' || l.ch == '\r' || l.ch == '\n' {
+			l.readChar()
+		}
+		if l.ch == '#' {
+			l.skipLineComment()
+			continue
+		}
+		if l.ch == '/' && l.peekChar() == '/' {
+			l.skipLineComment()
+			continue
+		}
+		if l.ch == '/' && l.peekChar() == '*' {
+			l.skipBlockComment()
+			continue
+		}
+		return
+	}
+}
+
+func (l *Lexer) skipLineComment() {
+	for l.ch != '\n' && l.ch != 0 {
+		l.readChar()
+	}
+}
+
+func (l *Lexer) skipBlockComment() {
+	l.readChar()
+	l.readChar()
+	for l.ch != 0 {
+		if l.ch == '*' && l.peekChar() == '/' {
+			l.readChar()
+			l.readChar()
+			return
+		}
 		l.readChar()
 	}
 }

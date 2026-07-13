@@ -26,6 +26,7 @@ const (
 	Bang            TokenType = "!"
 	Asterisk        TokenType = "*"
 	Slash           TokenType = "/"
+	Percent         TokenType = "%"
 	Ampersand       TokenType = "&"
 	AndAnd          TokenType = "&&"
 	OrOr            TokenType = "||"
@@ -34,8 +35,18 @@ const (
 	GT              TokenType = ">"
 	EQ              TokenType = "=="
 	NotEQ           TokenType = "!="
+	StrictEQ        TokenType = "==="
+	StrictNotEQ     TokenType = "!=="
 	LTE             TokenType = "<="
 	GTE             TokenType = ">="
+	PlusAssign      TokenType = "+="
+	MinusAssign     TokenType = "-="
+	MulAssign       TokenType = "*="
+	DivAssign       TokenType = "/="
+	ConcatAssign    TokenType = ".="
+	ModAssign       TokenType = "%="
+	Increment       TokenType = "++"
+	Decrement       TokenType = "--"
 	DoubleArrow     TokenType = "=>"
 	ScopeResolution TokenType = "::"
 
@@ -50,7 +61,10 @@ const (
 	RBrace    TokenType = "}"
 
 	Echo       TokenType = "ECHO"
+	Print      TokenType = "PRINT"
+	Exit       TokenType = "EXIT"
 	If         TokenType = "IF"
+	ElseIf     TokenType = "ELSEIF"
 	Else       TokenType = "ELSE"
 	While      TokenType = "WHILE"
 	Do         TokenType = "DO"
@@ -66,6 +80,7 @@ const (
 	Function   TokenType = "FUNCTION"
 	Return     TokenType = "RETURN"
 	Global     TokenType = "GLOBAL"
+	Unset      TokenType = "UNSET"
 	Include    TokenType = "INCLUDE"
 	Require    TokenType = "REQUIRE"
 	Class      TokenType = "CLASS"
@@ -93,7 +108,11 @@ const (
 
 var keywords = map[string]TokenType{
 	"echo":       Echo,
+	"print":      Print,
+	"exit":       Exit,
+	"die":        Exit,
 	"if":         If,
+	"elseif":     ElseIf,
 	"else":       Else,
 	"while":      While,
 	"do":         Do,
@@ -109,6 +128,7 @@ var keywords = map[string]TokenType{
 	"function":   Function,
 	"return":     Return,
 	"global":     Global,
+	"unset":      Unset,
 	"include":    Include,
 	"require":    Require,
 	"class":      Class,

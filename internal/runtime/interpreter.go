@@ -109,6 +109,12 @@ type continueSignal struct{}
 
 func (*continueSignal) Error() string { return "continue used outside loop" }
 
+type ExitError struct {
+	Code int
+}
+
+func (*ExitError) Error() string { return "exit" }
+
 type frame struct {
 	vars        map[string]*variableSlot
 	className   string
@@ -145,6 +151,51 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 			return nil, err
 		}
 		i.setVar(n.Name, v)
+	case *ast.CompoundAssignStmt:
+		current, err := i.eval(n.Target)
+		if err != nil {
+			return nil, err
+		}
+		value, err := i.eval(n.Value)
+		if err != nil {
+			return nil, err
+		}
+		var result Value
+		if n.Op == "." {
+			left, err := i.stringify(current)
+			if err != nil {
+				return nil, err
+			}
+			right, err := i.stringify(value)
+			if err != nil {
+				return nil, err
+			}
+			result = StringValue(left + right)
+		} else {
+			result, err = Binary(n.Op, current, value)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if err := i.assignTarget(n.Target, result); err != nil {
+			return nil, err
+		}
+	case *ast.IncDecStmt:
+		current, err := i.eval(n.Target)
+		if err != nil {
+			return nil, err
+		}
+		op := "+"
+		if n.Op == "--" {
+			op = "-"
+		}
+		result, err := Binary(op, current, IntValue(1))
+		if err != nil {
+			return nil, err
+		}
+		if err := i.assignTarget(n.Target, result); err != nil {
+			return nil, err
+		}
 	case *ast.EchoStmt:
 		for _, e := range n.Values {
 			v, err := i.eval(e)
@@ -157,6 +208,30 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 			}
 			i.Out.WriteString(text)
 		}
+	case *ast.UnsetStmt:
+		for _, target := range n.Targets {
+			if err := i.unsetTarget(target); err != nil {
+				return nil, err
+			}
+		}
+	case *ast.ExitStmt:
+		code := 0
+		if n.Value != nil {
+			value, err := i.eval(n.Value)
+			if err != nil {
+				return nil, err
+			}
+			if value.Kind == Int {
+				code = int(value.I)
+			} else {
+				text, err := i.stringify(value)
+				if err != nil {
+					return nil, err
+				}
+				i.Out.WriteString(text)
+			}
+		}
+		return nil, &ExitError{Code: code}
 	case *ast.IfStmt:
 		v, err := i.eval(n.Cond)
 		if err != nil {
@@ -304,44 +379,27 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 			return nil, err
 		}
 	case *ast.PropertyAssignStmt:
-		obj, err := i.eval(n.Object)
-		if err != nil {
-			return nil, err
-		}
-		if obj.Kind != ObjectKind || obj.O == nil {
-			return nil, fmt.Errorf("cannot assign property %s on non-object", n.Property)
-		}
 		value, err := i.eval(n.Value)
 		if err != nil {
 			return nil, err
 		}
-		if err := i.checkPropertyAccess(obj.O, n.Property); err != nil {
-			if i.hasPublicMethod(obj.O, "__set") {
-				_, callErr := i.callMagicSet(obj.O, n.Property, value)
-				return nil, callErr
-			}
+		if err := i.assignTarget(&ast.PropertyFetchExpr{Object: n.Object, Property: n.Property}, value); err != nil {
 			return nil, err
 		}
-		if _, ok := obj.O.Props[n.Property]; !ok && i.shouldUseSet(obj.O) {
-			_, callErr := i.callMagicSet(obj.O, n.Property, value)
-			return nil, callErr
-		}
-		obj.O.Props[n.Property] = value
 	case *ast.StaticPropertyAssignStmt:
 		value, err := i.eval(n.Value)
 		if err != nil {
 			return nil, err
 		}
-		if err := i.checkStaticPropertyAccess(n.ClassName, n.Property); err != nil {
+		if err := i.assignTarget(&ast.StaticPropertyFetchExpr{ClassName: n.ClassName, Property: n.Property}, value); err != nil {
 			return nil, err
 		}
-		i.setStaticProperty(n.ClassName, n.Property, value)
 	case *ast.IndexAssignStmt:
 		value, err := i.eval(n.Value)
 		if err != nil {
 			return nil, err
 		}
-		if err := i.assignIndex(n.Target, value); err != nil {
+		if err := i.assignTarget(n.Target, value); err != nil {
 			return nil, err
 		}
 	case *ast.ThrowStmt:
@@ -1074,6 +1132,91 @@ func (i *Interpreter) assignIndex(target *ast.IndexExpr, value Value) error {
 	return nil
 }
 
+func (i *Interpreter) assignTarget(target ast.Expr, value Value) error {
+	switch n := target.(type) {
+	case *ast.Ident:
+		i.setVar(n.Name, value)
+		return nil
+	case *ast.PropertyFetchExpr:
+		obj, err := i.eval(n.Object)
+		if err != nil {
+			return err
+		}
+		if obj.Kind != ObjectKind || obj.O == nil {
+			return fmt.Errorf("cannot assign property %s on non-object", n.Property)
+		}
+		if err := i.checkPropertyAccess(obj.O, n.Property); err != nil {
+			if i.hasPublicMethod(obj.O, "__set") {
+				_, callErr := i.callMagicSet(obj.O, n.Property, value)
+				return callErr
+			}
+			return err
+		}
+		if _, ok := obj.O.Props[n.Property]; !ok && i.shouldUseSet(obj.O) {
+			_, callErr := i.callMagicSet(obj.O, n.Property, value)
+			return callErr
+		}
+		obj.O.Props[n.Property] = value
+		return nil
+	case *ast.StaticPropertyFetchExpr:
+		if err := i.checkStaticPropertyAccess(n.ClassName, n.Property); err != nil {
+			return err
+		}
+		i.setStaticProperty(n.ClassName, n.Property, value)
+		return nil
+	case *ast.IndexExpr:
+		return i.assignIndex(n, value)
+	default:
+		return fmt.Errorf("expression is not writable")
+	}
+}
+
+func (i *Interpreter) unsetTarget(target ast.Expr) error {
+	switch n := target.(type) {
+	case *ast.Ident:
+		i.deleteVar(n.Name)
+		return nil
+	case *ast.IndexExpr:
+		index, err := i.eval(n.Index)
+		if err != nil {
+			return err
+		}
+		key := KeyFromValue(index)
+		if ident, ok := n.Left.(*ast.Ident); ok {
+			current, exists := i.getVar(ident.Name)
+			if !exists || current.Kind != ArrayKind || current.A == nil {
+				return nil
+			}
+			current.A.Delete(key)
+			return nil
+		}
+		left, err := i.eval(n.Left)
+		if err != nil {
+			return err
+		}
+		if left.Kind == ArrayKind && left.A != nil {
+			left.A.Delete(key)
+		}
+		return nil
+	case *ast.PropertyFetchExpr:
+		obj, err := i.eval(n.Object)
+		if err != nil {
+			return err
+		}
+		if obj.Kind != ObjectKind || obj.O == nil {
+			return nil
+		}
+		if err := i.checkPropertyAccess(obj.O, n.Property); err != nil {
+			return err
+		}
+		delete(obj.O.Props, n.Property)
+		delete(obj.O.PropMeta, n.Property)
+		return nil
+	default:
+		return nil
+	}
+}
+
 func indexOffset(value Value) (int, bool) {
 	switch value.Kind {
 	case Int:
@@ -1685,6 +1828,15 @@ func (i *Interpreter) setVar(name string, v Value) {
 	}
 	slot := i.globalSlot(name)
 	i.setSlot(slot, v)
+}
+
+func (i *Interpreter) deleteVar(name string) {
+	if frame := i.currentFrame(); frame != nil {
+		delete(frame, name)
+		return
+	}
+	delete(i.globals, name)
+	delete(i.Vars, name)
 }
 
 func (i *Interpreter) SetGlobal(name string, value Value) {

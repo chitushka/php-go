@@ -101,7 +101,7 @@ func (v Value) number() (float64, bool) {
 
 func Binary(op string, a, b Value) (Value, error) {
 	switch op {
-	case "+", "-", "*", "/":
+	case "+", "-", "*", "/", "%":
 		na, oka := a.number()
 		nb, okb := b.number()
 		if !oka || !okb {
@@ -119,11 +119,20 @@ func Binary(op string, a, b Value) (Value, error) {
 				return NullValue(), fmt.Errorf("division by zero")
 			}
 			return FloatValue(na / nb), nil
+		case "%":
+			if nb == 0 {
+				return NullValue(), fmt.Errorf("division by zero")
+			}
+			return IntValue(int64(na) % int64(nb)), nil
 		}
 	case "==":
 		return BoolValue(a.String() == b.String()), nil
-	case "!=":
+	case "!=", "<>":
 		return BoolValue(a.String() != b.String()), nil
+	case "===":
+		return BoolValue(strictEqual(a, b)), nil
+	case "!==":
+		return BoolValue(!strictEqual(a, b)), nil
 	case "<", ">", "<=", ">=":
 		na, oka := a.number()
 		nb, okb := b.number()
@@ -142,6 +151,30 @@ func Binary(op string, a, b Value) (Value, error) {
 		}
 	}
 	return NullValue(), fmt.Errorf("unsupported operator %s", op)
+}
+
+func strictEqual(a, b Value) bool {
+	if a.Kind != b.Kind {
+		return false
+	}
+	switch a.Kind {
+	case Null:
+		return true
+	case Bool:
+		return a.B == b.B
+	case Int:
+		return a.I == b.I
+	case Float:
+		return a.F == b.F
+	case String:
+		return a.S == b.S
+	case ArrayKind:
+		return a.A == b.A
+	case ObjectKind:
+		return a.O == b.O
+	default:
+		return false
+	}
 }
 
 func numericResult(v float64) (Value, error) {

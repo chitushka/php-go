@@ -66,6 +66,19 @@ func (a *Array) Get(key ArrayKey) (Value, bool) {
 	return NullValue(), false
 }
 
+func (a *Array) Delete(key ArrayKey) {
+	id := key.identity()
+	pos, ok := a.index[id]
+	if !ok {
+		return
+	}
+	delete(a.index, id)
+	a.Entries = append(a.Entries[:pos], a.Entries[pos+1:]...)
+	for idx := pos; idx < len(a.Entries); idx++ {
+		a.index[a.Entries[idx].Key.identity()] = idx
+	}
+}
+
 func KeyFromValue(v Value) ArrayKey {
 	switch v.Kind {
 	case Int:

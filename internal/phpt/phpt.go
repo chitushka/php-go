@@ -164,8 +164,13 @@ func Run(path string, input string) Result {
 	output, err := runPHP(path, test.File, ctx)
 	exitCode := 0
 	if err != nil {
-		output += err.Error()
-		exitCode = 1
+		if exitErr, ok := err.(*runtime.ExitError); ok {
+			exitCode = exitErr.Code
+			err = nil
+		} else {
+			output += err.Error()
+			exitCode = 1
+		}
 	}
 	expected := test.Expect
 	passed := false

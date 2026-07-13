@@ -24,10 +24,11 @@ var precedences = map[lexer.TokenType]int{
 	lexer.OrOr:   logicalOr,
 	lexer.AndAnd: logicalAnd,
 	lexer.EQ:     equals, lexer.NotEQ: equals,
+	lexer.StrictEQ: equals, lexer.StrictNotEQ: equals,
 	lexer.LT: lessGreater, lexer.GT: lessGreater, lexer.LTE: lessGreater, lexer.GTE: lessGreater,
 	lexer.InstanceOf: lessGreater,
 	lexer.Plus:       sum, lexer.Minus: sum, lexer.Dot: sum,
-	lexer.Asterisk: product, lexer.Slash: product,
+	lexer.Asterisk: product, lexer.Slash: product, lexer.Percent: product,
 }
 
 type Parser struct {
@@ -59,12 +60,23 @@ func (p *Parser) ParseProgram() *ast.Program {
 func (p *Parser) parseStatement() ast.Stmt {
 	switch p.cur.Type {
 	case lexer.Var:
-		if p.peek.Type == lexer.Assign {
+		if p.peek.Type == lexer.Assign || isCompoundAssignOp(p.peek.Type) {
 			return p.parseAssign()
 		}
+		if p.peek.Type == lexer.Increment || p.peek.Type == lexer.Decrement {
+			return p.parseIncDecStmt()
+		}
 		return p.parseExprOrPropertyAssign()
+	case lexer.Increment, lexer.Decrement:
+		return p.parsePrefixIncDecStmt()
 	case lexer.Echo:
 		return p.parseEcho()
+	case lexer.Print:
+		return p.parsePrint()
+	case lexer.Exit:
+		return p.parseExit()
+	case lexer.Unset:
+		return p.parseUnset()
 	case lexer.If:
 		return p.parseIf()
 	case lexer.While:
@@ -124,10 +136,32 @@ func (p *Parser) parseStatement() ast.Stmt {
 func (p *Parser) parseAssign() ast.Stmt {
 	name := p.cur.Literal
 	p.next()
+	op := p.cur.Type
 	p.next()
 	value := p.parseExpression(lowest)
 	p.consumeSemi()
+	if isCompoundAssignOp(op) {
+		return &ast.CompoundAssignStmt{Target: &ast.Ident{Name: name}, Op: compoundBinaryOp(op), Value: value}
+	}
 	return &ast.AssignStmt{Name: name, Value: value}
+}
+
+func (p *Parser) parseIncDecStmt() ast.Stmt {
+	target := &ast.Ident{Name: p.cur.Literal}
+	p.next()
+	op := p.cur.Literal
+	p.consumeSemi()
+	return &ast.IncDecStmt{Target: target, Op: op}
+}
+
+func (p *Parser) parsePrefixIncDecStmt() ast.Stmt {
+	op := p.cur.Literal
+	if !p.expectPeek(lexer.Var) {
+		return nil
+	}
+	target := &ast.Ident{Name: p.cur.Literal}
+	p.consumeSemi()
+	return &ast.IncDecStmt{Target: target, Op: op}
 }
 
 func (p *Parser) parseEcho() ast.Stmt {
@@ -139,6 +173,59 @@ func (p *Parser) parseEcho() ast.Stmt {
 		p.next()
 		stmt.Values = append(stmt.Values, p.parseExpression(lowest))
 	}
+	p.consumeSemi()
+	return stmt
+}
+
+func (p *Parser) parsePrint() ast.Stmt {
+	stmt := &ast.EchoStmt{}
+	p.next()
+	stmt.Values = append(stmt.Values, p.parseExpression(lowest))
+	p.consumeSemi()
+	return stmt
+}
+
+func (p *Parser) parseExit() ast.Stmt {
+	stmt := &ast.ExitStmt{}
+	if p.peek.Type == lexer.Semicolon {
+		p.next()
+		return stmt
+	}
+	if p.peek.Type == lexer.LParen {
+		p.next()
+		if p.peek.Type == lexer.RParen {
+			p.next()
+			p.consumeSemi()
+			return stmt
+		}
+		p.next()
+		stmt.Value = p.parseExpression(lowest)
+		if !p.expectPeek(lexer.RParen) {
+			return stmt
+		}
+		p.consumeSemi()
+		return stmt
+	}
+	p.next()
+	stmt.Value = p.parseExpression(lowest)
+	p.consumeSemi()
+	return stmt
+}
+
+func (p *Parser) parseUnset() ast.Stmt {
+	stmt := &ast.UnsetStmt{}
+	if !p.expectPeek(lexer.LParen) {
+		return stmt
+	}
+	for {
+		p.next()
+		stmt.Targets = append(stmt.Targets, p.parseExpression(lowest))
+		if p.peek.Type != lexer.Comma {
+			break
+		}
+		p.next()
+	}
+	p.expectPeek(lexer.RParen)
 	p.consumeSemi()
 	return stmt
 }
@@ -157,12 +244,26 @@ func (p *Parser) parseIf() ast.Stmt {
 	}
 	cons := p.parseBlock().(*ast.BlockStmt)
 	var alt *ast.BlockStmt
-	if p.peek.Type == lexer.Else {
+	if p.peek.Type == lexer.ElseIf {
 		p.next()
-		if !p.expectPeek(lexer.LBrace) {
-			return nil
+		nested := p.parseIf()
+		if nested != nil {
+			alt = &ast.BlockStmt{Statements: []ast.Stmt{nested}}
 		}
-		alt = p.parseBlock().(*ast.BlockStmt)
+	} else if p.peek.Type == lexer.Else {
+		p.next()
+		if p.peek.Type == lexer.If {
+			p.next()
+			nested := p.parseIf()
+			if nested != nil {
+				alt = &ast.BlockStmt{Statements: []ast.Stmt{nested}}
+			}
+		} else {
+			if !p.expectPeek(lexer.LBrace) {
+				return nil
+			}
+			alt = p.parseBlock().(*ast.BlockStmt)
+		}
 	}
 	return &ast.IfStmt{Cond: cond, Consequence: cons, Alternative: alt}
 }
@@ -245,17 +346,36 @@ func (p *Parser) parseFor() ast.Stmt {
 }
 
 func (p *Parser) parseForClauseStmt() ast.Stmt {
-	if p.cur.Type == lexer.Var && p.peek.Type == lexer.Assign {
+	if p.cur.Type == lexer.Var && (p.peek.Type == lexer.Assign || isCompoundAssignOp(p.peek.Type)) {
 		name := p.cur.Literal
 		p.next()
-		p.next()
-		return &ast.AssignStmt{Name: name, Value: p.parseExpression(lowest)}
-	}
-	expr := p.parseExpression(lowest)
-	if p.peek.Type == lexer.Assign {
-		p.next()
+		op := p.cur.Type
 		p.next()
 		value := p.parseExpression(lowest)
+		if isCompoundAssignOp(op) {
+			return &ast.CompoundAssignStmt{Target: &ast.Ident{Name: name}, Op: compoundBinaryOp(op), Value: value}
+		}
+		return &ast.AssignStmt{Name: name, Value: value}
+	}
+	if p.cur.Type == lexer.Var && (p.peek.Type == lexer.Increment || p.peek.Type == lexer.Decrement) {
+		target := &ast.Ident{Name: p.cur.Literal}
+		p.next()
+		return &ast.IncDecStmt{Target: target, Op: p.cur.Literal}
+	}
+	if (p.cur.Type == lexer.Increment || p.cur.Type == lexer.Decrement) && p.peek.Type == lexer.Var {
+		op := p.cur.Literal
+		p.next()
+		return &ast.IncDecStmt{Target: &ast.Ident{Name: p.cur.Literal}, Op: op}
+	}
+	expr := p.parseExpression(lowest)
+	if p.peek.Type == lexer.Assign || isCompoundAssignOp(p.peek.Type) {
+		p.next()
+		op := p.cur.Type
+		p.next()
+		value := p.parseExpression(lowest)
+		if isCompoundAssignOp(op) {
+			return &ast.CompoundAssignStmt{Target: expr, Op: compoundBinaryOp(op), Value: value}
+		}
 		switch target := expr.(type) {
 		case *ast.PropertyFetchExpr:
 			return &ast.PropertyAssignStmt{Object: target.Object, Property: target.Property, Value: value}
@@ -686,11 +806,15 @@ func (p *Parser) parseTryCatch() ast.Stmt {
 
 func (p *Parser) parseExprOrPropertyAssign() ast.Stmt {
 	expr := p.parseExpression(lowest)
-	if p.peek.Type == lexer.Assign {
+	if p.peek.Type == lexer.Assign || isCompoundAssignOp(p.peek.Type) {
 		p.next()
+		op := p.cur.Type
 		p.next()
 		value := p.parseExpression(lowest)
 		p.consumeSemi()
+		if isCompoundAssignOp(op) {
+			return &ast.CompoundAssignStmt{Target: expr, Op: compoundBinaryOp(op), Value: value}
+		}
 		switch target := expr.(type) {
 		case *ast.PropertyFetchExpr:
 			return &ast.PropertyAssignStmt{Object: target.Object, Property: target.Property, Value: value}
@@ -702,6 +826,12 @@ func (p *Parser) parseExprOrPropertyAssign() ast.Stmt {
 			p.errors = append(p.errors, "only variables, object properties and indexes can be assigned")
 			return &ast.ExprStmt{Expr: expr}
 		}
+	}
+	if p.peek.Type == lexer.Increment || p.peek.Type == lexer.Decrement {
+		p.next()
+		op := p.cur.Literal
+		p.consumeSemi()
+		return &ast.IncDecStmt{Target: expr, Op: op}
 	}
 	p.consumeSemi()
 	return &ast.ExprStmt{Expr: expr}
@@ -989,4 +1119,32 @@ func (p *Parser) curPrecedence() int {
 		return p
 	}
 	return lowest
+}
+
+func isCompoundAssignOp(t lexer.TokenType) bool {
+	switch t {
+	case lexer.PlusAssign, lexer.MinusAssign, lexer.MulAssign, lexer.DivAssign, lexer.ConcatAssign, lexer.ModAssign:
+		return true
+	default:
+		return false
+	}
+}
+
+func compoundBinaryOp(t lexer.TokenType) string {
+	switch t {
+	case lexer.PlusAssign:
+		return "+"
+	case lexer.MinusAssign:
+		return "-"
+	case lexer.MulAssign:
+		return "*"
+	case lexer.DivAssign:
+		return "/"
+	case lexer.ConcatAssign:
+		return "."
+	case lexer.ModAssign:
+		return "%"
+	default:
+		return ""
+	}
 }
