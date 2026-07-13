@@ -26,7 +26,8 @@
 - Magic methods `__get`, `__set`, `__call`, `__toString` для базового property/method overloading и строкового вывода объектов.
 - Исключения: `throw`, `try`, `catch (Exception $e)` и минимальный встроенный `Exception::getMessage()`.
 - PHPT-подобный runner с секциями `--TEST--`, `--FILE--`, `--EXPECT--`, `--EXPECTF--`, `--EXPECTREGEX--`, `--SKIPIF--`, `--INI--`, `--CLEAN--`, `--EXIT_CODE--`, `--GET--`, `--POST--`, `--ENV--`, `--COOKIE--`, `--HEADERS--`.
-- SAPI-модель PHPT runner подготавливает `$_GET`, `$_POST`, `$_COOKIE`, `$_FILES`, `$_REQUEST`, `$_ENV`, `$_SERVER` с базовыми request/server/header полями.
+- SAPI-модель PHPT runner подготавливает `$_GET`, `$_POST`, `$_COOKIE`, `$_FILES`, `$_REQUEST`, `$_ENV`, `$_SERVER` с базовыми request/server/header полями; `--FILES--` использует строки `field.property=value`.
+- Response headers: runtime поддерживает `header()` и `headers_list()`.
 - Runtime со значениями `null`, `bool`, `int`, `float`, `string`, `array`, `object` и таблицей переменных.
 
 ## Запуск
@@ -39,5 +40,5 @@ go run ./cmd/php53test -- tests/phpt
 
 ## Следующие шаги переноса
 
-1. Расширить SAPI-модель раннера настоящей multipart/files обработкой и response headers.
-2. Добавить дополнительные встроенные функции ядра для совместимости с PHP 5.3 PHPT (filesystem, regex, serialization helpers).
+1. Добавить дополнительные встроенные функции ядра для совместимости с PHP 5.3 PHPT (filesystem, regex, serialization helpers).
+2. Расширить SAPI-модель раннера настоящим multipart parser и обработкой uploaded temp files.

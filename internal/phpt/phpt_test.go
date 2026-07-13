@@ -222,3 +222,32 @@ abc:dark:abc:example.test:php-src-go:text/plain:sid=abc; theme=dark:/?page=1:0
 		t.Fatalf("expected pass, got output=%q expected=%q err=%v", result.Output, result.Expected, result.Err)
 	}
 }
+
+func TestRunFilesSection(t *testing.T) {
+	input := `--TEST--
+files section
+--FILES--
+avatar.name=hello.txt
+avatar.type=text/plain
+avatar.tmp_name=/tmp/php123
+avatar.error=0
+avatar.size=5
+--FILE--
+<?php
+echo $_FILES['avatar']['name'];
+echo ':';
+echo $_FILES['avatar']['type'];
+echo ':';
+echo $_FILES['avatar']['tmp_name'];
+echo ':';
+echo $_FILES['avatar']['error'];
+echo ':';
+echo $_FILES['avatar']['size'];
+--EXPECT--
+hello.txt:text/plain:/tmp/php123:0:5
+`
+	result := phpt.Run("files.phpt", input)
+	if !result.Passed {
+		t.Fatalf("expected pass, got output=%q expected=%q err=%v", result.Output, result.Expected, result.Err)
+	}
+}

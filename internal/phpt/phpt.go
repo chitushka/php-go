@@ -27,6 +27,7 @@ type Test struct {
 	Env         string
 	Cookie      string
 	Headers     string
+	Files       string
 	ExitCode    int
 	HasExitCode bool
 }
@@ -37,11 +38,17 @@ type sapiContext struct {
 	Env     []sapiEntry
 	Cookie  []sapiEntry
 	Headers []sapiEntry
+	Files   []sapiFile
 }
 
 type sapiEntry struct {
 	Key   string
 	Value string
+}
+
+type sapiFile struct {
+	Field string
+	Props []sapiEntry
 }
 
 type Result struct {
@@ -95,6 +102,7 @@ func Parse(input string) (*Test, error) {
 		Env:         sections["ENV"],
 		Cookie:      sections["COOKIE"],
 		Headers:     sections["HEADERS"],
+		Files:       sections["FILES"],
 	}
 	if exitCode, ok := sections["EXIT_CODE"]; ok && strings.TrimSpace(exitCode) != "" {
 		parsed, err := strconv.Atoi(strings.TrimSpace(exitCode))
@@ -177,6 +185,7 @@ func (t *Test) sapiContext() sapiContext {
 		Env:     parseEnvSection(t.Env),
 		Cookie:  parseCookieSection(t.Cookie),
 		Headers: parseHeadersSection(t.Headers),
+		Files:   parseFilesSection(t.Files),
 	}
 }
 
@@ -198,7 +207,7 @@ func installSAPIContext(interp *runtime.Interpreter, ctx sapiContext, path strin
 	post := arrayFromEntries(ctx.Post)
 	env := arrayFromEntries(ctx.Env)
 	cookie := arrayFromEntries(ctx.Cookie)
-	files := runtime.NewArray()
+	files := filesArray(ctx.Files)
 	request := runtime.NewArray()
 	copyArrayEntries(request, get)
 	copyArrayEntries(request, post)
@@ -288,6 +297,29 @@ func arrayFromEntries(values []sapiEntry) *runtime.Array {
 	return arr
 }
 
+func filesArray(files []sapiFile) *runtime.Array {
+	arr := runtime.NewArray()
+	for _, file := range files {
+		fileArr := runtime.NewArray()
+		for _, prop := range file.Props {
+			fileArr.Set(runtime.StringKey(prop.Key), fileValue(prop.Key, prop.Value))
+		}
+		arr.Set(runtime.StringKey(file.Field), runtime.ArrayValue(fileArr))
+	}
+	return arr
+}
+
+func fileValue(key string, value string) runtime.Value {
+	switch key {
+	case "size", "error":
+		parsed, err := strconv.ParseInt(value, 10, 64)
+		if err == nil {
+			return runtime.IntValue(parsed)
+		}
+	}
+	return runtime.StringValue(value)
+}
+
 func copyArrayEntries(dst *runtime.Array, src *runtime.Array) {
 	for _, entry := range src.Entries {
 		dst.Set(entry.Key, entry.Value)
@@ -356,6 +388,34 @@ func parseHeadersSection(section string) []sapiEntry {
 			continue
 		}
 		out = append(out, sapiEntry{Key: strings.TrimSpace(key), Value: strings.TrimSpace(value)})
+	}
+	return out
+}
+
+func parseFilesSection(section string) []sapiFile {
+	files := map[string][]sapiEntry{}
+	var order []string
+	for _, line := range strings.Split(normalizeLineEndings(section), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		field, prop, ok := strings.Cut(strings.TrimSpace(key), ".")
+		if !ok || field == "" || prop == "" {
+			continue
+		}
+		if _, exists := files[field]; !exists {
+			order = append(order, field)
+		}
+		files[field] = append(files[field], sapiEntry{Key: strings.TrimSpace(prop), Value: strings.TrimSpace(value)})
+	}
+	out := make([]sapiFile, 0, len(order))
+	for _, field := range order {
+		out = append(out, sapiFile{Field: field, Props: files[field]})
 	}
 	return out
 }

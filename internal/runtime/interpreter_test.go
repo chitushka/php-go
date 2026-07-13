@@ -576,3 +576,11 @@ func TestOutputBuiltinsFromInterpreter(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestHeaderAndHeadersList(t *testing.T) {
+	src := "<?php header('X-Test: one'); header('X-Test: two'); header('X-Trace: a', false); foreach (headers_list() as $header) { echo $header; echo '|'; }"
+	got := run(t, src)
+	if got != "X-Test: two|X-Trace: a|" {
+		t.Fatalf("got %q", got)
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"php-src-go/internal/ast"
 	"php-src-go/internal/lexer"
@@ -13,19 +14,20 @@ import (
 )
 
 type Interpreter struct {
-	Vars       map[string]Value
-	globals    map[string]*variableSlot
-	functions  map[string]*ast.FunctionDeclStmt
-	classes    map[string]*ast.ClassDeclStmt
-	interfaces map[string]*ast.InterfaceDeclStmt
-	constants  map[string]map[string]Value
-	staticVars map[string]map[string]*variableSlot
-	statics    map[string]map[string]Value
-	staticMeta map[string]map[string]PropertyMeta
-	frames     []frame
-	baseDir    string
-	dirStack   []string
-	Out        bytes.Buffer
+	Vars            map[string]Value
+	globals         map[string]*variableSlot
+	functions       map[string]*ast.FunctionDeclStmt
+	classes         map[string]*ast.ClassDeclStmt
+	interfaces      map[string]*ast.InterfaceDeclStmt
+	constants       map[string]map[string]Value
+	staticVars      map[string]map[string]*variableSlot
+	statics         map[string]map[string]Value
+	staticMeta      map[string]map[string]PropertyMeta
+	frames          []frame
+	responseHeaders []string
+	baseDir         string
+	dirStack        []string
+	Out             bytes.Buffer
 }
 
 func NewInterpreter() *Interpreter {
@@ -558,12 +560,17 @@ func (i *Interpreter) call(c *ast.CallExpr) (Value, error) {
 
 func (i *Interpreter) callBuiltin(c *ast.CallExpr) (Value, bool, error) {
 	args := make([]builtins.Value, 0, len(c.Args))
+	runtimeArgs := make([]Value, 0, len(c.Args))
 	for _, arg := range c.Args {
 		value, err := i.eval(arg)
 		if err != nil {
 			return NullValue(), true, err
 		}
+		runtimeArgs = append(runtimeArgs, value)
 		args = append(args, toBuiltinValue(value))
+	}
+	if value, ok, err := i.callSAPIBuiltin(c.Name, runtimeArgs); ok || err != nil {
+		return value, ok, err
 	}
 	if value, output, ok, err := builtins.CallWithOutput(c.Name, args); ok || err != nil {
 		if output != "" {
@@ -579,6 +586,59 @@ func (i *Interpreter) callBuiltin(c *ast.CallExpr) (Value, bool, error) {
 		return NullValue(), ok, err
 	}
 	return fromBuiltinValue(value), true, nil
+}
+
+func (i *Interpreter) callSAPIBuiltin(name string, args []Value) (Value, bool, error) {
+	switch strings.ToLower(name) {
+	case "header":
+		if len(args) < 1 || len(args) > 2 {
+			return NullValue(), true, fmt.Errorf("header expects between 1 and 2 arguments, got %d", len(args))
+		}
+		replace := true
+		if len(args) == 2 {
+			replace = args[1].Truthy()
+		}
+		i.addResponseHeader(args[0].String(), replace)
+		return NullValue(), true, nil
+	case "headers_list":
+		if len(args) != 0 {
+			return NullValue(), true, fmt.Errorf("headers_list expects 0 arguments, got %d", len(args))
+		}
+		arr := NewArray()
+		for _, header := range i.responseHeaders {
+			arr.Append(StringValue(header))
+		}
+		return ArrayValue(arr), true, nil
+	default:
+		return NullValue(), false, nil
+	}
+}
+
+func (i *Interpreter) addResponseHeader(header string, replace bool) {
+	header = strings.TrimSpace(header)
+	if header == "" {
+		return
+	}
+	if replace {
+		name := responseHeaderName(header)
+		if name != "" {
+			for idx, existing := range i.responseHeaders {
+				if strings.EqualFold(responseHeaderName(existing), name) {
+					i.responseHeaders[idx] = header
+					return
+				}
+			}
+		}
+	}
+	i.responseHeaders = append(i.responseHeaders, header)
+}
+
+func responseHeaderName(header string) string {
+	name, _, ok := strings.Cut(header, ":")
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(name)
 }
 
 func toBuiltinValue(value Value) builtins.Value {
