@@ -17,6 +17,21 @@ Content-Disposition: form-data; name="docs[]"; filename="b.txt"
 Content-Type: text/plain
 
 bb
+--php-src-go-upload
+Content-Disposition: form-data; name="gallery[group][]"; filename="nested-a.txt"
+Content-Type: text/plain
+
+aaa
+--php-src-go-upload
+Content-Disposition: form-data; name="gallery[group][]"; filename="nested-b.txt"
+Content-Type: text/plain
+
+bbbb
+--php-src-go-upload
+Content-Disposition: form-data; name="gallery[avatar][front]"; filename="front.txt"
+Content-Type: text/plain
+
+front
 --php-src-go-upload--
 --FILE--
 <?php
@@ -38,8 +53,20 @@ echo ':';
 echo $_FILES['docs']['name'][1];
 echo ':';
 echo $_FILES['docs']['size'][1];
+echo ':';
+echo $_FILES['gallery']['name']['group'][0];
+echo ':';
+echo $_FILES['gallery']['size']['group'][0];
+echo ':';
+echo $_FILES['gallery']['name']['group'][1];
+echo ':';
+echo $_FILES['gallery']['size']['group'][1];
+echo ':';
+echo $_FILES['gallery']['name']['avatar']['front'];
+echo ':';
+echo $_FILES['gallery']['size']['avatar']['front'];
 --CLEAN--
 <?php
 unlink('tests/phpt/upload_moved.tmp');
 --EXPECT--
-1:hello:1::hello:a.txt:1:b.txt:2
+1:hello:1::hello:a.txt:1:b.txt:2:nested-a.txt:3:nested-b.txt:4:front.txt:5

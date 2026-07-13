@@ -292,3 +292,272 @@ POST:multipart/form-data; boundary=php-src-go:hello:hello.txt:text/plain:1:0:5
 		t.Fatalf("expected pass, got output=%q expected=%q err=%v", result.Output, result.Expected, result.Err)
 	}
 }
+
+func TestRunPostRawNestedMultipart(t *testing.T) {
+	input := `--TEST--
+nested post raw multipart
+--POST_RAW--
+Content-Type: multipart/form-data; boundary=php-src-go
+--php-src-go
+Content-Disposition: form-data; name="gallery[group][]"; filename="a.txt"
+Content-Type: text/plain
+
+a
+--php-src-go
+Content-Disposition: form-data; name="gallery[group][]"; filename="b.txt"
+Content-Type: text/plain
+
+bb
+--php-src-go
+Content-Disposition: form-data; name="gallery[avatar][front]"; filename="front.txt"
+Content-Type: text/plain
+
+front
+--php-src-go--
+--FILE--
+<?php
+echo $_FILES['gallery']['name']['group'][0];
+echo ':';
+echo $_FILES['gallery']['size']['group'][0];
+echo ':';
+echo $_FILES['gallery']['name']['group'][1];
+echo ':';
+echo $_FILES['gallery']['size']['group'][1];
+echo ':';
+echo $_FILES['gallery']['name']['avatar']['front'];
+echo ':';
+echo $_FILES['gallery']['size']['avatar']['front'];
+--EXPECT--
+a.txt:1:b.txt:2:front.txt:5
+`
+	result := phpt.Run("nested_multipart.phpt", input)
+	if !result.Passed {
+		t.Fatalf("expected pass, got output=%q expected=%q err=%v", result.Output, result.Expected, result.Err)
+	}
+}
+
+func TestRunPostMaxSizeSkipsRequestBody(t *testing.T) {
+	input := `--TEST--
+post max size
+--INI--
+post_max_size=8
+--POST_RAW--
+Content-Type: multipart/form-data; boundary=php-src-go
+--php-src-go
+Content-Disposition: form-data; name="title"
+
+hello
+--php-src-go--
+--FILE--
+<?php
+echo $_SERVER['REQUEST_METHOD'];
+echo ':';
+echo $_SERVER['CONTENT_LENGTH'];
+echo ':';
+echo count($_POST);
+echo ':';
+echo count($_FILES);
+--EXPECT--
+POST:79:0:0
+`
+	result := phpt.Run("post_max_size.phpt", input)
+	if !result.Passed {
+		t.Fatalf("expected pass, got output=%q expected=%q err=%v", result.Output, result.Expected, result.Err)
+	}
+}
+
+func TestRunUploadLimitsAndRFC1867Edges(t *testing.T) {
+	input := `--TEST--
+upload limits and rfc1867 edges
+--INI--
+upload_max_filesize=3
+max_file_uploads=3
+--POST_RAW--
+Content-Type: multipart/form-data; boundary=php-src-go
+--php-src-go
+Content-Disposition: form-data; name="MAX_FILE_SIZE"
+
+2
+--php-src-go
+Content-Disposition: form-data; name="ok"; filename="ok.txt"
+Content-Type: text/plain
+
+aa
+--php-src-go
+Content-Disposition: form-data; name="formbig"; filename="form.txt"
+Content-Type: text/plain
+
+aaa
+--php-src-go
+Content-Disposition: form-data; name="inibig"; filename="ini.txt"
+Content-Type: text/plain
+
+aaaa
+--php-src-go
+Content-Disposition: form-data; name="empty"; filename=""
+Content-Type: text/plain
+
+--php-src-go
+Content-Disposition: form-data; name="ignored"; filename="ignored.txt"
+Content-Type: text/plain
+
+x
+--php-src-go--
+--FILE--
+<?php
+echo $_FILES['ok']['size'];
+echo ':';
+echo $_FILES['ok']['error'];
+echo ':';
+echo is_uploaded_file($_FILES['ok']['tmp_name']);
+echo ':';
+echo $_FILES['formbig']['error'];
+echo ':';
+echo $_FILES['formbig']['tmp_name'];
+echo ':';
+echo $_FILES['formbig']['size'];
+echo ':';
+echo $_FILES['inibig']['error'];
+echo ':';
+echo $_FILES['inibig']['size'];
+echo ':';
+echo $_FILES['empty']['error'];
+echo ':';
+echo $_FILES['empty']['name'];
+echo ':';
+echo $_FILES['empty']['size'];
+echo ':';
+echo count($_FILES);
+--EXPECT--
+2:0:1:2::3:1:4:4::0:4
+`
+	result := phpt.Run("upload_limits.phpt", input)
+	if !result.Passed {
+		t.Fatalf("expected pass, got output=%q expected=%q err=%v", result.Output, result.Expected, result.Err)
+	}
+}
+
+func TestRunFileUploadsOffKeepsPostFields(t *testing.T) {
+	input := `--TEST--
+file uploads off
+--INI--
+file_uploads=0
+--POST_RAW--
+Content-Type: multipart/form-data; boundary=php-src-go
+--php-src-go
+Content-Disposition: form-data; name="title"
+
+hello
+--php-src-go
+Content-Disposition: form-data; name="avatar"; filename="hello.txt"
+Content-Type: text/plain
+
+abc
+--php-src-go--
+--FILE--
+<?php
+echo $_POST['title'];
+echo ':';
+echo count($_FILES);
+--EXPECT--
+hello:0
+`
+	result := phpt.Run("file_uploads_off.phpt", input)
+	if !result.Passed {
+		t.Fatalf("expected pass, got output=%q expected=%q err=%v", result.Output, result.Expected, result.Err)
+	}
+}
+
+func TestRunUploadTmpDirFailure(t *testing.T) {
+	input := `--TEST--
+upload tmp dir failure
+--INI--
+upload_tmp_dir=/php-src-go-missing-upload-tmp
+--POST_RAW--
+Content-Type: multipart/form-data; boundary=php-src-go
+--php-src-go
+Content-Disposition: form-data; name="avatar"; filename="hello.txt"
+Content-Type: text/plain
+
+abc
+--php-src-go--
+--FILE--
+<?php
+echo $_FILES['avatar']['error'];
+echo ':';
+echo $_FILES['avatar']['tmp_name'];
+echo ':';
+echo is_uploaded_file($_FILES['avatar']['tmp_name']);
+--EXPECT--
+6::
+`
+	result := phpt.Run("upload_tmp_dir_failure.phpt", input)
+	if !result.Passed {
+		t.Fatalf("expected pass, got output=%q expected=%q err=%v", result.Output, result.Expected, result.Err)
+	}
+}
+
+func TestRunZeroUploadSizeLimitsAreUnlimited(t *testing.T) {
+	input := `--TEST--
+zero upload size limits
+--INI--
+upload_max_filesize=0
+--POST_RAW--
+Content-Type: multipart/form-data; boundary=php-src-go
+--php-src-go
+Content-Disposition: form-data; name="MAX_FILE_SIZE"
+
+0
+--php-src-go
+Content-Disposition: form-data; name="avatar"; filename="hello.txt"
+Content-Type: text/plain
+
+abcd
+--php-src-go--
+--FILE--
+<?php
+echo $_FILES['avatar']['error'];
+echo ':';
+echo $_FILES['avatar']['size'];
+echo ':';
+echo is_uploaded_file($_FILES['avatar']['tmp_name']);
+--EXPECT--
+0:4:1
+`
+	result := phpt.Run("zero_upload_size_limits.phpt", input)
+	if !result.Passed {
+		t.Fatalf("expected pass, got output=%q expected=%q err=%v", result.Output, result.Expected, result.Err)
+	}
+}
+
+func TestRunRFC1867AnonymousAndInvalidUploadNames(t *testing.T) {
+	input := `--TEST--
+rfc1867 anonymous and invalid upload names
+--POST_RAW--
+Content-Type: multipart/form-data; boundary=php-src-go
+--php-src-go
+Content-Disposition: form-data; name="bad[a]x"; filename="bad.txt"
+Content-Type: text/plain
+
+bad
+--php-src-go
+Content-Disposition: form-data; filename="anon.txt"
+Content-Type: text/plain
+
+z
+--php-src-go--
+--FILE--
+<?php
+echo count($_FILES);
+echo ':';
+echo $_FILES['0']['name'];
+echo ':';
+echo $_FILES['0']['size'];
+--EXPECT--
+1:anon.txt:1
+`
+	result := phpt.Run("rfc1867_names.phpt", input)
+	if !result.Passed {
+		t.Fatalf("expected pass, got output=%q expected=%q err=%v", result.Output, result.Expected, result.Err)
+	}
+}

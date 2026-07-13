@@ -42,6 +42,7 @@ type sapiContext struct {
 	Post    []sapiEntry
 	RawBody string
 	RawType string
+	INI     iniSettings
 	Env     []sapiEntry
 	Cookie  []sapiEntry
 	Headers []sapiEntry
@@ -57,6 +58,15 @@ type sapiEntry struct {
 type sapiFile struct {
 	Field string
 	Props []sapiEntry
+}
+
+type iniSettings struct {
+	Values            map[string]string
+	FileUploads       bool
+	UploadMaxFilesize int64
+	PostMaxSize       int64
+	MaxFileUploads    int
+	UploadTmpDir      string
 }
 
 type Result struct {
@@ -209,6 +219,7 @@ func Run(path string, input string) Result {
 func (t *Test) sapiContext() (sapiContext, error) {
 	rawHeaders, rawBody := parsePostRawSection(t.PostRaw)
 	headers := append(parseHeadersSection(t.Headers), rawHeaders...)
+	ini := parseINISection(t.INI)
 	ctx := sapiContext{
 		Get:     parseQuerySection(t.Get),
 		Post:    parseQuerySection(t.Post),
@@ -216,14 +227,18 @@ func (t *Test) sapiContext() (sapiContext, error) {
 		Cookie:  parseCookieSection(t.Cookie),
 		Headers: headers,
 		Files:   parseFilesSection(t.Files),
+		INI:     ini,
 	}
 	if rawBody == "" {
 		return ctx, nil
 	}
 	ctx.RawBody = rawBody
 	ctx.RawType = contentType(headers)
+	if ini.PostMaxSize > 0 && int64(len(rawBody)) > ini.PostMaxSize {
+		return ctx, nil
+	}
 	if isMultipart(ctx.RawType) {
-		post, files, temps, err := parseMultipartPost(rawBody, ctx.RawType)
+		post, files, temps, err := parseMultipartPost(rawBody, ctx.RawType, ini)
 		if err != nil {
 			return ctx, err
 		}
@@ -369,15 +384,17 @@ func arrayFromEntries(values []sapiEntry) *runtime.Array {
 func filesArray(files []sapiFile) *runtime.Array {
 	arr := runtime.NewArray()
 	for _, file := range files {
-		field := file.Field
-		if strings.HasSuffix(field, "[]") {
-			base := strings.TrimSuffix(field, "[]")
-			fileArr, ok := existingFileArray(arr, base)
+		field, path := uploadFieldPath(file.Field)
+		if field == "" {
+			continue
+		}
+		if len(path) != 0 {
+			fileArr, ok := existingFileArray(arr, field)
 			if !ok {
 				fileArr = newArrayUploadFile()
-				arr.Set(runtime.StringKey(base), runtime.ArrayValue(fileArr))
+				arr.Set(runtime.StringKey(field), runtime.ArrayValue(fileArr))
 			}
-			appendArrayUploadFile(fileArr, file.Props)
+			appendArrayUploadFile(fileArr, path, file.Props)
 			continue
 		}
 		fileArr := scalarUploadFile(file.Props)
@@ -410,15 +427,67 @@ func existingFileArray(files *runtime.Array, field string) (*runtime.Array, bool
 	return value.A, true
 }
 
-func appendArrayUploadFile(fileArr *runtime.Array, props []sapiEntry) {
+func uploadFieldPath(field string) (string, []string) {
+	start := strings.IndexByte(field, '[')
+	if start < 0 {
+		return field, nil
+	}
+	root := field[:start]
+	var path []string
+	rest := field[start:]
+	for rest != "" {
+		if !strings.HasPrefix(rest, "[") {
+			return field, nil
+		}
+		end := strings.IndexByte(rest, ']')
+		if end < 0 {
+			return field, nil
+		}
+		path = append(path, rest[1:end])
+		rest = rest[end+1:]
+	}
+	return root, path
+}
+
+func appendArrayUploadFile(fileArr *runtime.Array, path []string, props []sapiEntry) {
 	for _, prop := range props {
 		value, ok := fileArr.Get(runtime.StringKey(prop.Key))
 		if !ok || value.Kind != runtime.ArrayKind || value.A == nil {
 			value = runtime.ArrayValue(runtime.NewArray())
 			fileArr.Set(runtime.StringKey(prop.Key), value)
 		}
-		value.A.Append(fileValue(prop.Key, prop.Value))
+		setNestedUploadValue(value.A, path, fileValue(prop.Key, prop.Value))
 	}
+}
+
+func setNestedUploadValue(arr *runtime.Array, path []string, value runtime.Value) {
+	if len(path) == 0 {
+		arr.Append(value)
+		return
+	}
+	key := path[0]
+	if len(path) == 1 {
+		if key == "" {
+			arr.Append(value)
+			return
+		}
+		arr.Set(runtime.StringKey(key), value)
+		return
+	}
+	var child *runtime.Array
+	if key == "" {
+		child = runtime.NewArray()
+		arr.Append(runtime.ArrayValue(child))
+	} else {
+		current, ok := arr.Get(runtime.StringKey(key))
+		if ok && current.Kind == runtime.ArrayKind && current.A != nil {
+			child = current.A
+		} else {
+			child = runtime.NewArray()
+			arr.Set(runtime.StringKey(key), runtime.ArrayValue(child))
+		}
+	}
+	setNestedUploadValue(child, path[1:], value)
 }
 
 func fileValue(key string, value string) runtime.Value {
@@ -552,7 +621,7 @@ func isURLEncoded(contentType string) bool {
 	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(contentType)), "application/x-www-form-urlencoded")
 }
 
-func parseMultipartPost(body string, contentType string) ([]sapiEntry, []sapiFile, []string, error) {
+func parseMultipartPost(body string, contentType string, ini iniSettings) ([]sapiEntry, []sapiFile, []string, error) {
 	boundary, err := multipartBoundary(contentType)
 	if err != nil {
 		return nil, nil, nil, err
@@ -561,6 +630,9 @@ func parseMultipartPost(body string, contentType string) ([]sapiEntry, []sapiFil
 	var post []sapiEntry
 	var files []sapiFile
 	var temps []string
+	formMaxFileSize := int64(-1)
+	acceptedUploads := 0
+	anonymousUploads := 0
 	for {
 		part, err := reader.NextPart()
 		if err == io.EOF {
@@ -570,24 +642,55 @@ func parseMultipartPost(body string, contentType string) ([]sapiEntry, []sapiFil
 			cleanupTemps(temps)
 			return nil, nil, nil, err
 		}
-		name := part.FormName()
-		if name == "" {
-			continue
-		}
 		data, err := io.ReadAll(part)
 		if err != nil {
 			cleanupTemps(temps)
 			return nil, nil, nil, err
 		}
-		filename := part.FileName()
-		if filename == "" {
+		name := part.FormName()
+		filename, hasFilename := multipartFilename(part)
+		if !hasFilename {
+			if name == "" {
+				continue
+			}
 			post = append(post, sapiEntry{Key: name, Value: string(data)})
+			if name == "MAX_FILE_SIZE" {
+				if parsed, ok := parseIntegerLimit(strings.TrimSpace(string(data))); ok {
+					formMaxFileSize = parsed
+				}
+			}
 			continue
 		}
-		tmp, err := writeUploadedTemp(data)
+		if name == "" {
+			name = strconv.Itoa(anonymousUploads)
+			anonymousUploads++
+		}
+		if !ini.FileUploads {
+			continue
+		}
+		if !validUploadFieldName(name) {
+			continue
+		}
+		if filename == "" {
+			files = append(files, uploadErrorFile(name, "", "", uploadErrNoFile, 0))
+			continue
+		}
+		if ini.MaxFileUploads >= 0 && acceptedUploads >= ini.MaxFileUploads {
+			continue
+		}
+		acceptedUploads++
+		if ini.UploadMaxFilesize > 0 && int64(len(data)) > ini.UploadMaxFilesize {
+			files = append(files, uploadErrorFile(name, filename, part.Header.Get("Content-Type"), uploadErrIniSize, int64(len(data))))
+			continue
+		}
+		if formMaxFileSize > 0 && int64(len(data)) > formMaxFileSize {
+			files = append(files, uploadErrorFile(name, filename, part.Header.Get("Content-Type"), uploadErrFormSize, int64(len(data))))
+			continue
+		}
+		tmp, err := writeUploadedTemp(data, ini.UploadTmpDir)
 		if err != nil {
-			cleanupTemps(temps)
-			return nil, nil, nil, err
+			files = append(files, uploadErrorFile(name, filename, part.Header.Get("Content-Type"), uploadErrorCode(err), int64(len(data))))
+			continue
 		}
 		temps = append(temps, tmp)
 		files = append(files, sapiFile{Field: name, Props: []sapiEntry{
@@ -599,6 +702,69 @@ func parseMultipartPost(body string, contentType string) ([]sapiEntry, []sapiFil
 		}})
 	}
 	return post, files, temps, nil
+}
+
+const (
+	uploadErrOK        = 0
+	uploadErrIniSize   = 1
+	uploadErrFormSize  = 2
+	uploadErrNoFile    = 4
+	uploadErrNoTmpDir  = 6
+	uploadErrCantWrite = 7
+)
+
+func multipartFilename(part *multipart.Part) (string, bool) {
+	_, params, err := mime.ParseMediaType(part.Header.Get("Content-Disposition"))
+	if err != nil {
+		return "", false
+	}
+	filename, ok := params["filename"]
+	if !ok {
+		return "", false
+	}
+	if filename == "" {
+		return "", true
+	}
+	return filepath.Base(filename), true
+}
+
+func validUploadFieldName(name string) bool {
+	depth := 0
+	for idx := 0; idx < len(name); idx++ {
+		switch name[idx] {
+		case '[':
+			depth++
+		case ']':
+			depth--
+			if depth < 0 {
+				return false
+			}
+			if idx+1 < len(name) && name[idx+1] != '[' {
+				return false
+			}
+		}
+	}
+	return depth == 0
+}
+
+func uploadErrorFile(field string, filename string, contentType string, code int, size int64) sapiFile {
+	if code != uploadErrOK {
+		contentType = ""
+	}
+	return sapiFile{Field: field, Props: []sapiEntry{
+		{Key: "name", Value: filename},
+		{Key: "type", Value: contentType},
+		{Key: "tmp_name", Value: ""},
+		{Key: "error", Value: strconv.Itoa(code)},
+		{Key: "size", Value: strconv.FormatInt(size, 10)},
+	}}
+}
+
+func uploadErrorCode(err error) int {
+	if os.IsNotExist(err) {
+		return uploadErrNoTmpDir
+	}
+	return uploadErrCantWrite
 }
 
 func multipartBoundary(contentType string) (string, error) {
@@ -631,8 +797,8 @@ func multipartBoundary(contentType string) (string, error) {
 	return boundary, nil
 }
 
-func writeUploadedTemp(data []byte) (string, error) {
-	f, err := os.CreateTemp("", "php-src-go-upload-*")
+func writeUploadedTemp(data []byte, dir string) (string, error) {
+	f, err := os.CreateTemp(dir, "php-src-go-upload-*")
 	if err != nil {
 		return "", err
 	}
@@ -647,6 +813,104 @@ func writeUploadedTemp(data []byte) (string, error) {
 		return "", err
 	}
 	return name, nil
+}
+
+func parseINISection(section string) iniSettings {
+	values := map[string]string{}
+	for _, line := range strings.Split(normalizeLineEndings(section), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, ";") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key = strings.ToLower(strings.TrimSpace(key))
+		value = strings.Trim(strings.TrimSpace(value), `"'`)
+		values[key] = value
+	}
+	return iniSettings{
+		Values:            values,
+		FileUploads:       iniBool(values, "file_uploads", true),
+		UploadMaxFilesize: iniSize(values, "upload_max_filesize", 2*1024*1024),
+		PostMaxSize:       iniSize(values, "post_max_size", 8*1024*1024),
+		MaxFileUploads:    iniInt(values, "max_file_uploads", 20),
+		UploadTmpDir:      values["upload_tmp_dir"],
+	}
+}
+
+func iniBool(values map[string]string, key string, fallback bool) bool {
+	value, ok := values[key]
+	if !ok {
+		return fallback
+	}
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "on", "yes", "true":
+		return true
+	case "0", "off", "no", "false", "":
+		return false
+	default:
+		return fallback
+	}
+}
+
+func iniInt(values map[string]string, key string, fallback int) int {
+	value, ok := values[key]
+	if !ok {
+		return fallback
+	}
+	parsed, ok := parseIntegerLimit(value)
+	if !ok {
+		return fallback
+	}
+	return int(parsed)
+}
+
+func iniSize(values map[string]string, key string, fallback int64) int64 {
+	value, ok := values[key]
+	if !ok {
+		return fallback
+	}
+	parsed, ok := parseSizeLimit(value)
+	if !ok {
+		return fallback
+	}
+	return parsed
+}
+
+func parseIntegerLimit(value string) (int64, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, false
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	return parsed, err == nil
+}
+
+func parseSizeLimit(value string) (int64, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, false
+	}
+	multiplier := int64(1)
+	last := value[len(value)-1]
+	switch last {
+	case 'g', 'G':
+		multiplier = 1024 * 1024 * 1024
+		value = strings.TrimSpace(value[:len(value)-1])
+	case 'm', 'M':
+		multiplier = 1024 * 1024
+		value = strings.TrimSpace(value[:len(value)-1])
+	case 'k', 'K':
+		multiplier = 1024
+		value = strings.TrimSpace(value[:len(value)-1])
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return parsed * multiplier, true
 }
 
 func cleanupTemps(paths []string) {

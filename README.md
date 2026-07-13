@@ -26,7 +26,7 @@
 - Magic methods `__get`, `__set`, `__call`, `__toString` для базового property/method overloading и строкового вывода объектов.
 - Исключения: `throw`, `try`, `catch (Exception $e)` и минимальный встроенный `Exception::getMessage()`.
 - PHPT-подобный runner с секциями `--TEST--`, `--FILE--`, `--EXPECT--`, `--EXPECTF--`, `--EXPECTREGEX--`, `--SKIPIF--`, `--INI--`, `--CLEAN--`, `--EXIT_CODE--`, `--GET--`, `--POST--`, `--ENV--`, `--COOKIE--`, `--HEADERS--`.
-- SAPI-модель PHPT runner подготавливает `$_GET`, `$_POST`, `$_COOKIE`, `$_FILES`, `$_REQUEST`, `$_ENV`, `$_SERVER` с базовыми request/server/header полями; поддержаны синтетический `--FILES--`, `--POST_RAW--` multipart/form-data, простые `file[]` upload-поля, `is_uploaded_file()` и `move_uploaded_file()`.
+- SAPI-модель PHPT runner подготавливает `$_GET`, `$_POST`, `$_COOKIE`, `$_FILES`, `$_REQUEST`, `$_ENV`, `$_SERVER` с базовыми request/server/header полями; поддержаны синтетический `--FILES--`, `--POST_RAW--` multipart/form-data, nested upload names (`file[]`, `file[group][]`, `file[avatar][front]`), upload INI-лимиты (`post_max_size`, `upload_max_filesize`, `file_uploads`, `max_file_uploads`, `upload_tmp_dir`), RFC1867 `MAX_FILE_SIZE`/empty filename edge cases, `is_uploaded_file()` и `move_uploaded_file()`.
 - Response headers: runtime поддерживает `header()` и `headers_list()`.
 - Runtime со значениями `null`, `bool`, `int`, `float`, `string`, `array`, `object` и таблицей переменных.
 
@@ -40,5 +40,4 @@ go run ./cmd/php53test tests/phpt
 
 ## Следующие шаги переноса
 
-1. Расширить multipart/SAPI совместимость PHP 5.3: глубокие nested upload names (`file[group][]`), лимиты upload/max file size и INI-настройки загрузок.
-2. Продолжить P0-языковые конструкции из `AGENTS.md`: inline HTML/short echo, string escapes/interpolation, alternative control syntax, `list(...)`, `include_once`/`require_once`, bitwise/shift/logical word operators, ternary, casts и writable `$a[]`.
+1. Продолжить P0-языковые конструкции из `AGENTS.md`: inline HTML/short echo, string escapes/interpolation, alternative control syntax, `list(...)`, `include_once`/`require_once`, bitwise/shift/logical word operators, ternary, casts и writable `$a[]`.
