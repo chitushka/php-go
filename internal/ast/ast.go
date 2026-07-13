@@ -75,6 +75,7 @@ type ClassDeclStmt struct {
 	Parent     string
 	Implements []string
 	Properties []*ClassProperty
+	Constants  []*ClassConstant
 	Methods    []*FunctionDeclStmt
 	Final      bool
 	Abstract   bool
@@ -96,6 +97,12 @@ type ClassProperty struct {
 	Static     bool
 	Default    Expr
 	Owner      string
+}
+
+type ClassConstant struct {
+	Name  string
+	Value Expr
+	Owner string
 }
 
 type PropertyAssignStmt struct {
@@ -219,6 +226,13 @@ type StaticPropertyFetchExpr struct {
 
 func (*StaticPropertyFetchExpr) exprNode() {}
 
+type ClassConstFetchExpr struct {
+	ClassName string
+	Name      string
+}
+
+func (*ClassConstFetchExpr) exprNode() {}
+
 type StaticCallExpr struct {
 	ClassName string
 	Method    string
@@ -226,3 +240,10 @@ type StaticCallExpr struct {
 }
 
 func (*StaticCallExpr) exprNode() {}
+
+type InstanceOfExpr struct {
+	Left      Expr
+	ClassName string
+}
+
+func (*InstanceOfExpr) exprNode() {}

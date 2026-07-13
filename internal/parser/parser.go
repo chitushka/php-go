@@ -21,7 +21,8 @@ const (
 var precedences = map[lexer.TokenType]int{
 	lexer.EQ: equals, lexer.NotEQ: equals,
 	lexer.LT: lessGreater, lexer.GT: lessGreater, lexer.LTE: lessGreater, lexer.GTE: lessGreater,
-	lexer.Plus: sum, lexer.Minus: sum,
+	lexer.InstanceOf: lessGreater,
+	lexer.Plus:       sum, lexer.Minus: sum,
 	lexer.Asterisk: product, lexer.Slash: product,
 }
 
@@ -303,6 +304,8 @@ func (p *Parser) parseClassDecl(final bool, abstract bool) ast.Stmt {
 			}
 		case lexer.Var:
 			class.Properties = append(class.Properties, p.parseClassProperty(visibility, static))
+		case lexer.Const:
+			class.Constants = append(class.Constants, p.parseClassConstants()...)
 		default:
 			p.errors = append(p.errors, fmt.Sprintf("expected class member in %s, got %s", name, p.cur.Type))
 			return class
@@ -405,6 +408,28 @@ func (p *Parser) parseClassProperty(visibility string, static bool) *ast.ClassPr
 	}
 	p.consumeSemi()
 	return prop
+}
+
+func (p *Parser) parseClassConstants() []*ast.ClassConstant {
+	var constants []*ast.ClassConstant
+	for {
+		if !p.expectPeek(lexer.Ident) {
+			return constants
+		}
+		name := p.cur.Literal
+		if !p.expectPeek(lexer.Assign) {
+			return constants
+		}
+		p.next()
+		value := p.parseExpression(lowest)
+		constants = append(constants, &ast.ClassConstant{Name: name, Value: value})
+		if p.peek.Type != lexer.Comma {
+			break
+		}
+		p.next()
+	}
+	p.consumeSemi()
+	return constants
 }
 
 func (p *Parser) parseThrow() ast.Stmt {
@@ -574,13 +599,12 @@ func (p *Parser) parseStaticAccess() ast.Expr {
 		return &ast.StaticPropertyFetchExpr{ClassName: className, Property: p.cur.Literal}
 	case lexer.Ident:
 		p.next()
-		method := p.cur.Literal
+		name := p.cur.Literal
 		if p.peek.Type != lexer.LParen {
-			p.errors = append(p.errors, fmt.Sprintf("expected static method call after %s::%s", className, method))
-			return &ast.NullLit{}
+			return &ast.ClassConstFetchExpr{ClassName: className, Name: name}
 		}
 		p.next()
-		return &ast.StaticCallExpr{ClassName: className, Method: method, Args: p.parseCallArgs()}
+		return &ast.StaticCallExpr{ClassName: className, Method: name, Args: p.parseCallArgs()}
 	default:
 		p.errors = append(p.errors, fmt.Sprintf("expected static member after %s::", className))
 		return &ast.NullLit{}
@@ -679,6 +703,25 @@ func (p *Parser) parseArray() ast.Expr {
 }
 
 func (p *Parser) parseInfix(left ast.Expr) ast.Expr {
+	if p.cur.Type == lexer.InstanceOf {
+		expr := &ast.InstanceOfExpr{Left: left}
+		switch p.peek.Type {
+		case lexer.Ident, lexer.Self, lexer.Parent, lexer.Static:
+			p.next()
+			expr.ClassName = p.cur.Literal
+			switch p.cur.Type {
+			case lexer.Self:
+				expr.ClassName = "self"
+			case lexer.Parent:
+				expr.ClassName = "parent"
+			case lexer.Static:
+				expr.ClassName = "static"
+			}
+		default:
+			p.errors = append(p.errors, fmt.Sprintf("expected class name after instanceof, got %s", p.peek.Type))
+		}
+		return expr
+	}
 	expr := &ast.InfixExpr{Left: left, Op: p.cur.Literal}
 	prec := p.curPrecedence()
 	p.next()

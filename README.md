@@ -17,6 +17,8 @@
 - Модификаторы `public`, `protected`, `private`, `static` для методов и свойств, включая runtime-проверку доступа.
 - `self::`, `parent::`, `static::`, late static binding для static members, а также базовые проверки `final` и `abstract`.
 - `interface`, `extends` для интерфейсов, `implements` и runtime-проверка обязательных методов.
+- Class constants через `const NAME = ...`, доступ `Class::NAME`, `self::NAME`, `parent::NAME` и наследование констант.
+- `instanceof` для классов, родителей и интерфейсов.
 - Исключения: `throw`, `try`, `catch (Exception $e)` и минимальный встроенный `Exception::getMessage()`.
 - PHPT-подобный runner с секциями `--TEST--`, `--FILE--`, `--EXPECT--`, `--EXPECTF--`, `--EXPECTREGEX--`, `--SKIPIF--`, `--INI--`, `--CLEAN--`, `--EXIT_CODE--`.
 - Runtime со значениями `null`, `bool`, `int`, `float`, `string`, `array`, `object` и таблицей переменных.
@@ -31,5 +33,5 @@ go run ./cmd/php53test -- tests/phpt
 
 ## Следующие шаги переноса
 
-1. Добавить больше семантики PHP 5.3: `instanceof`, class constants, magic methods.
+1. Добавить больше семантики PHP 5.3: magic methods (`__get`, `__set`, `__call`, `__toString`).
 2. Расширить PHPT runner поддержкой `--POST--`, `--GET--`, `--ENV--` для будущих SAPI-тестов.

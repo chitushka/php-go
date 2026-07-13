@@ -362,3 +362,35 @@ func TestInterfaceMethodMustBePublic(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestClassConstants(t *testing.T) {
+	src := "<?php class Config { const NAME = 'php'; const VERSION = 53; public function name() { return self::NAME; } } $c = new Config(); echo Config::VERSION; echo ':'; echo $c->name();"
+	got := run(t, src)
+	if got != "53:php" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestInheritedClassConstantsAndParentAccess(t *testing.T) {
+	src := "<?php class Base { const VALUE = 4; } class Child extends Base { const LOCAL = 2; public function total() { return parent::VALUE + self::LOCAL; } } $c = new Child(); echo Child::VALUE; echo ':'; echo $c->total();"
+	got := run(t, src)
+	if got != "4:6" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestInstanceOfClassAndParent(t *testing.T) {
+	src := "<?php class Base {} class Child extends Base {} $c = new Child(); echo $c instanceof Child; echo $c instanceof Base; echo $c instanceof Missing;"
+	got := run(t, src)
+	if got != "11" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestInstanceOfInterface(t *testing.T) {
+	src := "<?php interface Named {} interface UserNamed extends Named {} class User implements UserNamed {} $u = new User(); echo $u instanceof UserNamed; echo $u instanceof Named;"
+	got := run(t, src)
+	if got != "11" {
+		t.Fatalf("got %q", got)
+	}
+}

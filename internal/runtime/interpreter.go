@@ -16,6 +16,7 @@ type Interpreter struct {
 	functions  map[string]*ast.FunctionDeclStmt
 	classes    map[string]*ast.ClassDeclStmt
 	interfaces map[string]*ast.InterfaceDeclStmt
+	constants  map[string]map[string]Value
 	statics    map[string]map[string]Value
 	staticMeta map[string]map[string]PropertyMeta
 	frames     []frame
@@ -37,6 +38,7 @@ func NewInterpreterWithBaseDir(baseDir string) *Interpreter {
 		functions:  map[string]*ast.FunctionDeclStmt{},
 		classes:    map[string]*ast.ClassDeclStmt{},
 		interfaces: map[string]*ast.InterfaceDeclStmt{},
+		constants:  map[string]map[string]Value{},
 		statics:    map[string]map[string]Value{},
 		staticMeta: map[string]map[string]PropertyMeta{},
 		baseDir:    baseDir,
@@ -304,6 +306,16 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 			return NullValue(), err
 		}
 		return Binary(n.Op, l, r)
+	case *ast.InstanceOfExpr:
+		value, err := i.eval(n.Left)
+		if err != nil {
+			return NullValue(), err
+		}
+		className, err := i.resolveClassName(n.ClassName)
+		if err != nil {
+			return NullValue(), err
+		}
+		return BoolValue(i.valueInstanceOf(value, className)), nil
 	case *ast.ArrayLit:
 		arr := NewArray()
 		for _, elem := range n.Elements {
@@ -348,6 +360,8 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 			return NullValue(), err
 		}
 		return i.getStaticProperty(n.ClassName, n.Property), nil
+	case *ast.ClassConstFetchExpr:
+		return i.getClassConstant(n.ClassName, n.Name)
 	case *ast.StaticCallExpr:
 		return i.callStatic(n)
 	}
@@ -502,10 +516,7 @@ func (i *Interpreter) newException(args []ast.Expr) (Value, error) {
 }
 
 func (i *Interpreter) exceptionMatches(value Value, catchClass string) bool {
-	if value.Kind != ObjectKind || value.O == nil {
-		return false
-	}
-	return catchClass == value.O.ClassName || catchClass == "Exception"
+	return i.valueInstanceOf(value, catchClass)
 }
 
 func (i *Interpreter) defineFunction(fn *ast.FunctionDeclStmt) error {
@@ -553,6 +564,17 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 		if prop.Visibility == "" {
 			prop.Visibility = "public"
 		}
+	}
+	if _, ok := i.constants[class.Name]; !ok {
+		i.constants[class.Name] = map[string]Value{}
+	}
+	for _, constant := range class.Constants {
+		constant.Owner = class.Name
+		value, err := i.eval(constant.Value)
+		if err != nil {
+			return err
+		}
+		i.constants[class.Name][constant.Name] = value
 	}
 	if _, ok := i.statics[class.Name]; !ok {
 		i.statics[class.Name] = map[string]Value{}
@@ -804,6 +826,30 @@ func (i *Interpreter) findStaticProperty(className, property string) (Value, Pro
 	return NullValue(), PropertyMeta{}, false
 }
 
+func (i *Interpreter) getClassConstant(className, name string) (Value, error) {
+	resolved, err := i.resolveClassName(className)
+	if err != nil {
+		return NullValue(), err
+	}
+	value, ok := i.findClassConstant(resolved, name)
+	if !ok {
+		return NullValue(), fmt.Errorf("undefined class constant %s::%s", resolved, name)
+	}
+	return value, nil
+}
+
+func (i *Interpreter) findClassConstant(className, name string) (Value, bool) {
+	if constants, ok := i.constants[className]; ok {
+		if value, exists := constants[name]; exists {
+			return value, true
+		}
+	}
+	if class, ok := i.classes[className]; ok && class.Parent != "" {
+		return i.findClassConstant(class.Parent, name)
+	}
+	return NullValue(), false
+}
+
 func (i *Interpreter) currentClass() string {
 	if len(i.frames) == 0 {
 		return ""
@@ -866,6 +912,22 @@ func (i *Interpreter) classesRelated(a, b string) bool {
 	return i.isSameOrSubclass(a, b) || i.isSameOrSubclass(b, a)
 }
 
+func (i *Interpreter) valueInstanceOf(value Value, className string) bool {
+	if value.Kind != ObjectKind || value.O == nil {
+		return false
+	}
+	if className == "Exception" && value.O.ClassName == "Exception" {
+		return true
+	}
+	if _, ok := i.classes[className]; ok {
+		return i.isSameOrSubclass(value.O.ClassName, className)
+	}
+	if _, ok := i.interfaces[className]; ok {
+		return i.classImplementsInterface(value.O.ClassName, className)
+	}
+	return false
+}
+
 func (i *Interpreter) isSameOrSubclass(className, ancestor string) bool {
 	for className != "" {
 		if className == ancestor {
@@ -876,6 +938,38 @@ func (i *Interpreter) isSameOrSubclass(className, ancestor string) bool {
 			return false
 		}
 		className = class.Parent
+	}
+	return false
+}
+
+func (i *Interpreter) classImplementsInterface(className, interfaceName string) bool {
+	for className != "" {
+		class, ok := i.classes[className]
+		if !ok {
+			return false
+		}
+		for _, implemented := range class.Implements {
+			if implemented == interfaceName || i.interfaceExtendsInterface(implemented, interfaceName) {
+				return true
+			}
+		}
+		className = class.Parent
+	}
+	return false
+}
+
+func (i *Interpreter) interfaceExtendsInterface(name, ancestor string) bool {
+	if name == ancestor {
+		return true
+	}
+	iface, ok := i.interfaces[name]
+	if !ok {
+		return false
+	}
+	for _, parent := range iface.Parents {
+		if i.interfaceExtendsInterface(parent, ancestor) {
+			return true
+		}
 	}
 	return false
 }

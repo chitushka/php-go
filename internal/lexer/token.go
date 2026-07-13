@@ -63,9 +63,11 @@ const (
 	Static     TokenType = "STATIC"
 	Self       TokenType = "SELF"
 	Parent     TokenType = "PARENT"
+	Const      TokenType = "CONST"
 	Final      TokenType = "FINAL"
 	Abstract   TokenType = "ABSTRACT"
 	NewKeyword TokenType = "NEW"
+	InstanceOf TokenType = "INSTANCEOF"
 	Try        TokenType = "TRY"
 	Catch      TokenType = "CATCH"
 	Throw      TokenType = "THROW"
@@ -96,9 +98,11 @@ var keywords = map[string]TokenType{
 	"static":     Static,
 	"self":       Self,
 	"parent":     Parent,
+	"const":      Const,
 	"final":      Final,
 	"abstract":   Abstract,
 	"new":        NewKeyword,
+	"instanceof": InstanceOf,
 	"try":        Try,
 	"catch":      Catch,
 	"throw":      Throw,
