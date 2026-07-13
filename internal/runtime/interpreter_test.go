@@ -394,3 +394,35 @@ func TestInstanceOfInterface(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestMagicGetAndSet(t *testing.T) {
+	src := "<?php class Bag { private $value = 'old'; public function __set($name, $value) { $this->value = $value; } public function __get($name) { return $this->value; } } $b = new Bag(); $b->item = 'new'; echo $b->item;"
+	got := run(t, src)
+	if got != "new" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestMagicCall(t *testing.T) {
+	src := "<?php class Dynamic { public function __call($name, $args) { echo $name; foreach ($args as $arg) { echo ':'; echo $arg; } } } $d = new Dynamic(); $d->missing(1, 'x');"
+	got := run(t, src)
+	if got != "missing:1:x" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestMagicCallForInaccessibleMethod(t *testing.T) {
+	src := "<?php class Dynamic { private function hidden() { return 'no'; } public function __call($name, $args) { return $name; } } $d = new Dynamic(); echo $d->hidden();"
+	got := run(t, src)
+	if got != "hidden" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestMagicToString(t *testing.T) {
+	src := "<?php class Label { public function __toString() { return 'label'; } } $label = new Label(); echo $label;"
+	got := run(t, src)
+	if got != "label" {
+		t.Fatalf("got %q", got)
+	}
+}

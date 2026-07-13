@@ -129,7 +129,11 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 			if err != nil {
 				return nil, err
 			}
-			i.Out.WriteString(v.String())
+			text, err := i.stringify(v)
+			if err != nil {
+				return nil, err
+			}
+			i.Out.WriteString(text)
 		}
 	case *ast.IfStmt:
 		v, err := i.eval(n.Cond)
@@ -198,12 +202,20 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 		if obj.Kind != ObjectKind || obj.O == nil {
 			return nil, fmt.Errorf("cannot assign property %s on non-object", n.Property)
 		}
-		if err := i.checkPropertyAccess(obj.O, n.Property); err != nil {
-			return nil, err
-		}
 		value, err := i.eval(n.Value)
 		if err != nil {
 			return nil, err
+		}
+		if err := i.checkPropertyAccess(obj.O, n.Property); err != nil {
+			if i.hasPublicMethod(obj.O, "__set") {
+				_, callErr := i.callMagicSet(obj.O, n.Property, value)
+				return nil, callErr
+			}
+			return nil, err
+		}
+		if _, ok := obj.O.Props[n.Property]; !ok && i.shouldUseSet(obj.O) {
+			_, callErr := i.callMagicSet(obj.O, n.Property, value)
+			return nil, callErr
 		}
 		obj.O.Props[n.Property] = value
 	case *ast.StaticPropertyAssignStmt:
@@ -347,10 +359,16 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 			return NullValue(), fmt.Errorf("cannot fetch property %s on non-object", n.Property)
 		}
 		if err := i.checkPropertyAccess(obj.O, n.Property); err != nil {
+			if i.hasPublicMethod(obj.O, "__get") {
+				return i.callMagicGet(obj.O, n.Property)
+			}
 			return NullValue(), err
 		}
 		if value, ok := obj.O.Props[n.Property]; ok {
 			return value, nil
+		}
+		if i.shouldUseGet(obj.O) {
+			return i.callMagicGet(obj.O, n.Property)
 		}
 		return NullValue(), nil
 	case *ast.MethodCallExpr:
@@ -380,6 +398,21 @@ func (i *Interpreter) call(c *ast.CallExpr) (Value, error) {
 }
 
 func (i *Interpreter) callFunction(fn *ast.FunctionDeclStmt, args []ast.Expr, thisObj *Object, calledClass string) (Value, error) {
+	if len(args) != len(fn.Params) {
+		return NullValue(), fmt.Errorf("function %s expects %d arguments, got %d", fn.Name, len(fn.Params), len(args))
+	}
+	values := make([]Value, 0, len(args))
+	for _, arg := range args {
+		value, err := i.eval(arg)
+		if err != nil {
+			return NullValue(), err
+		}
+		values = append(values, value)
+	}
+	return i.callFunctionValues(fn, values, thisObj, calledClass)
+}
+
+func (i *Interpreter) callFunctionValues(fn *ast.FunctionDeclStmt, args []Value, thisObj *Object, calledClass string) (Value, error) {
 	if fn.Abstract {
 		return NullValue(), fmt.Errorf("cannot call abstract method %s::%s", fn.Owner, fn.Name)
 	}
@@ -394,11 +427,7 @@ func (i *Interpreter) callFunction(fn *ast.FunctionDeclStmt, args []ast.Expr, th
 		callFrame.vars["this"] = ObjectValue(thisObj)
 	}
 	for idx, param := range fn.Params {
-		arg, err := i.eval(args[idx])
-		if err != nil {
-			return NullValue(), err
-		}
-		callFrame.vars[param] = arg
+		callFrame.vars[param] = args[idx]
 	}
 	i.frames = append(i.frames, callFrame)
 	ret, err := i.exec(fn.Body)
@@ -461,9 +490,15 @@ func (i *Interpreter) callMethod(n *ast.MethodCallExpr) (Value, error) {
 	}
 	method, ok := obj.O.Methods[n.Method]
 	if !ok {
+		if n.Method != "__call" && i.hasPublicMethod(obj.O, "__call") {
+			return i.callMagicCall(obj.O, n.Method, n.Args)
+		}
 		return NullValue(), fmt.Errorf("undefined method %s::%s", obj.O.ClassName, n.Method)
 	}
 	if err := i.checkMethodAccess(obj.O.ClassName, method); err != nil {
+		if n.Method != "__call" && i.hasPublicMethod(obj.O, "__call") {
+			return i.callMagicCall(obj.O, n.Method, n.Args)
+		}
 		return NullValue(), err
 	}
 	return i.callFunction(method, n.Args, obj.O, obj.O.ClassName)
@@ -497,6 +532,55 @@ func (i *Interpreter) callStatic(n *ast.StaticCallExpr) (Value, error) {
 		return NullValue(), err
 	}
 	return i.callFunction(method, n.Args, nil, className)
+}
+
+func (i *Interpreter) stringify(value Value) (string, error) {
+	if value.Kind == ObjectKind && value.O != nil {
+		if i.hasPublicMethod(value.O, "__toString") {
+			result, err := i.callFunctionValues(value.O.Methods["__toString"], nil, value.O, value.O.ClassName)
+			if err != nil {
+				return "", err
+			}
+			return result.String(), nil
+		}
+	}
+	return value.String(), nil
+}
+
+func (i *Interpreter) hasPublicMethod(obj *Object, name string) bool {
+	method, ok := obj.Methods[name]
+	if !ok {
+		return false
+	}
+	return method.Visibility == "" || method.Visibility == "public"
+}
+
+func (i *Interpreter) shouldUseGet(obj *Object) bool {
+	return i.hasPublicMethod(obj, "__get") && i.currentClass() != obj.ClassName
+}
+
+func (i *Interpreter) shouldUseSet(obj *Object) bool {
+	return i.hasPublicMethod(obj, "__set") && i.currentClass() != obj.ClassName
+}
+
+func (i *Interpreter) callMagicGet(obj *Object, property string) (Value, error) {
+	return i.callFunctionValues(obj.Methods["__get"], []Value{StringValue(property)}, obj, obj.ClassName)
+}
+
+func (i *Interpreter) callMagicSet(obj *Object, property string, value Value) (Value, error) {
+	return i.callFunctionValues(obj.Methods["__set"], []Value{StringValue(property), value}, obj, obj.ClassName)
+}
+
+func (i *Interpreter) callMagicCall(obj *Object, methodName string, args []ast.Expr) (Value, error) {
+	values := NewArray()
+	for _, arg := range args {
+		value, err := i.eval(arg)
+		if err != nil {
+			return NullValue(), err
+		}
+		values.Append(value)
+	}
+	return i.callFunctionValues(obj.Methods["__call"], []Value{StringValue(methodName), ArrayValue(values)}, obj, obj.ClassName)
 }
 
 func (i *Interpreter) newException(args []ast.Expr) (Value, error) {
