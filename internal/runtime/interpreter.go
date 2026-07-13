@@ -13,10 +13,12 @@ import (
 
 type Interpreter struct {
 	Vars       map[string]Value
+	globals    map[string]*variableSlot
 	functions  map[string]*ast.FunctionDeclStmt
 	classes    map[string]*ast.ClassDeclStmt
 	interfaces map[string]*ast.InterfaceDeclStmt
 	constants  map[string]map[string]Value
+	staticVars map[string]map[string]*variableSlot
 	statics    map[string]map[string]Value
 	staticMeta map[string]map[string]PropertyMeta
 	frames     []frame
@@ -35,10 +37,12 @@ func NewInterpreterWithBaseDir(baseDir string) *Interpreter {
 	}
 	return &Interpreter{
 		Vars:       map[string]Value{},
+		globals:    map[string]*variableSlot{},
 		functions:  map[string]*ast.FunctionDeclStmt{},
 		classes:    map[string]*ast.ClassDeclStmt{},
 		interfaces: map[string]*ast.InterfaceDeclStmt{},
 		constants:  map[string]map[string]Value{},
+		staticVars: map[string]map[string]*variableSlot{},
 		statics:    map[string]map[string]Value{},
 		staticMeta: map[string]map[string]PropertyMeta{},
 		baseDir:    baseDir,
@@ -88,6 +92,11 @@ type returnSignal struct {
 	value Value
 }
 
+type variableSlot struct {
+	value      Value
+	globalName string
+}
+
 type breakSignal struct{}
 
 func (*breakSignal) Error() string { return "break used outside loop or switch" }
@@ -97,9 +106,10 @@ type continueSignal struct{}
 func (*continueSignal) Error() string { return "continue used outside loop" }
 
 type frame struct {
-	vars        map[string]Value
+	vars        map[string]*variableSlot
 	className   string
 	calledClass string
+	functionKey string
 }
 
 type thrownError struct {
@@ -362,6 +372,14 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 			return nil, err
 		}
 		return &returnSignal{value: v}, nil
+	case *ast.GlobalStmt:
+		for _, name := range n.Names {
+			i.bindGlobal(name)
+		}
+	case *ast.StaticLocalStmt:
+		if err := i.bindStaticLocals(n.Decls); err != nil {
+			return nil, err
+		}
 	case *ast.IncludeStmt:
 		path, err := i.eval(n.Path)
 		if err != nil {
@@ -531,43 +549,75 @@ func (i *Interpreter) call(c *ast.CallExpr) (Value, error) {
 	if !ok {
 		return NullValue(), fmt.Errorf("undefined function %s", c.Name)
 	}
-	if len(c.Args) != len(fn.Params) {
-		return NullValue(), fmt.Errorf("function %s expects %d arguments, got %d", c.Name, len(fn.Params), len(c.Args))
-	}
 	return i.callFunction(fn, c.Args, nil, "")
 }
 
 func (i *Interpreter) callFunction(fn *ast.FunctionDeclStmt, args []ast.Expr, thisObj *Object, calledClass string) (Value, error) {
-	if len(args) != len(fn.Params) {
-		return NullValue(), fmt.Errorf("function %s expects %d arguments, got %d", fn.Name, len(fn.Params), len(args))
-	}
-	values := make([]Value, 0, len(args))
-	for _, arg := range args {
-		value, err := i.eval(arg)
-		if err != nil {
-			return NullValue(), err
+	return i.callFunctionWithBinder(fn, len(args), thisObj, calledClass, func(idx int, param ast.Param) (*variableSlot, error) {
+		if idx >= len(args) {
+			if param.Default == nil {
+				return nil, fmt.Errorf("function %s expects at least %d arguments, got %d", fn.Name, i.requiredParamCount(fn), len(args))
+			}
+			value, err := i.eval(param.Default)
+			if err != nil {
+				return nil, err
+			}
+			return &variableSlot{value: value}, nil
 		}
-		values = append(values, value)
-	}
-	return i.callFunctionValues(fn, values, thisObj, calledClass)
+		if param.ByRef {
+			ident, ok := args[idx].(*ast.Ident)
+			if !ok {
+				return nil, fmt.Errorf("argument %d for %s must be a variable passed by reference", idx+1, fn.Name)
+			}
+			return i.ensureSlot(ident.Name), nil
+		}
+		value, err := i.eval(args[idx])
+		if err != nil {
+			return nil, err
+		}
+		return &variableSlot{value: value}, nil
+	})
 }
 
 func (i *Interpreter) callFunctionValues(fn *ast.FunctionDeclStmt, args []Value, thisObj *Object, calledClass string) (Value, error) {
+	return i.callFunctionWithBinder(fn, len(args), thisObj, calledClass, func(idx int, param ast.Param) (*variableSlot, error) {
+		if idx >= len(args) {
+			if param.Default == nil {
+				return nil, fmt.Errorf("function %s expects at least %d arguments, got %d", fn.Name, i.requiredParamCount(fn), len(args))
+			}
+			value, err := i.eval(param.Default)
+			if err != nil {
+				return nil, err
+			}
+			return &variableSlot{value: value}, nil
+		}
+		if param.ByRef {
+			return nil, fmt.Errorf("argument %d for %s must be a variable passed by reference", idx+1, fn.Name)
+		}
+		return &variableSlot{value: args[idx]}, nil
+	})
+}
+
+func (i *Interpreter) callFunctionWithBinder(fn *ast.FunctionDeclStmt, provided int, thisObj *Object, calledClass string, bind func(int, ast.Param) (*variableSlot, error)) (Value, error) {
 	if fn.Abstract {
 		return NullValue(), fmt.Errorf("cannot call abstract method %s::%s", fn.Owner, fn.Name)
 	}
-	if len(args) != len(fn.Params) {
-		return NullValue(), fmt.Errorf("function %s expects %d arguments, got %d", fn.Name, len(fn.Params), len(args))
+	if provided > len(fn.Params) {
+		return NullValue(), fmt.Errorf("function %s expects at most %d arguments, got %d", fn.Name, len(fn.Params), provided)
 	}
 	if calledClass == "" {
 		calledClass = fn.Owner
 	}
-	callFrame := frame{vars: map[string]Value{}, className: fn.Owner, calledClass: calledClass}
+	callFrame := frame{vars: map[string]*variableSlot{}, className: fn.Owner, calledClass: calledClass, functionKey: functionKey(fn)}
 	if thisObj != nil {
-		callFrame.vars["this"] = ObjectValue(thisObj)
+		callFrame.vars["this"] = &variableSlot{value: ObjectValue(thisObj)}
 	}
 	for idx, param := range fn.Params {
-		callFrame.vars[param] = args[idx]
+		slot, err := bind(idx, param)
+		if err != nil {
+			return NullValue(), err
+		}
+		callFrame.vars[param.Name] = slot
 	}
 	i.frames = append(i.frames, callFrame)
 	ret, err := i.exec(fn.Body)
@@ -579,6 +629,23 @@ func (i *Interpreter) callFunctionValues(fn *ast.FunctionDeclStmt, args []Value,
 		return NullValue(), nil
 	}
 	return ret.value, nil
+}
+
+func (i *Interpreter) requiredParamCount(fn *ast.FunctionDeclStmt) int {
+	required := 0
+	for _, param := range fn.Params {
+		if param.Default == nil {
+			required++
+		}
+	}
+	return required
+}
+
+func functionKey(fn *ast.FunctionDeclStmt) string {
+	if fn.Owner != "" {
+		return fn.Owner + "::" + fn.Name
+	}
+	return fn.Name
 }
 
 func (i *Interpreter) newObject(n *ast.NewExpr) (Value, error) {
@@ -1214,11 +1281,11 @@ func (i *Interpreter) currentThis() *Object {
 	if len(i.frames) == 0 {
 		return nil
 	}
-	value, ok := i.frames[len(i.frames)-1].vars["this"]
-	if !ok || value.Kind != ObjectKind {
+	slot, ok := i.frames[len(i.frames)-1].vars["this"]
+	if !ok || slot.value.Kind != ObjectKind {
 		return nil
 	}
-	return value.O
+	return slot.value.O
 }
 
 func (i *Interpreter) resolveClassName(name string) (string, error) {
@@ -1353,7 +1420,7 @@ func (i *Interpreter) currentDir() string {
 	return i.dirStack[len(i.dirStack)-1]
 }
 
-func (i *Interpreter) currentFrame() map[string]Value {
+func (i *Interpreter) currentFrame() map[string]*variableSlot {
 	if len(i.frames) == 0 {
 		return nil
 	}
@@ -1362,17 +1429,109 @@ func (i *Interpreter) currentFrame() map[string]Value {
 
 func (i *Interpreter) getVar(name string) (Value, bool) {
 	if frame := i.currentFrame(); frame != nil {
-		v, ok := frame[name]
-		return v, ok
+		slot, ok := frame[name]
+		if !ok {
+			return NullValue(), false
+		}
+		return slot.value, true
 	}
-	v, ok := i.Vars[name]
-	return v, ok
+	slot, ok := i.globals[name]
+	if !ok {
+		return NullValue(), false
+	}
+	return slot.value, true
 }
 
 func (i *Interpreter) setVar(name string, v Value) {
 	if frame := i.currentFrame(); frame != nil {
-		frame[name] = v
+		slot, ok := frame[name]
+		if !ok {
+			slot = &variableSlot{}
+			frame[name] = slot
+		}
+		i.setSlot(slot, v)
 		return
 	}
-	i.Vars[name] = v
+	slot := i.globalSlot(name)
+	i.setSlot(slot, v)
+}
+
+func (i *Interpreter) ensureSlot(name string) *variableSlot {
+	if frame := i.currentFrame(); frame != nil {
+		if slot, ok := frame[name]; ok {
+			return slot
+		}
+		slot := &variableSlot{}
+		frame[name] = slot
+		return slot
+	}
+	return i.globalSlot(name)
+}
+
+func (i *Interpreter) globalSlot(name string) *variableSlot {
+	if slot, ok := i.globals[name]; ok {
+		return slot
+	}
+	value := NullValue()
+	if existing, ok := i.Vars[name]; ok {
+		value = existing
+	}
+	slot := &variableSlot{value: value, globalName: name}
+	i.globals[name] = slot
+	i.Vars[name] = value
+	return slot
+}
+
+func (i *Interpreter) setSlot(slot *variableSlot, value Value) {
+	slot.value = value
+	if slot.globalName != "" {
+		i.Vars[slot.globalName] = value
+	}
+}
+
+func (i *Interpreter) bindGlobal(name string) {
+	if frame := i.currentFrame(); frame != nil {
+		frame[name] = i.globalSlot(name)
+	}
+}
+
+func (i *Interpreter) bindStaticLocals(decls []ast.StaticLocalDecl) error {
+	if len(i.frames) == 0 {
+		for _, decl := range decls {
+			value := NullValue()
+			if decl.Default != nil {
+				var err error
+				value, err = i.eval(decl.Default)
+				if err != nil {
+					return err
+				}
+			}
+			i.setVar(decl.Name, value)
+		}
+		return nil
+	}
+	key := i.frames[len(i.frames)-1].functionKey
+	if key == "" {
+		key = "<anonymous>"
+	}
+	if _, ok := i.staticVars[key]; !ok {
+		i.staticVars[key] = map[string]*variableSlot{}
+	}
+	for _, decl := range decls {
+		slot, ok := i.staticVars[key][decl.Name]
+		if !ok {
+			value := NullValue()
+			if decl.Default != nil {
+				var err error
+				value, err = i.eval(decl.Default)
+				if err != nil {
+					return err
+				}
+			}
+			slot = &variableSlot{value: value}
+			i.staticVars[key][decl.Name] = slot
+		}
+		i.frames[len(i.frames)-1].vars[decl.Name] = slot
+	}
+	return nil
 }

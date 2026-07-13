@@ -26,6 +26,7 @@ const (
 	Bang            TokenType = "!"
 	Asterisk        TokenType = "*"
 	Slash           TokenType = "/"
+	Ampersand       TokenType = "&"
 	AndAnd          TokenType = "&&"
 	OrOr            TokenType = "||"
 	ObjectOp        TokenType = "->"
@@ -64,6 +65,7 @@ const (
 	Array      TokenType = "ARRAY"
 	Function   TokenType = "FUNCTION"
 	Return     TokenType = "RETURN"
+	Global     TokenType = "GLOBAL"
 	Include    TokenType = "INCLUDE"
 	Require    TokenType = "REQUIRE"
 	Class      TokenType = "CLASS"
@@ -106,6 +108,7 @@ var keywords = map[string]TokenType{
 	"array":      Array,
 	"function":   Function,
 	"return":     Return,
+	"global":     Global,
 	"include":    Include,
 	"require":    Require,
 	"class":      Class,

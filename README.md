@@ -6,13 +6,14 @@
 
 - CLI `php53`, читающий PHP-файл и выполняющий поддерживаемое подмножество.
 - CLI `php53test`, запускающий PHPT-подобные acceptance-тесты.
-- Лексер для `<?php`, чисел, строк, переменных, идентификаторов, `echo`, `if`, `else`, `while`, `do`, `for`, `switch`, `true`, `false`, `null`.
+- Лексер для `<?php`, чисел, строк, переменных, идентификаторов, `echo`, `if`, `else`, `while`, `do`, `for`, `switch`, `global`, `static`, `true`, `false`, `null`.
 - Парсер выражений с приоритетами для `+`, `-`, `*`, `/`, сравнений, `==`, `!=`.
 - Выражения конкатенации `.`, логические `&&`/`||` с short-circuit, индексный доступ `$array[$key]`, `$string[$offset]` и присваивание в массив по индексу.
 - Операторы присваивания, `echo`, блоки, `if/else`, `while`, `do/while`, `for`, `switch`, `break`, `continue`.
 - PHP-массивы через `array(...)` с ordered hash map, auto-index и ключами `int`/`string`.
 - `foreach ($items as $value)` и `foreach ($items as $key => $value)`.
-- Пользовательские функции: `function name($arg) { ... }`, вызовы, локальные frame-ы и `return`.
+- Пользовательские функции: `function name($arg = null, &$ref) { ... }`, вызовы, default parameters, pass-by-reference parameters, локальные frame-ы и `return`.
+- Переменные функций: `global $name` и persistent `static $local = ...`.
 - Ограниченные `include` и `require` для строковых путей, разрешаемых относительно текущего PHP-файла.
 - Базовые классы: `class`, `extends`, `new`, методы, `__construct`, `$this`, динамические свойства, `$obj->method()`, static methods/properties.
 - Модификаторы `public`, `protected`, `private`, `static` для методов и свойств, включая runtime-проверку доступа.
@@ -35,5 +36,5 @@ go run ./cmd/php53test -- tests/phpt
 
 ## Следующие шаги переноса
 
-1. Расширить семантику функций и переменных PHP 5.3: значения по умолчанию для параметров, `global`, `static` locals, pass-by-reference.
-2. Расширить PHPT runner поддержкой `--POST--`, `--GET--`, `--ENV--` для будущих SAPI-тестов.
+1. Расширить PHPT runner поддержкой `--POST--`, `--GET--`, `--ENV--` для будущих SAPI-тестов.
+2. Добавить больше встроенных функций ядра, необходимых для реальных PHP 5.3 тестов (`isset`, `empty`, `count`, string/array helpers).

@@ -488,3 +488,42 @@ func TestSwitchCaseDefaultAndFallthrough(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestFunctionDefaultParameters(t *testing.T) {
+	src := "<?php function label($name = 'php', $suffix = '!') { return $name . $suffix; } echo label(); echo label('go', '?');"
+	got := run(t, src)
+	if got != "php!go?" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestGlobalStatementSharesGlobalVariable(t *testing.T) {
+	src := "<?php $x = 1; function bump() { global $x; $x = $x + 2; } bump(); echo $x;"
+	got := run(t, src)
+	if got != "3" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestStaticLocalPersistsAcrossCalls(t *testing.T) {
+	src := "<?php function next_value() { static $i = 0; $i = $i + 1; return $i; } echo next_value(); echo next_value(); echo next_value();"
+	got := run(t, src)
+	if got != "123" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestPassByReferenceParameter(t *testing.T) {
+	src := "<?php function inc(&$value) { $value = $value + 1; } $x = 4; inc($x); echo $x;"
+	got := run(t, src)
+	if got != "5" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestPassByReferenceRequiresVariable(t *testing.T) {
+	err := runErr(t, "<?php function inc(&$value) { $value = $value + 1; } inc(4);")
+	if err == nil || err.Error() != "argument 1 for inc must be a variable passed by reference" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

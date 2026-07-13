@@ -83,7 +83,7 @@ func (*ContinueStmt) stmtNode() {}
 
 type FunctionDeclStmt struct {
 	Name       string
-	Params     []string
+	Params     []Param
 	Body       *BlockStmt
 	Visibility string
 	Static     bool
@@ -94,11 +94,34 @@ type FunctionDeclStmt struct {
 
 func (*FunctionDeclStmt) stmtNode() {}
 
+type Param struct {
+	Name    string
+	Default Expr
+	ByRef   bool
+}
+
 type ReturnStmt struct {
 	Value Expr
 }
 
 func (*ReturnStmt) stmtNode() {}
+
+type GlobalStmt struct {
+	Names []string
+}
+
+func (*GlobalStmt) stmtNode() {}
+
+type StaticLocalStmt struct {
+	Decls []StaticLocalDecl
+}
+
+func (*StaticLocalStmt) stmtNode() {}
+
+type StaticLocalDecl struct {
+	Name    string
+	Default Expr
+}
 
 type IncludeStmt struct {
 	Path    Expr

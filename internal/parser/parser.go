@@ -87,6 +87,8 @@ func (p *Parser) parseStatement() ast.Stmt {
 		return p.parseFunctionDecl()
 	case lexer.Return:
 		return p.parseReturn()
+	case lexer.Global:
+		return p.parseGlobal()
 	case lexer.Include:
 		return p.parseInclude(false)
 	case lexer.Require:
@@ -101,7 +103,12 @@ func (p *Parser) parseStatement() ast.Stmt {
 		return p.parseClassDeclWithLeadingModifier("abstract")
 	case lexer.Ident:
 		return p.parseExprOrPropertyAssign()
-	case lexer.Self, lexer.Parent, lexer.Static:
+	case lexer.Static:
+		if p.peek.Type == lexer.Var {
+			return p.parseStaticLocal()
+		}
+		return p.parseExprOrPropertyAssign()
+	case lexer.Self, lexer.Parent:
 		return p.parseExprOrPropertyAssign()
 	case lexer.Throw:
 		return p.parseThrow()
@@ -380,17 +387,28 @@ func (p *Parser) parseFunctionDeclFull(visibility string, static bool, final boo
 	return &ast.FunctionDeclStmt{Name: name, Params: params, Body: body, Visibility: visibility, Static: static, Final: final, Abstract: abstract}
 }
 
-func (p *Parser) parseFunctionParams() []string {
-	var params []string
+func (p *Parser) parseFunctionParams() []ast.Param {
+	var params []ast.Param
 	if p.peek.Type == lexer.RParen {
 		p.next()
 		return params
 	}
 	for {
+		param := ast.Param{}
+		if p.peek.Type == lexer.Ampersand {
+			p.next()
+			param.ByRef = true
+		}
 		if !p.expectPeek(lexer.Var) {
 			return params
 		}
-		params = append(params, p.cur.Literal)
+		param.Name = p.cur.Literal
+		if p.peek.Type == lexer.Assign {
+			p.next()
+			p.next()
+			param.Default = p.parseExpression(lowest)
+		}
+		params = append(params, param)
 		if p.peek.Type != lexer.Comma {
 			break
 		}
@@ -409,6 +427,44 @@ func (p *Parser) parseReturn() ast.Stmt {
 	value := p.parseExpression(lowest)
 	p.consumeSemi()
 	return &ast.ReturnStmt{Value: value}
+}
+
+func (p *Parser) parseGlobal() ast.Stmt {
+	stmt := &ast.GlobalStmt{}
+	for {
+		if !p.expectPeek(lexer.Var) {
+			return stmt
+		}
+		stmt.Names = append(stmt.Names, p.cur.Literal)
+		if p.peek.Type != lexer.Comma {
+			break
+		}
+		p.next()
+	}
+	p.consumeSemi()
+	return stmt
+}
+
+func (p *Parser) parseStaticLocal() ast.Stmt {
+	stmt := &ast.StaticLocalStmt{}
+	for {
+		if !p.expectPeek(lexer.Var) {
+			return stmt
+		}
+		decl := ast.StaticLocalDecl{Name: p.cur.Literal}
+		if p.peek.Type == lexer.Assign {
+			p.next()
+			p.next()
+			decl.Default = p.parseExpression(lowest)
+		}
+		stmt.Decls = append(stmt.Decls, decl)
+		if p.peek.Type != lexer.Comma {
+			break
+		}
+		p.next()
+	}
+	p.consumeSemi()
+	return stmt
 }
 
 func (p *Parser) parseInclude(require bool) ast.Stmt {

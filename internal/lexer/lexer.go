@@ -70,7 +70,7 @@ func (l *Lexer) NextToken() Token {
 			l.readChar()
 			tok = l.token(AndAnd, string(ch)+string(l.ch), line, col)
 		} else {
-			tok = l.token(Illegal, string(l.ch), line, col)
+			tok = l.token(Ampersand, string(l.ch), line, col)
 		}
 	case '|':
 		if l.peekChar() == '|' {
