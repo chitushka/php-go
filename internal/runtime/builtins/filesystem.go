@@ -42,3 +42,25 @@ func dirname(args []Value) (Value, error) {
 	}
 	return StringValue(filepath.Dir(args[0].String())), nil
 }
+
+func fileGetContents(args []Value) (Value, error) {
+	if err := checkArgCount("file_get_contents", len(args), 1, 1); err != nil {
+		return NullValue(), err
+	}
+	data, err := os.ReadFile(args[0].String())
+	if err != nil {
+		return BoolValue(false), nil
+	}
+	return StringValue(string(data)), nil
+}
+
+func filePutContents(args []Value) (Value, error) {
+	if err := checkArgCount("file_put_contents", len(args), 2, 3); err != nil {
+		return NullValue(), err
+	}
+	data := []byte(args[1].String())
+	if err := os.WriteFile(args[0].String(), data, 0644); err != nil {
+		return BoolValue(false), nil
+	}
+	return IntValue(int64(len(data))), nil
+}

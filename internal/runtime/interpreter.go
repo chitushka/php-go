@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"php-src-go/internal/ast"
@@ -559,6 +560,11 @@ func (i *Interpreter) call(c *ast.CallExpr) (Value, error) {
 }
 
 func (i *Interpreter) callBuiltin(c *ast.CallExpr) (Value, bool, error) {
+	if strings.EqualFold(c.Name, "preg_match") && len(c.Args) >= 3 {
+		value, err := i.callPregMatchWithCaptures(c)
+		return value, true, err
+	}
+
 	args := make([]builtins.Value, 0, len(c.Args))
 	runtimeArgs := make([]Value, 0, len(c.Args))
 	for _, arg := range c.Args {
@@ -586,6 +592,66 @@ func (i *Interpreter) callBuiltin(c *ast.CallExpr) (Value, bool, error) {
 		return NullValue(), ok, err
 	}
 	return fromBuiltinValue(value), true, nil
+}
+
+func (i *Interpreter) callPregMatchWithCaptures(c *ast.CallExpr) (Value, error) {
+	if len(c.Args) < 3 || len(c.Args) > 3 {
+		return NullValue(), fmt.Errorf("preg_match expects 3 arguments, got %d", len(c.Args))
+	}
+	pattern, err := i.eval(c.Args[0])
+	if err != nil {
+		return NullValue(), err
+	}
+	subject, err := i.eval(c.Args[1])
+	if err != nil {
+		return NullValue(), err
+	}
+	re, err := regexp.Compile(runtimeRegexPattern(pattern.String()))
+	if err != nil {
+		return NullValue(), err
+	}
+	arr := NewArray()
+	matches := re.FindStringSubmatch(subject.String())
+	if matches == nil {
+		if err := i.assignBuiltinResult(c.Args[2], ArrayValue(arr)); err != nil {
+			return NullValue(), err
+		}
+		return IntValue(0), nil
+	}
+	for _, match := range matches {
+		arr.Append(StringValue(match))
+	}
+	if err := i.assignBuiltinResult(c.Args[2], ArrayValue(arr)); err != nil {
+		return NullValue(), err
+	}
+	return IntValue(1), nil
+}
+
+func (i *Interpreter) assignBuiltinResult(target ast.Expr, value Value) error {
+	switch n := target.(type) {
+	case *ast.Ident:
+		i.setVar(n.Name, value)
+		return nil
+	case *ast.IndexExpr:
+		return i.assignIndex(n, value)
+	default:
+		return fmt.Errorf("preg_match matches argument must be writable")
+	}
+}
+
+func runtimeRegexPattern(pattern string) string {
+	if len(pattern) < 2 {
+		return pattern
+	}
+	delimiter := pattern[0]
+	if strings.ContainsRune(`/#~!%`, rune(delimiter)) {
+		for idx := len(pattern) - 1; idx > 0; idx-- {
+			if pattern[idx] == delimiter {
+				return pattern[1:idx]
+			}
+		}
+	}
+	return pattern
 }
 
 func (i *Interpreter) callSAPIBuiltin(name string, args []Value) (Value, bool, error) {

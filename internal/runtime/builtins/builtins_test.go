@@ -100,6 +100,19 @@ func TestFilesystemBuiltins(t *testing.T) {
 	if err != nil || !ok || !value.Truthy() {
 		t.Fatalf("is_dir got value=%+v ok=%v err=%v", value, ok, err)
 	}
+	value, ok, err = Call("file_get_contents", []Value{StringValue(file)})
+	if err != nil || !ok || value.String() != "php" {
+		t.Fatalf("file_get_contents got value=%q ok=%v err=%v", value.String(), ok, err)
+	}
+	out := filepath.Join(dir, "out.txt")
+	value, ok, err = Call("file_put_contents", []Value{StringValue(out), StringValue("php 5.3")})
+	if err != nil || !ok || value.Kind != IntKind || value.I != 7 {
+		t.Fatalf("file_put_contents got value=%+v ok=%v err=%v", value, ok, err)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil || string(data) != "php 5.3" {
+		t.Fatalf("written file got data=%q err=%v", string(data), err)
+	}
 }
 
 func TestRegexBuiltins(t *testing.T) {
@@ -128,5 +141,38 @@ func TestSerializationBuiltins(t *testing.T) {
 	name, ok := value.A.Get(StringKey("name"))
 	if !ok || name.String() != "php" {
 		t.Fatalf("unserialized name got %q ok=%v", name.String(), ok)
+	}
+}
+
+func TestJSONBuiltins(t *testing.T) {
+	arr := NewArray()
+	arr.Set(StringKey("name"), StringValue("php"))
+	arr.Set(StringKey("version"), IntValue(53))
+	value, ok, err := Call("json_encode", []Value{ArrayValue(arr)})
+	if err != nil || !ok || value.String() != `{"name":"php","version":53}` {
+		t.Fatalf("json_encode got value=%q ok=%v err=%v", value.String(), ok, err)
+	}
+	value, ok, err = Call("json_decode", []Value{StringValue(`{"name":"php","version":53}`), BoolValue(true)})
+	if err != nil || !ok || value.Kind != ArrayKind {
+		t.Fatalf("json_decode got value=%+v ok=%v err=%v", value, ok, err)
+	}
+	name, ok := value.A.Get(StringKey("name"))
+	if !ok || name.String() != "php" {
+		t.Fatalf("decoded name got %q ok=%v", name.String(), ok)
+	}
+}
+
+func TestHashBuiltins(t *testing.T) {
+	value, ok, err := Call("md5", []Value{StringValue("hello")})
+	if err != nil || !ok || value.String() != "5d41402abc4b2a76b9719d911017c592" {
+		t.Fatalf("md5 got value=%q ok=%v err=%v", value.String(), ok, err)
+	}
+	value, ok, err = Call("sha1", []Value{StringValue("hello")})
+	if err != nil || !ok || value.String() != "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d" {
+		t.Fatalf("sha1 got value=%q ok=%v err=%v", value.String(), ok, err)
+	}
+	value, ok, err = Call("hash", []Value{StringValue("sha256"), StringValue("hello")})
+	if err != nil || !ok || value.String() != "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824" {
+		t.Fatalf("hash got value=%q ok=%v err=%v", value.String(), ok, err)
 	}
 }

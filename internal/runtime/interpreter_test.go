@@ -593,3 +593,14 @@ func TestFilesystemRegexAndSerializationBuiltins(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestPregMatchCapturesJSONHashAndFileContents(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.ToSlash(filepath.Join(dir, "data.txt"))
+	src := "<?php echo file_put_contents('" + file + "', 'php'); echo ':'; echo file_get_contents('" + file + "'); echo ':'; echo preg_match('/(php)-([0-9]+)/', 'php-53', $matches); echo ':'; echo $matches[0]; echo ':'; echo $matches[1]; echo ':'; echo $matches[2]; echo ':'; $json = json_encode(array('name' => 'php', 'version' => 53)); echo $json; echo ':'; $copy = json_decode($json, true); echo $copy['name']; echo ':'; echo $copy['version']; echo ':'; echo md5('hello'); echo ':'; echo hash('sha1', 'hello');"
+	got := run(t, src)
+	want := `3:php:1:php-53:php:53:{"name":"php","version":53}:php:53:5d41402abc4b2a76b9719d911017c592:aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d`
+	if got != want {
+		t.Fatalf("got %q", got)
+	}
+}
