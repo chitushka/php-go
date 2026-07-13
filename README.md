@@ -26,7 +26,7 @@
 - Magic methods `__get`, `__set`, `__call`, `__toString` для базового property/method overloading и строкового вывода объектов.
 - Исключения: `throw`, `try`, `catch (Exception $e)` и минимальный встроенный `Exception::getMessage()`.
 - PHPT-подобный runner с секциями `--TEST--`, `--FILE--`, `--EXPECT--`, `--EXPECTF--`, `--EXPECTREGEX--`, `--SKIPIF--`, `--INI--`, `--CLEAN--`, `--EXIT_CODE--`, `--GET--`, `--POST--`, `--ENV--`, `--COOKIE--`, `--HEADERS--`.
-- SAPI-модель PHPT runner подготавливает `$_GET`, `$_POST`, `$_COOKIE`, `$_FILES`, `$_REQUEST`, `$_ENV`, `$_SERVER` с базовыми request/server/header полями; `--FILES--` использует строки `field.property=value`.
+- SAPI-модель PHPT runner подготавливает `$_GET`, `$_POST`, `$_COOKIE`, `$_FILES`, `$_REQUEST`, `$_ENV`, `$_SERVER` с базовыми request/server/header полями; поддержаны синтетический `--FILES--` и `--POST_RAW--` multipart/form-data с временными upload-файлами.
 - Response headers: runtime поддерживает `header()` и `headers_list()`.
 - Runtime со значениями `null`, `bool`, `int`, `float`, `string`, `array`, `object` и таблицей переменных.
 
@@ -40,5 +40,5 @@ go run ./cmd/php53test tests/phpt
 
 ## Следующие шаги переноса
 
-1. Расширить SAPI-модель раннера настоящим multipart parser и обработкой uploaded temp files.
-2. Добавить более полную совместимость встроенных библиотек PHP 5.3: `file_get_contents`, `file_put_contents`, regex capture arrays, JSON/hash helpers.
+1. Добавить более полную совместимость встроенных библиотек PHP 5.3: `file_get_contents`, `file_put_contents`, regex capture arrays, JSON/hash helpers.
+2. Расширить multipart/SAPI совместимость PHP 5.3: nested upload names (`file[]`), лимиты upload/max file size, `is_uploaded_file()` и `move_uploaded_file()`.

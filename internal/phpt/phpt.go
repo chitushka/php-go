@@ -2,7 +2,11 @@ package phpt
 
 import (
 	"fmt"
+	"io"
+	"mime"
+	"mime/multipart"
 	"net/url"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -24,6 +28,7 @@ type Test struct {
 	Clean       string
 	Get         string
 	Post        string
+	PostRaw     string
 	Env         string
 	Cookie      string
 	Headers     string
@@ -35,10 +40,13 @@ type Test struct {
 type sapiContext struct {
 	Get     []sapiEntry
 	Post    []sapiEntry
+	RawBody string
+	RawType string
 	Env     []sapiEntry
 	Cookie  []sapiEntry
 	Headers []sapiEntry
 	Files   []sapiFile
+	Temps   []string
 }
 
 type sapiEntry struct {
@@ -99,6 +107,7 @@ func Parse(input string) (*Test, error) {
 		Clean:       sections["CLEAN"],
 		Get:         sections["GET"],
 		Post:        sections["POST"],
+		PostRaw:     sections["POST_RAW"],
 		Env:         sections["ENV"],
 		Cookie:      sections["COOKIE"],
 		Headers:     sections["HEADERS"],
@@ -135,7 +144,11 @@ func Run(path string, input string) Result {
 	}
 
 	if test.SkipIf != "" {
-		output, err := runPHP(path, test.SkipIf, test.sapiContext())
+		ctx, err := test.sapiContext()
+		if err != nil {
+			return Result{Path: path, Name: test.Name, Err: err}
+		}
+		output, err := runPHP(path, test.SkipIf, ctx)
 		if err != nil {
 			return Result{Path: path, Name: test.Name, Err: fmt.Errorf("SKIPIF error: %w", err)}
 		}
@@ -144,7 +157,11 @@ func Run(path string, input string) Result {
 		}
 	}
 
-	output, err := runPHP(path, test.File, test.sapiContext())
+	ctx, ctxErr := test.sapiContext()
+	if ctxErr != nil {
+		return Result{Path: path, Name: test.Name, Err: ctxErr}
+	}
+	output, err := runPHP(path, test.File, ctx)
 	exitCode := 0
 	if err != nil {
 		output += err.Error()
@@ -168,7 +185,13 @@ func Run(path string, input string) Result {
 		}
 	}
 	if test.Clean != "" {
-		if _, cleanErr := runPHP(path, test.Clean, test.sapiContext()); cleanErr != nil {
+		cleanCtx, cleanCtxErr := test.sapiContext()
+		if cleanCtxErr != nil {
+			passed = false
+			if err == nil {
+				err = cleanCtxErr
+			}
+		} else if _, cleanErr := runPHP(path, test.Clean, cleanCtx); cleanErr != nil {
 			passed = false
 			if err == nil {
 				err = fmt.Errorf("CLEAN error: %w", cleanErr)
@@ -178,18 +201,43 @@ func Run(path string, input string) Result {
 	return Result{Path: path, Name: test.Name, Passed: passed, Output: output, Expected: expected, Err: err}
 }
 
-func (t *Test) sapiContext() sapiContext {
-	return sapiContext{
+func (t *Test) sapiContext() (sapiContext, error) {
+	rawHeaders, rawBody := parsePostRawSection(t.PostRaw)
+	headers := append(parseHeadersSection(t.Headers), rawHeaders...)
+	ctx := sapiContext{
 		Get:     parseQuerySection(t.Get),
 		Post:    parseQuerySection(t.Post),
 		Env:     parseEnvSection(t.Env),
 		Cookie:  parseCookieSection(t.Cookie),
-		Headers: parseHeadersSection(t.Headers),
+		Headers: headers,
 		Files:   parseFilesSection(t.Files),
 	}
+	if rawBody == "" {
+		return ctx, nil
+	}
+	ctx.RawBody = rawBody
+	ctx.RawType = contentType(headers)
+	if isMultipart(ctx.RawType) {
+		post, files, temps, err := parseMultipartPost(rawBody, ctx.RawType)
+		if err != nil {
+			return ctx, err
+		}
+		ctx.Post = append(ctx.Post, post...)
+		ctx.Files = append(ctx.Files, files...)
+		ctx.Temps = append(ctx.Temps, temps...)
+		return ctx, nil
+	}
+	if isURLEncoded(ctx.RawType) || ctx.RawType == "" {
+		ctx.Post = append(ctx.Post, parseQuerySection(rawBody)...)
+	}
+	return ctx, nil
 }
 
 func runPHP(path string, source string, ctx sapiContext) (string, error) {
+	for _, temp := range ctx.Temps {
+		defer os.Remove(temp)
+	}
+
 	p := parser.New(lexer.New(source))
 	program := p.ParseProgram()
 	if len(p.Errors()) > 0 {
@@ -224,7 +272,12 @@ func installSAPIContext(interp *runtime.Interpreter, ctx sapiContext, path strin
 	server.Set(runtime.StringKey("SERVER_NAME"), runtime.StringValue("localhost"))
 	server.Set(runtime.StringKey("SERVER_PORT"), runtime.StringValue("80"))
 	server.Set(runtime.StringKey("SERVER_PROTOCOL"), runtime.StringValue("HTTP/1.1"))
-	if len(ctx.Post) != 0 {
+	if ctx.RawBody != "" {
+		if ctx.RawType != "" {
+			server.Set(runtime.StringKey("CONTENT_TYPE"), runtime.StringValue(ctx.RawType))
+		}
+		server.Set(runtime.StringKey("CONTENT_LENGTH"), runtime.StringValue(strconv.Itoa(len(ctx.RawBody))))
+	} else if len(ctx.Post) != 0 {
 		server.Set(runtime.StringKey("CONTENT_TYPE"), runtime.StringValue("application/x-www-form-urlencoded"))
 		server.Set(runtime.StringKey("CONTENT_LENGTH"), runtime.StringValue(strconv.Itoa(len(encodeValues(ctx.Post)))))
 	}
@@ -243,7 +296,7 @@ func installSAPIContext(interp *runtime.Interpreter, ctx sapiContext, path strin
 }
 
 func requestMethod(ctx sapiContext) string {
-	if len(ctx.Post) != 0 {
+	if len(ctx.Post) != 0 || ctx.RawBody != "" || len(ctx.Files) != 0 {
 		return "POST"
 	}
 	return "GET"
@@ -273,6 +326,16 @@ func installHeaders(server *runtime.Array, headers []sapiEntry) {
 		}
 		server.Set(runtime.StringKey(key), runtime.StringValue(header.Value))
 	}
+}
+
+func contentType(headers []sapiEntry) string {
+	for idx := len(headers) - 1; idx >= 0; idx-- {
+		header := headers[idx]
+		if strings.EqualFold(header.Key, "Content-Type") || strings.EqualFold(header.Key, "CONTENT_TYPE") {
+			return header.Value
+		}
+	}
+	return ""
 }
 
 func serverHeaderKey(name string) string {
@@ -385,11 +448,162 @@ func parseHeadersSection(section string) []sapiEntry {
 		}
 		key, value, ok := strings.Cut(line, ":")
 		if !ok {
+			key, value, ok = strings.Cut(line, "=")
+		}
+		if !ok {
 			continue
 		}
 		out = append(out, sapiEntry{Key: strings.TrimSpace(key), Value: strings.TrimSpace(value)})
 	}
 	return out
+}
+
+func parsePostRawSection(section string) ([]sapiEntry, string) {
+	var headers []sapiEntry
+	section = normalizeLineEndings(section)
+	if strings.TrimSpace(section) == "" {
+		return headers, ""
+	}
+	offset := 0
+	for offset < len(section) {
+		next := strings.IndexByte(section[offset:], '\n')
+		lineEnd := len(section)
+		lineNext := len(section)
+		if next >= 0 {
+			lineEnd = offset + next
+			lineNext = lineEnd + 1
+		}
+		line := strings.TrimRight(section[offset:lineEnd], "\r")
+		if strings.TrimSpace(line) == "" {
+			return headers, section[lineNext:]
+		}
+		key, value, ok := strings.Cut(line, ":")
+		if !ok {
+			return headers, section[offset:]
+		}
+		headers = append(headers, sapiEntry{Key: strings.TrimSpace(key), Value: strings.TrimSpace(value)})
+		offset = lineNext
+	}
+	return headers, ""
+}
+
+func isMultipart(contentType string) bool {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err == nil {
+		return strings.EqualFold(mediaType, "multipart/form-data")
+	}
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(contentType)), "multipart/form-data")
+}
+
+func isURLEncoded(contentType string) bool {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err == nil {
+		return strings.EqualFold(mediaType, "application/x-www-form-urlencoded")
+	}
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(contentType)), "application/x-www-form-urlencoded")
+}
+
+func parseMultipartPost(body string, contentType string) ([]sapiEntry, []sapiFile, []string, error) {
+	boundary, err := multipartBoundary(contentType)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	reader := multipart.NewReader(strings.NewReader(body), boundary)
+	var post []sapiEntry
+	var files []sapiFile
+	var temps []string
+	for {
+		part, err := reader.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			cleanupTemps(temps)
+			return nil, nil, nil, err
+		}
+		name := part.FormName()
+		if name == "" {
+			continue
+		}
+		data, err := io.ReadAll(part)
+		if err != nil {
+			cleanupTemps(temps)
+			return nil, nil, nil, err
+		}
+		filename := part.FileName()
+		if filename == "" {
+			post = append(post, sapiEntry{Key: name, Value: string(data)})
+			continue
+		}
+		tmp, err := writeUploadedTemp(data)
+		if err != nil {
+			cleanupTemps(temps)
+			return nil, nil, nil, err
+		}
+		temps = append(temps, tmp)
+		files = append(files, sapiFile{Field: name, Props: []sapiEntry{
+			{Key: "name", Value: filename},
+			{Key: "type", Value: part.Header.Get("Content-Type")},
+			{Key: "tmp_name", Value: tmp},
+			{Key: "error", Value: "0"},
+			{Key: "size", Value: strconv.Itoa(len(data))},
+		}})
+	}
+	return post, files, temps, nil
+}
+
+func multipartBoundary(contentType string) (string, error) {
+	_, params, err := mime.ParseMediaType(contentType)
+	if err == nil && params["boundary"] != "" {
+		return params["boundary"], nil
+	}
+	idx := strings.Index(strings.ToLower(contentType), "boundary=")
+	if idx < 0 {
+		return "", fmt.Errorf("missing multipart boundary")
+	}
+	boundary := strings.TrimSpace(contentType[idx+len("boundary="):])
+	if boundary == "" {
+		return "", fmt.Errorf("missing multipart boundary")
+	}
+	if boundary[0] == '"' {
+		end := strings.IndexByte(boundary[1:], '"')
+		if end < 0 {
+			return "", fmt.Errorf("invalid multipart boundary")
+		}
+		return boundary[1 : 1+end], nil
+	}
+	if cut := strings.IndexAny(boundary, ",;"); cut >= 0 {
+		boundary = boundary[:cut]
+	}
+	boundary = strings.TrimSpace(boundary)
+	if boundary == "" {
+		return "", fmt.Errorf("missing multipart boundary")
+	}
+	return boundary, nil
+}
+
+func writeUploadedTemp(data []byte) (string, error) {
+	f, err := os.CreateTemp("", "php-src-go-upload-*")
+	if err != nil {
+		return "", err
+	}
+	name := f.Name()
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(name)
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(name)
+		return "", err
+	}
+	return name, nil
+}
+
+func cleanupTemps(paths []string) {
+	for _, path := range paths {
+		_ = os.Remove(path)
+	}
 }
 
 func parseFilesSection(section string) []sapiFile {

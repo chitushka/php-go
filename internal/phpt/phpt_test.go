@@ -251,3 +251,44 @@ hello.txt:text/plain:/tmp/php123:0:5
 		t.Fatalf("expected pass, got output=%q expected=%q err=%v", result.Output, result.Expected, result.Err)
 	}
 }
+
+func TestRunPostRawMultipart(t *testing.T) {
+	input := `--TEST--
+post raw multipart
+--POST_RAW--
+Content-Type: multipart/form-data; boundary=php-src-go
+--php-src-go
+Content-Disposition: form-data; name="title"
+
+hello
+--php-src-go
+Content-Disposition: form-data; name="avatar"; filename="hello.txt"
+Content-Type: text/plain
+
+abcde
+--php-src-go--
+--FILE--
+<?php
+echo $_SERVER['REQUEST_METHOD'];
+echo ':';
+echo $_SERVER['CONTENT_TYPE'];
+echo ':';
+echo $_POST['title'];
+echo ':';
+echo $_FILES['avatar']['name'];
+echo ':';
+echo $_FILES['avatar']['type'];
+echo ':';
+echo is_file($_FILES['avatar']['tmp_name']);
+echo ':';
+echo $_FILES['avatar']['error'];
+echo ':';
+echo $_FILES['avatar']['size'];
+--EXPECT--
+POST:multipart/form-data; boundary=php-src-go:hello:hello.txt:text/plain:1:0:5
+`
+	result := phpt.Run("post_raw_multipart.phpt", input)
+	if !result.Passed {
+		t.Fatalf("expected pass, got output=%q expected=%q err=%v", result.Output, result.Expected, result.Err)
+	}
+}
