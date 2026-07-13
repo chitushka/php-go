@@ -443,6 +443,22 @@ func TestLogicalAndOrShortCircuit(t *testing.T) {
 	}
 }
 
+func TestP0OperatorsWordBitwiseShiftTernary(t *testing.T) {
+	src := "<?php function fail() { return 1 / 0; } if (0 and fail()) { echo 'bad'; } else { echo 'and'; } if (1 or fail()) { echo 'or'; } echo ':'; echo 6 & 3; echo ':'; echo 4 | 1; echo ':'; echo 5 ^ 3; echo ':'; echo ~0; echo ':'; echo 1 << 3; echo ':'; echo 8 >> 1; echo ':'; echo +5; echo ':'; echo 0 ? 'bad' : 'ternary'; echo ':'; echo 'fallback' ?: 'bad'; echo ':'; if (1 xor 0) { echo 'xor'; }"
+	got := run(t, src)
+	if got != "andor:2:5:6:-1:8:4:5:ternary:fallback:xor" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestP0Casts(t *testing.T) {
+	src := "<?php echo (int) '12px'; echo ':'; echo (integer) true; echo ':'; echo (float) '1.5x'; echo ':'; echo (string) 7; echo ':'; echo (bool) ''; echo ':'; echo (boolean) 'x'; echo ':'; $a = (array) 'v'; echo count($a); echo ':'; echo $a[0]; echo ':'; $empty = (array) null; echo count($empty); echo ':'; $o = (object) array('a' => 9); echo $o->a; echo ':'; $s = (object) 3; echo $s->scalar; echo ':'; echo (unset) 'x'; echo 'done';"
+	got := run(t, src)
+	if got != "12:1:1.5:7::1:1:v:0:9:3:done" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestArrayIndexFetchAndAssign(t *testing.T) {
 	got := run(t, "<?php $items = array('a' => 1, 2 => 'b'); echo $items['a']; echo $items[2]; $items['a'] = 7; echo $items['a'];")
 	if got != "1b7" {

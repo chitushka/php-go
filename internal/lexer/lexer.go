@@ -59,6 +59,10 @@ func (l *Lexer) NextToken() Token {
 			ch := l.ch
 			l.readChar()
 			tok = l.token(LTE, string(ch)+string(l.ch), line, col)
+		} else if l.peekChar() == '<' {
+			ch := l.ch
+			l.readChar()
+			tok = l.token(ShiftLeft, string(ch)+string(l.ch), line, col)
 		} else if l.peekChar() == '>' {
 			ch := l.ch
 			l.readChar()
@@ -71,6 +75,10 @@ func (l *Lexer) NextToken() Token {
 			ch := l.ch
 			l.readChar()
 			tok = l.token(GTE, string(ch)+string(l.ch), line, col)
+		} else if l.peekChar() == '>' {
+			ch := l.ch
+			l.readChar()
+			tok = l.token(ShiftRight, string(ch)+string(l.ch), line, col)
 		} else {
 			tok = l.token(GT, string(l.ch), line, col)
 		}
@@ -108,8 +116,12 @@ func (l *Lexer) NextToken() Token {
 			l.readChar()
 			tok = l.token(OrOr, string(ch)+string(l.ch), line, col)
 		} else {
-			tok = l.token(Illegal, string(l.ch), line, col)
+			tok = l.token(Pipe, string(l.ch), line, col)
 		}
+	case '^':
+		tok = l.token(Caret, string(l.ch), line, col)
+	case '~':
+		tok = l.token(Tilde, string(l.ch), line, col)
 	case '-':
 		if l.peekChar() == '>' {
 			ch := l.ch
@@ -155,7 +167,7 @@ func (l *Lexer) NextToken() Token {
 			l.readChar()
 			tok = l.token(EOF, "", line, col)
 		} else {
-			tok = l.token(Illegal, string(l.ch), line, col)
+			tok = l.token(Question, string(l.ch), line, col)
 		}
 	case ',':
 		tok = l.token(Comma, string(l.ch), line, col)

@@ -269,6 +269,21 @@ type InfixExpr struct {
 
 func (*InfixExpr) exprNode() {}
 
+type TernaryExpr struct {
+	Cond Expr
+	Then Expr
+	Else Expr
+}
+
+func (*TernaryExpr) exprNode() {}
+
+type CastExpr struct {
+	Type string
+	Expr Expr
+}
+
+func (*CastExpr) exprNode() {}
+
 type ArrayElement struct {
 	Key   Expr
 	Value Expr

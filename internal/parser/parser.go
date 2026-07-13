@@ -11,23 +11,35 @@ import (
 const (
 	_ int = iota
 	lowest
+	wordLogical
+	ternary
 	logicalOr
 	logicalAnd
+	bitwiseOr
+	bitwiseXor
+	bitwiseAnd
 	equals
 	lessGreater
+	shift
 	sum
 	product
 	prefix
 )
 
 var precedences = map[lexer.TokenType]int{
-	lexer.OrOr:   logicalOr,
-	lexer.AndAnd: logicalAnd,
-	lexer.EQ:     equals, lexer.NotEQ: equals,
+	lexer.AndWord: wordLogical, lexer.OrWord: wordLogical, lexer.XorWord: wordLogical,
+	lexer.Question:  ternary,
+	lexer.OrOr:      logicalOr,
+	lexer.AndAnd:    logicalAnd,
+	lexer.Pipe:      bitwiseOr,
+	lexer.Caret:     bitwiseXor,
+	lexer.Ampersand: bitwiseAnd,
+	lexer.EQ:        equals, lexer.NotEQ: equals,
 	lexer.StrictEQ: equals, lexer.StrictNotEQ: equals,
 	lexer.LT: lessGreater, lexer.GT: lessGreater, lexer.LTE: lessGreater, lexer.GTE: lessGreater,
 	lexer.InstanceOf: lessGreater,
-	lexer.Plus:       sum, lexer.Minus: sum, lexer.Dot: sum,
+	lexer.ShiftLeft:  shift, lexer.ShiftRight: shift,
+	lexer.Plus: sum, lexer.Minus: sum, lexer.Dot: sum,
 	lexer.Asterisk: product, lexer.Slash: product, lexer.Percent: product,
 }
 
@@ -895,11 +907,20 @@ func (p *Parser) parseExpression(precedence int) ast.Expr {
 		left = p.parseArray()
 	case lexer.NewKeyword:
 		left = p.parseNew()
-	case lexer.Bang, lexer.Minus:
+	case lexer.Bang, lexer.Minus, lexer.Plus, lexer.Tilde:
 		op := p.cur.Literal
 		p.next()
 		left = &ast.PrefixExpr{Op: op, Right: p.parseExpression(prefix)}
 	case lexer.LParen:
+		if castType, ok := castTypeFromToken(p.peek); ok {
+			p.next()
+			if p.peek.Type == lexer.RParen {
+				p.next()
+				p.next()
+				left = &ast.CastExpr{Type: castType, Expr: p.parseExpression(prefix)}
+				break
+			}
+		}
 		p.next()
 		left = p.parseExpression(lowest)
 		if !p.expectPeek(lexer.RParen) {
@@ -910,7 +931,7 @@ func (p *Parser) parseExpression(precedence int) ast.Expr {
 		return &ast.NullLit{}
 	}
 	left = p.parsePostfix(left)
-	for p.peek.Type != lexer.Semicolon && p.peek.Type != lexer.RParen && p.peek.Type != lexer.RBracket && precedence < p.peekPrecedence() {
+	for p.peek.Type != lexer.Semicolon && p.peek.Type != lexer.RParen && p.peek.Type != lexer.RBracket && p.peek.Type != lexer.Colon && precedence < p.peekPrecedence() {
 		p.next()
 		left = p.parseInfix(left)
 		left = p.parsePostfix(left)
@@ -1070,6 +1091,21 @@ func (p *Parser) parseArray() ast.Expr {
 }
 
 func (p *Parser) parseInfix(left ast.Expr) ast.Expr {
+	if p.cur.Type == lexer.Question {
+		expr := &ast.TernaryExpr{Cond: left}
+		if p.peek.Type == lexer.Colon {
+			expr.Then = left
+		} else {
+			p.next()
+			expr.Then = p.parseExpression(lowest)
+		}
+		if !p.expectPeek(lexer.Colon) {
+			return expr
+		}
+		p.next()
+		expr.Else = p.parseExpression(ternary - 1)
+		return expr
+	}
 	if p.cur.Type == lexer.InstanceOf {
 		expr := &ast.InstanceOfExpr{Left: left}
 		switch p.peek.Type {
@@ -1146,5 +1182,27 @@ func compoundBinaryOp(t lexer.TokenType) string {
 		return "%"
 	default:
 		return ""
+	}
+}
+
+func castTypeFromToken(tok lexer.Token) (string, bool) {
+	switch tok.Type {
+	case lexer.Array:
+		return "array", true
+	case lexer.Unset:
+		return "unset", true
+	case lexer.Ident:
+		return tok.Literal, isCastType(tok.Literal)
+	default:
+		return "", false
+	}
+}
+
+func isCastType(name string) bool {
+	switch name {
+	case "int", "integer", "bool", "boolean", "float", "double", "real", "string", "array", "object", "unset":
+		return true
+	default:
+		return false
 	}
 }

@@ -28,8 +28,14 @@ const (
 	Slash           TokenType = "/"
 	Percent         TokenType = "%"
 	Ampersand       TokenType = "&"
+	Pipe            TokenType = "|"
+	Caret           TokenType = "^"
+	Tilde           TokenType = "~"
+	ShiftLeft       TokenType = "<<"
+	ShiftRight      TokenType = ">>"
 	AndAnd          TokenType = "&&"
 	OrOr            TokenType = "||"
+	Question        TokenType = "?"
 	ObjectOp        TokenType = "->"
 	LT              TokenType = "<"
 	GT              TokenType = ">"
@@ -98,6 +104,9 @@ const (
 	Abstract   TokenType = "ABSTRACT"
 	NewKeyword TokenType = "NEW"
 	InstanceOf TokenType = "INSTANCEOF"
+	AndWord    TokenType = "AND"
+	OrWord     TokenType = "OR"
+	XorWord    TokenType = "XOR"
 	Try        TokenType = "TRY"
 	Catch      TokenType = "CATCH"
 	Throw      TokenType = "THROW"
@@ -146,6 +155,9 @@ var keywords = map[string]TokenType{
 	"abstract":   Abstract,
 	"new":        NewKeyword,
 	"instanceof": InstanceOf,
+	"and":        AndWord,
+	"or":         OrWord,
+	"xor":        XorWord,
 	"try":        Try,
 	"catch":      Catch,
 	"throw":      Throw,

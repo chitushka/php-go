@@ -7,8 +7,8 @@
 - CLI `php53`, читающий PHP-файл и выполняющий поддерживаемое подмножество.
 - CLI `php53test`, запускающий PHPT-подобные acceptance-тесты.
 - Лексер для `<?php`, закрывающего `?>`, комментариев, чисел, строк, переменных, идентификаторов, `echo`, `print`, `if`, `elseif`, `else`, `while`, `do`, `for`, `switch`, `global`, `static`, `unset`, `exit`/`die`, `true`, `false`, `null`.
-- Парсер выражений с приоритетами для `+`, `-`, `*`, `/`, `%`, сравнений, `==`, `!=`, `<>`, `===`, `!==`.
-- Выражения конкатенации `.`, логические `&&`/`||` с short-circuit, индексный доступ `$array[$key]`, `$string[$offset]` и присваивание в массив по индексу.
+- Парсер выражений с приоритетами для `+`, `-`, `*`, `/`, `%`, bitwise/shift (`&`, `|`, `^`, `~`, `<<`, `>>`), сравнений, `==`, `!=`, `<>`, `===`, `!==`, ternary `?:` и casts.
+- Выражения конкатенации `.`, логические `&&`/`||` и `and`/`or` с short-circuit, `xor`, индексный доступ `$array[$key]`, `$string[$offset]` и присваивание в массив по индексу.
 - Операторы присваивания, compound assignments (`+=`, `-=`, `*=`, `/=`, `%=`, `.=`), statement-level `++`/`--`, `echo`, `print`, `unset`, `exit`/`die`, блоки, `if/elseif/else`, `while`, `do/while`, `for`, `switch`, `break`, `continue`.
 - PHP-массивы через `array(...)` с ordered hash map, auto-index и ключами `int`/`string`.
 - `foreach ($items as $value)` и `foreach ($items as $key => $value)`.
@@ -40,4 +40,4 @@ go run ./cmd/php53test tests/phpt
 
 ## Следующие шаги переноса
 
-1. Продолжить P0-языковые конструкции из `AGENTS.md`: inline HTML/short echo, string escapes/interpolation, alternative control syntax, `list(...)`, `include_once`/`require_once`, bitwise/shift/logical word operators, ternary, casts и writable `$a[]`.
+1. Продолжить P0-языковые конструкции из `AGENTS.md`: inline HTML/short echo, string escapes/interpolation, alternative control syntax, `list(...)`, `include_once`/`require_once` и writable `$a[]`.

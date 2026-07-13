@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"php-src-go/internal/ast"
@@ -493,8 +494,14 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 		switch n.Op {
 		case "!":
 			return BoolValue(!v.Truthy()), nil
+		case "+":
+			z, err := Binary("+", IntValue(0), v)
+			return z, err
 		case "-":
 			z, err := Binary("-", IntValue(0), v)
+			return z, err
+		case "~":
+			z, err := Binary("^", v, IntValue(-1))
 			return z, err
 		}
 	case *ast.InfixExpr:
@@ -503,7 +510,7 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 			return NullValue(), err
 		}
 		switch n.Op {
-		case "&&":
+		case "&&", "and":
 			if !l.Truthy() {
 				return BoolValue(false), nil
 			}
@@ -512,7 +519,7 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 				return NullValue(), err
 			}
 			return BoolValue(r.Truthy()), nil
-		case "||":
+		case "||", "or":
 			if l.Truthy() {
 				return BoolValue(true), nil
 			}
@@ -521,6 +528,12 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 				return NullValue(), err
 			}
 			return BoolValue(r.Truthy()), nil
+		case "xor":
+			r, err := i.eval(n.Right)
+			if err != nil {
+				return NullValue(), err
+			}
+			return BoolValue(l.Truthy() != r.Truthy()), nil
 		}
 		r, err := i.eval(n.Right)
 		if err != nil {
@@ -538,6 +551,27 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 			return StringValue(left + right), nil
 		}
 		return Binary(n.Op, l, r)
+	case *ast.TernaryExpr:
+		cond, err := i.eval(n.Cond)
+		if err != nil {
+			return NullValue(), err
+		}
+		if cond.Truthy() {
+			if n.Then == nil {
+				return cond, nil
+			}
+			return i.eval(n.Then)
+		}
+		if n.Else == nil {
+			return NullValue(), nil
+		}
+		return i.eval(n.Else)
+	case *ast.CastExpr:
+		value, err := i.eval(n.Expr)
+		if err != nil {
+			return NullValue(), err
+		}
+		return i.castValue(n.Type, value)
 	case *ast.InstanceOfExpr:
 		value, err := i.eval(n.Left)
 		if err != nil {
@@ -1283,6 +1317,145 @@ func (i *Interpreter) stringify(value Value) (string, error) {
 		}
 	}
 	return value.String(), nil
+}
+
+func (i *Interpreter) castValue(typ string, value Value) (Value, error) {
+	switch strings.ToLower(typ) {
+	case "int", "integer":
+		return IntValue(castInt(value)), nil
+	case "bool", "boolean":
+		return BoolValue(value.Truthy()), nil
+	case "float", "double", "real":
+		return FloatValue(castFloat(value)), nil
+	case "string":
+		text, err := i.stringify(value)
+		if err != nil {
+			return NullValue(), err
+		}
+		return StringValue(text), nil
+	case "array":
+		if value.Kind == ArrayKind {
+			return value, nil
+		}
+		arr := NewArray()
+		if value.Kind != Null {
+			arr.Append(value)
+		}
+		return ArrayValue(arr), nil
+	case "object":
+		if value.Kind == ObjectKind {
+			return value, nil
+		}
+		props := map[string]Value{}
+		meta := map[string]PropertyMeta{}
+		if value.Kind == ArrayKind && value.A != nil {
+			for _, entry := range value.A.Entries {
+				name := arrayKeyPropertyName(entry.Key)
+				props[name] = entry.Value
+				meta[name] = PropertyMeta{Owner: "stdClass", Visibility: "public"}
+			}
+		} else if value.Kind != Null {
+			props["scalar"] = value
+			meta["scalar"] = PropertyMeta{Owner: "stdClass", Visibility: "public"}
+		}
+		return ObjectValue(NewObject("stdClass", map[string]*ast.FunctionDeclStmt{}, props, meta)), nil
+	case "unset":
+		return NullValue(), nil
+	default:
+		return value, nil
+	}
+}
+
+func arrayKeyPropertyName(key ArrayKey) string {
+	if key.IsInt {
+		return strconv.FormatInt(key.Int, 10)
+	}
+	return key.Str
+}
+
+func castInt(value Value) int64 {
+	switch value.Kind {
+	case Null:
+		return 0
+	case Bool:
+		if value.B {
+			return 1
+		}
+		return 0
+	case Int:
+		return value.I
+	case Float:
+		return int64(value.F)
+	case String:
+		return int64(parseNumericPrefix(value.S))
+	default:
+		return 1
+	}
+}
+
+func castFloat(value Value) float64 {
+	switch value.Kind {
+	case Null:
+		return 0
+	case Bool:
+		if value.B {
+			return 1
+		}
+		return 0
+	case Int:
+		return float64(value.I)
+	case Float:
+		return value.F
+	case String:
+		return parseNumericPrefix(value.S)
+	default:
+		return 1
+	}
+}
+
+func parseNumericPrefix(text string) float64 {
+	text = strings.TrimLeft(text, " \t\r\n")
+	if text == "" {
+		return 0
+	}
+	end := 0
+	if text[end] == '+' || text[end] == '-' {
+		end++
+	}
+	digits := 0
+	for end < len(text) && text[end] >= '0' && text[end] <= '9' {
+		end++
+		digits++
+	}
+	if end < len(text) && text[end] == '.' {
+		end++
+		for end < len(text) && text[end] >= '0' && text[end] <= '9' {
+			end++
+			digits++
+		}
+	}
+	if digits == 0 {
+		return 0
+	}
+	if end < len(text) && (text[end] == 'e' || text[end] == 'E') {
+		expEnd := end + 1
+		if expEnd < len(text) && (text[expEnd] == '+' || text[expEnd] == '-') {
+			expEnd++
+		}
+		expDigits := 0
+		for expEnd < len(text) && text[expEnd] >= '0' && text[expEnd] <= '9' {
+			expEnd++
+			expDigits++
+		}
+		if expDigits > 0 {
+			end = expEnd
+		}
+	}
+	parsed, err := strconv.ParseFloat(text[:end], 64)
+	if err != nil {
+		return 0
+	}
+	return parsed
 }
 
 func (i *Interpreter) hasPublicMethod(obj *Object, name string) bool {

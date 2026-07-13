@@ -125,6 +125,26 @@ func Binary(op string, a, b Value) (Value, error) {
 			}
 			return IntValue(int64(na) % int64(nb)), nil
 		}
+	case "&", "|", "^", "<<", ">>":
+		na, oka := a.number()
+		nb, okb := b.number()
+		if !oka || !okb {
+			return NullValue(), fmt.Errorf("non numeric operand")
+		}
+		left := int64(na)
+		right := uint(int64(nb))
+		switch op {
+		case "&":
+			return IntValue(left & int64(nb)), nil
+		case "|":
+			return IntValue(left | int64(nb)), nil
+		case "^":
+			return IntValue(left ^ int64(nb)), nil
+		case "<<":
+			return IntValue(left << right), nil
+		case ">>":
+			return IntValue(left >> right), nil
+		}
 	case "==":
 		return BoolValue(a.String() == b.String()), nil
 	case "!=", "<>":
