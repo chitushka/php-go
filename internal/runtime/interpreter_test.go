@@ -451,6 +451,14 @@ func TestP0OperatorsWordBitwiseShiftTernary(t *testing.T) {
 	}
 }
 
+func TestWordLogicalOperatorsHaveLowerPrecedenceThanAssignment(t *testing.T) {
+	src := "<?php $b = true or false; echo $b ? '1' : '0'; echo ':'; $b = false or true; echo $b ? '1' : '0'; echo ':'; $b = true || false; echo $b ? '1' : '0'; echo ':'; $b = false || true; echo $b ? '1' : '0'; echo ':'; $b = true and false; echo $b ? '1' : '0'; echo ':'; $b = true && false; echo $b ? '1' : '0';"
+	got := run(t, src)
+	if got != "1:0:1:1:1:0" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestP0Casts(t *testing.T) {
 	src := "<?php echo (int) '12px'; echo ':'; echo (integer) true; echo ':'; echo (float) '1.5x'; echo ':'; echo (string) 7; echo ':'; echo (bool) ''; echo ':'; echo (boolean) 'x'; echo ':'; $a = (array) 'v'; echo count($a); echo ':'; echo $a[0]; echo ':'; $empty = (array) null; echo count($empty); echo ':'; $o = (object) array('a' => 9); echo $o->a; echo ':'; $s = (object) 3; echo $s->scalar; echo ':'; echo (unset) 'x'; echo 'done';"
 	got := run(t, src)

@@ -566,6 +566,8 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 			return NullValue(), nil
 		}
 		return i.eval(n.Else)
+	case *ast.AssignExpr:
+		return i.evalAssignExpr(n)
 	case *ast.CastExpr:
 		value, err := i.eval(n.Expr)
 		if err != nil {
@@ -1168,6 +1170,39 @@ func (i *Interpreter) evalIndex(n *ast.IndexExpr) (Value, error) {
 	default:
 		return NullValue(), fmt.Errorf("cannot use index on %s", left.String())
 	}
+}
+
+func (i *Interpreter) evalAssignExpr(n *ast.AssignExpr) (Value, error) {
+	value, err := i.eval(n.Value)
+	if err != nil {
+		return NullValue(), err
+	}
+	if n.Op != "=" {
+		current, err := i.eval(n.Target)
+		if err != nil {
+			return NullValue(), err
+		}
+		if n.Op == "." {
+			left, err := i.stringify(current)
+			if err != nil {
+				return NullValue(), err
+			}
+			right, err := i.stringify(value)
+			if err != nil {
+				return NullValue(), err
+			}
+			value = StringValue(left + right)
+		} else {
+			value, err = Binary(n.Op, current, value)
+			if err != nil {
+				return NullValue(), err
+			}
+		}
+	}
+	if err := i.assignTarget(n.Target, value); err != nil {
+		return NullValue(), err
+	}
+	return value, nil
 }
 
 func (i *Interpreter) assignIndex(target *ast.IndexExpr, value Value) error {

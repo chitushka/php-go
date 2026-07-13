@@ -277,6 +277,14 @@ type TernaryExpr struct {
 
 func (*TernaryExpr) exprNode() {}
 
+type AssignExpr struct {
+	Target Expr
+	Op     string
+	Value  Expr
+}
+
+func (*AssignExpr) exprNode() {}
+
 type CastExpr struct {
 	Type string
 	Expr Expr

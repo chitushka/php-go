@@ -12,6 +12,7 @@ const (
 	_ int = iota
 	lowest
 	wordLogical
+	assignment
 	ternary
 	logicalOr
 	logicalAnd
@@ -28,13 +29,20 @@ const (
 
 var precedences = map[lexer.TokenType]int{
 	lexer.AndWord: wordLogical, lexer.OrWord: wordLogical, lexer.XorWord: wordLogical,
-	lexer.Question:  ternary,
-	lexer.OrOr:      logicalOr,
-	lexer.AndAnd:    logicalAnd,
-	lexer.Pipe:      bitwiseOr,
-	lexer.Caret:     bitwiseXor,
-	lexer.Ampersand: bitwiseAnd,
-	lexer.EQ:        equals, lexer.NotEQ: equals,
+	lexer.Assign:       assignment,
+	lexer.PlusAssign:   assignment,
+	lexer.MinusAssign:  assignment,
+	lexer.MulAssign:    assignment,
+	lexer.DivAssign:    assignment,
+	lexer.ConcatAssign: assignment,
+	lexer.ModAssign:    assignment,
+	lexer.Question:     ternary,
+	lexer.OrOr:         logicalOr,
+	lexer.AndAnd:       logicalAnd,
+	lexer.Pipe:         bitwiseOr,
+	lexer.Caret:        bitwiseXor,
+	lexer.Ampersand:    bitwiseAnd,
+	lexer.EQ:           equals, lexer.NotEQ: equals,
 	lexer.StrictEQ: equals, lexer.StrictNotEQ: equals,
 	lexer.LT: lessGreater, lexer.GT: lessGreater, lexer.LTE: lessGreater, lexer.GTE: lessGreater,
 	lexer.InstanceOf: lessGreater,
@@ -146,16 +154,9 @@ func (p *Parser) parseStatement() ast.Stmt {
 }
 
 func (p *Parser) parseAssign() ast.Stmt {
-	name := p.cur.Literal
-	p.next()
-	op := p.cur.Type
-	p.next()
-	value := p.parseExpression(lowest)
+	expr := p.parseExpression(lowest)
 	p.consumeSemi()
-	if isCompoundAssignOp(op) {
-		return &ast.CompoundAssignStmt{Target: &ast.Ident{Name: name}, Op: compoundBinaryOp(op), Value: value}
-	}
-	return &ast.AssignStmt{Name: name, Value: value}
+	return &ast.ExprStmt{Expr: expr}
 }
 
 func (p *Parser) parseIncDecStmt() ast.Stmt {
@@ -359,15 +360,7 @@ func (p *Parser) parseFor() ast.Stmt {
 
 func (p *Parser) parseForClauseStmt() ast.Stmt {
 	if p.cur.Type == lexer.Var && (p.peek.Type == lexer.Assign || isCompoundAssignOp(p.peek.Type)) {
-		name := p.cur.Literal
-		p.next()
-		op := p.cur.Type
-		p.next()
-		value := p.parseExpression(lowest)
-		if isCompoundAssignOp(op) {
-			return &ast.CompoundAssignStmt{Target: &ast.Ident{Name: name}, Op: compoundBinaryOp(op), Value: value}
-		}
-		return &ast.AssignStmt{Name: name, Value: value}
+		return &ast.ExprStmt{Expr: p.parseExpression(lowest)}
 	}
 	if p.cur.Type == lexer.Var && (p.peek.Type == lexer.Increment || p.peek.Type == lexer.Decrement) {
 		target := &ast.Ident{Name: p.cur.Literal}
@@ -1106,6 +1099,19 @@ func (p *Parser) parseInfix(left ast.Expr) ast.Expr {
 		expr.Else = p.parseExpression(ternary - 1)
 		return expr
 	}
+	if p.cur.Type == lexer.Assign || isCompoundAssignOp(p.cur.Type) {
+		op := p.cur.Type
+		p.next()
+		value := p.parseExpression(assignment - 1)
+		if !isWritableExpr(left) {
+			p.errors = append(p.errors, "expression is not writable")
+			return left
+		}
+		if isCompoundAssignOp(op) {
+			return &ast.AssignExpr{Target: left, Op: compoundBinaryOp(op), Value: value}
+		}
+		return &ast.AssignExpr{Target: left, Op: "=", Value: value}
+	}
 	if p.cur.Type == lexer.InstanceOf {
 		expr := &ast.InstanceOfExpr{Left: left}
 		switch p.peek.Type {
@@ -1131,6 +1137,16 @@ func (p *Parser) parseInfix(left ast.Expr) ast.Expr {
 	expr.Right = p.parseExpression(prec)
 	return expr
 }
+
+func isWritableExpr(expr ast.Expr) bool {
+	switch expr.(type) {
+	case *ast.Ident, *ast.PropertyFetchExpr, *ast.StaticPropertyFetchExpr, *ast.IndexExpr:
+		return true
+	default:
+		return false
+	}
+}
+
 func (p *Parser) consumeSemi() {
 	if p.peek.Type == lexer.Semicolon {
 		p.next()
