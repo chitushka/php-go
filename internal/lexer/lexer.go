@@ -318,14 +318,102 @@ func (l *Lexer) readNumber() (string, TokenType) {
 
 func (l *Lexer) readString(quote byte) string {
 	l.readChar()
-	pos := l.position
+	var b strings.Builder
 	for l.ch != quote && l.ch != 0 {
+		if l.ch != '\\' {
+			b.WriteByte(l.ch)
+			l.readChar()
+			continue
+		}
+		l.readChar()
+		if l.ch == 0 {
+			b.WriteByte('\\')
+			break
+		}
+		if quote == '\'' {
+			switch l.ch {
+			case '\\', '\'':
+				b.WriteByte(l.ch)
+			default:
+				b.WriteByte('\\')
+				b.WriteByte(l.ch)
+			}
+			l.readChar()
+			continue
+		}
+		switch l.ch {
+		case 'n':
+			b.WriteByte('\n')
+			l.readChar()
+		case 'r':
+			b.WriteByte('\r')
+			l.readChar()
+		case 't':
+			b.WriteByte('\t')
+			l.readChar()
+		case 'v':
+			b.WriteByte('\v')
+			l.readChar()
+		case 'e':
+			b.WriteByte(0x1b)
+			l.readChar()
+		case 'f':
+			b.WriteByte('\f')
+			l.readChar()
+		case '\\', '$', '"':
+			b.WriteByte(l.ch)
+			l.readChar()
+		case 'x', 'X':
+			l.readChar()
+			value, digits := 0, 0
+			for digits < 2 && isHexDigit(l.ch) {
+				value = value*16 + hexValue(l.ch)
+				digits++
+				l.readChar()
+			}
+			if digits == 0 {
+				b.WriteString("\\x")
+			} else {
+				b.WriteByte(byte(value))
+			}
+		default:
+			if isOctalDigit(l.ch) {
+				value, digits := 0, 0
+				for digits < 3 && isOctalDigit(l.ch) {
+					value = value*8 + int(l.ch-'0')
+					digits++
+					l.readChar()
+				}
+				b.WriteByte(byte(value))
+				continue
+			}
+			b.WriteByte('\\')
+			b.WriteByte(l.ch)
+			l.readChar()
+		}
+	}
+	if l.ch == quote {
 		l.readChar()
 	}
-	lit := l.input[pos:l.position]
-	l.readChar()
-	return lit
+	return b.String()
 }
 
 func isLetter(ch byte) bool { return ('a' <= ch && ch <= 'z') || ('A' <= ch && ch <= 'Z') || ch == '_' }
 func isDigit(ch byte) bool  { return '0' <= ch && ch <= '9' }
+
+func isOctalDigit(ch byte) bool { return '0' <= ch && ch <= '7' }
+
+func isHexDigit(ch byte) bool {
+	return isDigit(ch) || ('a' <= ch && ch <= 'f') || ('A' <= ch && ch <= 'F')
+}
+
+func hexValue(ch byte) int {
+	switch {
+	case '0' <= ch && ch <= '9':
+		return int(ch - '0')
+	case 'a' <= ch && ch <= 'f':
+		return int(ch-'a') + 10
+	default:
+		return int(ch-'A') + 10
+	}
+}

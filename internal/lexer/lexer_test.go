@@ -12,3 +12,24 @@ func TestShortEchoOpenTagTokenizesAsEcho(t *testing.T) {
 		}
 	}
 }
+
+func TestStringEscapes(t *testing.T) {
+	tests := []struct {
+		source string
+		want   string
+	}{
+		{`<?php "a\n\t\x41\101\\\""` + ";", "a\n\tAA\\\""},
+		{`<?php 'it\'s \n \\ ok'` + ";", `it's \n \ ok`},
+	}
+
+	for _, tt := range tests {
+		l := New(tt.source)
+		got := l.NextToken()
+		if got.Type != String {
+			t.Fatalf("got token %s, want STRING", got.Type)
+		}
+		if got.Literal != tt.want {
+			t.Fatalf("got literal %q, want %q", got.Literal, tt.want)
+		}
+	}
+}
