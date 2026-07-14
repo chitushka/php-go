@@ -33,6 +33,7 @@ type Interpreter struct {
 	includedOnce    map[string]bool
 	baseDir         string
 	dirStack        []string
+	fileStack       []string
 	Out             bytes.Buffer
 }
 
@@ -58,7 +59,19 @@ func NewInterpreterWithBaseDir(baseDir string) *Interpreter {
 		includedOnce:  map[string]bool{},
 		baseDir:       baseDir,
 		dirStack:      []string{baseDir},
+		fileStack:     []string{},
 	}
+}
+
+func (i *Interpreter) SetEntryFile(path string) {
+	if path == "" {
+		i.fileStack = nil
+		return
+	}
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
+	i.fileStack = []string{filepath.Clean(path)}
 }
 
 func (i *Interpreter) Run(p *ast.Program) error {
@@ -130,6 +143,7 @@ type frame struct {
 	vars        map[string]*variableSlot
 	className   string
 	calledClass string
+	function    string
 	functionKey string
 }
 
@@ -547,6 +561,8 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 		return BoolValue(n.Value), nil
 	case *ast.NullLit:
 		return NullValue(), nil
+	case *ast.MagicConstExpr:
+		return i.evalMagicConst(n), nil
 	case *ast.PrefixExpr:
 		v, err := i.eval(n.Right)
 		if err != nil {
@@ -720,6 +736,29 @@ func (i *Interpreter) evalBacktick(command string) (Value, error) {
 		return NullValue(), err
 	}
 	return StringValue(string(out)), nil
+}
+
+func (i *Interpreter) evalMagicConst(c *ast.MagicConstExpr) Value {
+	switch strings.ToLower(c.Name) {
+	case "__file__":
+		return StringValue(i.currentFile())
+	case "__dir__":
+		file := i.currentFile()
+		if file == "" {
+			return StringValue("")
+		}
+		return StringValue(filepath.Dir(file))
+	case "__line__":
+		return IntValue(int64(c.Line))
+	case "__function__":
+		return StringValue(i.currentFunction())
+	case "__class__":
+		return StringValue(i.currentClass())
+	case "__method__":
+		return StringValue(i.currentMethod())
+	default:
+		return NullValue()
+	}
 }
 
 func (i *Interpreter) call(c *ast.CallExpr) (Value, error) {
@@ -1246,7 +1285,7 @@ func (i *Interpreter) callFunctionWithBinder(fn *ast.FunctionDeclStmt, provided 
 	if calledClass == "" {
 		calledClass = fn.Owner
 	}
-	callFrame := frame{vars: map[string]*variableSlot{}, className: fn.Owner, calledClass: calledClass, functionKey: functionKey(fn)}
+	callFrame := frame{vars: map[string]*variableSlot{}, className: fn.Owner, calledClass: calledClass, function: fn.Name, functionKey: functionKey(fn)}
 	if thisObj != nil {
 		callFrame.vars["this"] = &variableSlot{value: ObjectValue(thisObj)}
 	}
@@ -2718,6 +2757,24 @@ func (i *Interpreter) currentClass() string {
 	return i.frames[len(i.frames)-1].className
 }
 
+func (i *Interpreter) currentFunction() string {
+	if len(i.frames) == 0 {
+		return ""
+	}
+	return i.frames[len(i.frames)-1].function
+}
+
+func (i *Interpreter) currentMethod() string {
+	if len(i.frames) == 0 {
+		return ""
+	}
+	frame := i.frames[len(i.frames)-1]
+	if frame.className == "" || frame.function == "" {
+		return ""
+	}
+	return frame.className + "::" + frame.function
+}
+
 func (i *Interpreter) currentCalledClass() string {
 	if len(i.frames) == 0 {
 		return ""
@@ -2859,7 +2916,9 @@ func (i *Interpreter) include(path string, require bool, once bool) error {
 		i.includedOnce[resolved] = true
 	}
 	i.dirStack = append(i.dirStack, filepath.Dir(resolved))
+	i.fileStack = append(i.fileStack, resolved)
 	err = i.Run(program)
+	i.fileStack = i.fileStack[:len(i.fileStack)-1]
 	i.dirStack = i.dirStack[:len(i.dirStack)-1]
 	return err
 }
@@ -2880,6 +2939,13 @@ func (i *Interpreter) currentDir() string {
 		return i.baseDir
 	}
 	return i.dirStack[len(i.dirStack)-1]
+}
+
+func (i *Interpreter) currentFile() string {
+	if len(i.fileStack) == 0 {
+		return ""
+	}
+	return i.fileStack[len(i.fileStack)-1]
 }
 
 func (i *Interpreter) currentFrame() map[string]*variableSlot {

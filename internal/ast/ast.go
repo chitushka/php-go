@@ -267,6 +267,13 @@ type NullLit struct{}
 
 func (*NullLit) exprNode() {}
 
+type MagicConstExpr struct {
+	Name string
+	Line int
+}
+
+func (*MagicConstExpr) exprNode() {}
+
 type PrefixExpr struct {
 	Op    string
 	Right Expr

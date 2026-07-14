@@ -3,6 +3,7 @@ package parser
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"php-src-go/internal/ast"
 	"php-src-go/internal/lexer"
@@ -1039,7 +1040,9 @@ func (p *Parser) parseExpression(precedence int) ast.Expr {
 	case lexer.VarVar:
 		left = &ast.VariableVariable{Name: p.cur.Literal}
 	case lexer.Ident:
-		if p.peek.Type == lexer.ScopeResolution {
+		if isMagicConstant(p.cur.Literal) {
+			left = &ast.MagicConstExpr{Name: p.cur.Literal, Line: p.cur.Line}
+		} else if p.peek.Type == lexer.ScopeResolution {
 			left = p.parseStaticAccess()
 		} else if p.peek.Type == lexer.LParen {
 			left = p.parseCall()
@@ -1397,6 +1400,15 @@ func (p *Parser) parseInfix(left ast.Expr) ast.Expr {
 func isWritableExpr(expr ast.Expr) bool {
 	switch expr.(type) {
 	case *ast.Ident, *ast.VariableVariable, *ast.PropertyFetchExpr, *ast.DynamicPropertyFetchExpr, *ast.StaticPropertyFetchExpr, *ast.DynamicStaticPropertyFetchExpr, *ast.IndexExpr, *ast.ListExpr:
+		return true
+	default:
+		return false
+	}
+}
+
+func isMagicConstant(name string) bool {
+	switch strings.ToLower(name) {
+	case "__file__", "__dir__", "__line__", "__function__", "__class__", "__method__":
 		return true
 	default:
 		return false

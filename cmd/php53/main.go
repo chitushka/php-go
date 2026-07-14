@@ -28,6 +28,7 @@ func main() {
 		os.Exit(1)
 	}
 	interp := runtime.NewInterpreterWithBaseDir(filepath.Dir(os.Args[1]))
+	interp.SetEntryFile(os.Args[1])
 	if err := interp.Run(program); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
