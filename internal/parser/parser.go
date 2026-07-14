@@ -254,6 +254,10 @@ func (p *Parser) parseIf() ast.Stmt {
 	if !p.expectPeek(lexer.RParen) {
 		return nil
 	}
+	if p.peek.Type == lexer.Colon {
+		p.next()
+		return p.parseAlternativeIf(cond)
+	}
 	if !p.expectPeek(lexer.LBrace) {
 		return nil
 	}
@@ -283,6 +287,57 @@ func (p *Parser) parseIf() ast.Stmt {
 	return &ast.IfStmt{Cond: cond, Consequence: cons, Alternative: alt}
 }
 
+func (p *Parser) parseAlternativeIf(cond ast.Expr) ast.Stmt {
+	stmt := &ast.IfStmt{Cond: cond, Consequence: p.parseAlternativeControlBlock(lexer.ElseIf, lexer.Else, lexer.EndIf)}
+	switch p.cur.Type {
+	case lexer.ElseIf:
+		nested := p.parseAlternativeElseIf()
+		if nested != nil {
+			stmt.Alternative = &ast.BlockStmt{Statements: []ast.Stmt{nested}}
+		}
+		return stmt
+	case lexer.Else:
+		if !p.expectPeek(lexer.Colon) {
+			return stmt
+		}
+		stmt.Alternative = p.parseAlternativeControlBlock(lexer.EndIf)
+	}
+	if p.cur.Type != lexer.EndIf {
+		p.errors = append(p.errors, fmt.Sprintf("expected endif, got %s", p.cur.Type))
+		return stmt
+	}
+	p.consumeSemi()
+	return stmt
+}
+
+func (p *Parser) parseAlternativeElseIf() ast.Stmt {
+	if !p.expectPeek(lexer.LParen) {
+		return nil
+	}
+	p.next()
+	cond := p.parseExpression(lowest)
+	if !p.expectPeek(lexer.RParen) {
+		return nil
+	}
+	if !p.expectPeek(lexer.Colon) {
+		return nil
+	}
+	return p.parseAlternativeIf(cond)
+}
+
+func (p *Parser) parseAlternativeControlBlock(stops ...lexer.TokenType) *ast.BlockStmt {
+	block := &ast.BlockStmt{}
+	p.next()
+	for p.cur.Type != lexer.EOF && !tokenIn(p.cur.Type, stops) {
+		stmt := p.parseStatement()
+		if stmt != nil {
+			block.Statements = append(block.Statements, stmt)
+		}
+		p.next()
+	}
+	return block
+}
+
 func (p *Parser) parseWhile() ast.Stmt {
 	if !p.expectPeek(lexer.LParen) {
 		return nil
@@ -292,10 +347,24 @@ func (p *Parser) parseWhile() ast.Stmt {
 	if !p.expectPeek(lexer.RParen) {
 		return nil
 	}
+	if p.peek.Type == lexer.Colon {
+		p.next()
+		return p.parseAlternativeWhile(cond)
+	}
 	if !p.expectPeek(lexer.LBrace) {
 		return nil
 	}
 	body := p.parseBlock().(*ast.BlockStmt)
+	return &ast.WhileStmt{Cond: cond, Body: body}
+}
+
+func (p *Parser) parseAlternativeWhile(cond ast.Expr) ast.Stmt {
+	body := p.parseAlternativeControlBlock(lexer.EndWhile)
+	if p.cur.Type != lexer.EndWhile {
+		p.errors = append(p.errors, fmt.Sprintf("expected endwhile, got %s", p.cur.Type))
+		return &ast.WhileStmt{Cond: cond, Body: body}
+	}
+	p.consumeSemi()
 	return &ast.WhileStmt{Cond: cond, Body: body}
 }
 
@@ -353,10 +422,24 @@ func (p *Parser) parseFor() ast.Stmt {
 			return nil
 		}
 	}
+	if p.peek.Type == lexer.Colon {
+		p.next()
+		return p.parseAlternativeFor(init, cond, post)
+	}
 	if !p.expectPeek(lexer.LBrace) {
 		return nil
 	}
 	body := p.parseBlock().(*ast.BlockStmt)
+	return &ast.ForStmt{Init: init, Cond: cond, Post: post, Body: body}
+}
+
+func (p *Parser) parseAlternativeFor(init ast.Stmt, cond ast.Expr, post ast.Stmt) ast.Stmt {
+	body := p.parseAlternativeControlBlock(lexer.EndFor)
+	if p.cur.Type != lexer.EndFor {
+		p.errors = append(p.errors, fmt.Sprintf("expected endfor, got %s", p.cur.Type))
+		return &ast.ForStmt{Init: init, Cond: cond, Post: post, Body: body}
+	}
+	p.consumeSemi()
 	return &ast.ForStmt{Init: init, Cond: cond, Post: post, Body: body}
 }
 
@@ -424,10 +507,24 @@ func (p *Parser) parseForeach() ast.Stmt {
 	if !p.expectPeek(lexer.RParen) {
 		return nil
 	}
+	if p.peek.Type == lexer.Colon {
+		p.next()
+		return p.parseAlternativeForeach(source, keyVar, valueVar)
+	}
 	if !p.expectPeek(lexer.LBrace) {
 		return nil
 	}
 	body := p.parseBlock().(*ast.BlockStmt)
+	return &ast.ForeachStmt{Source: source, KeyVar: keyVar, ValueVar: valueVar, Body: body}
+}
+
+func (p *Parser) parseAlternativeForeach(source ast.Expr, keyVar string, valueVar string) ast.Stmt {
+	body := p.parseAlternativeControlBlock(lexer.EndForeach)
+	if p.cur.Type != lexer.EndForeach {
+		p.errors = append(p.errors, fmt.Sprintf("expected endforeach, got %s", p.cur.Type))
+		return &ast.ForeachStmt{Source: source, KeyVar: keyVar, ValueVar: valueVar, Body: body}
+	}
+	p.consumeSemi()
 	return &ast.ForeachStmt{Source: source, KeyVar: keyVar, ValueVar: valueVar, Body: body}
 }
 
@@ -439,6 +536,10 @@ func (p *Parser) parseSwitch() ast.Stmt {
 	value := p.parseExpression(lowest)
 	if !p.expectPeek(lexer.RParen) {
 		return nil
+	}
+	if p.peek.Type == lexer.Colon {
+		p.next()
+		return p.parseAlternativeSwitch(value)
 	}
 	if !p.expectPeek(lexer.LBrace) {
 		return nil
@@ -452,6 +553,24 @@ func (p *Parser) parseSwitch() ast.Stmt {
 		}
 		stmt.Cases = append(stmt.Cases, caseStmt)
 	}
+	return stmt
+}
+
+func (p *Parser) parseAlternativeSwitch(value ast.Expr) ast.Stmt {
+	stmt := &ast.SwitchStmt{Value: value}
+	p.next()
+	for p.cur.Type != lexer.EndSwitch && p.cur.Type != lexer.EOF {
+		caseStmt, ok := p.parseSwitchCase()
+		if !ok {
+			return stmt
+		}
+		stmt.Cases = append(stmt.Cases, caseStmt)
+	}
+	if p.cur.Type != lexer.EndSwitch {
+		p.errors = append(p.errors, fmt.Sprintf("expected endswitch, got %s", p.cur.Type))
+		return stmt
+	}
+	p.consumeSemi()
 	return stmt
 }
 
@@ -474,7 +593,7 @@ func (p *Parser) parseSwitchCase() (ast.SwitchCase, bool) {
 		return c, false
 	}
 	p.next()
-	for p.cur.Type != lexer.Case && p.cur.Type != lexer.Default && p.cur.Type != lexer.RBrace && p.cur.Type != lexer.EOF {
+	for p.cur.Type != lexer.Case && p.cur.Type != lexer.Default && p.cur.Type != lexer.RBrace && p.cur.Type != lexer.EndSwitch && p.cur.Type != lexer.EOF {
 		stmt := p.parseStatement()
 		if stmt != nil {
 			c.Statements = append(c.Statements, stmt)
@@ -1213,6 +1332,15 @@ func isWritableExpr(expr ast.Expr) bool {
 	default:
 		return false
 	}
+}
+
+func tokenIn(t lexer.TokenType, values []lexer.TokenType) bool {
+	for _, value := range values {
+		if t == value {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *Parser) consumeSemi() {

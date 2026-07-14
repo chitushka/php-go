@@ -72,11 +72,16 @@ const (
 	If          TokenType = "IF"
 	ElseIf      TokenType = "ELSEIF"
 	Else        TokenType = "ELSE"
+	EndIf       TokenType = "ENDIF"
 	While       TokenType = "WHILE"
+	EndWhile    TokenType = "ENDWHILE"
 	Do          TokenType = "DO"
 	For         TokenType = "FOR"
+	EndFor      TokenType = "ENDFOR"
 	Foreach     TokenType = "FOREACH"
+	EndForeach  TokenType = "ENDFOREACH"
 	Switch      TokenType = "SWITCH"
+	EndSwitch   TokenType = "ENDSWITCH"
 	Case        TokenType = "CASE"
 	Default     TokenType = "DEFAULT"
 	Break       TokenType = "BREAK"
@@ -126,11 +131,16 @@ var keywords = map[string]TokenType{
 	"if":           If,
 	"elseif":       ElseIf,
 	"else":         Else,
+	"endif":        EndIf,
 	"while":        While,
+	"endwhile":     EndWhile,
 	"do":           Do,
 	"for":          For,
+	"endfor":       EndFor,
 	"foreach":      Foreach,
+	"endforeach":   EndForeach,
 	"switch":       Switch,
+	"endswitch":    EndSwitch,
 	"case":         Case,
 	"default":      Default,
 	"break":        Break,

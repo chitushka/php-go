@@ -9,9 +9,9 @@
 - Лексер для `<?php`, стартового short echo `<?=`, закрывающего `?>`, комментариев, чисел, строк с базовыми escape-последовательностями, переменных, идентификаторов, `echo`, `print`, `if`, `elseif`, `else`, `while`, `do`, `for`, `switch`, `global`, `static`, `unset`, `exit`/`die`, `true`, `false`, `null`.
 - Парсер выражений с приоритетами для `+`, `-`, `*`, `/`, `%`, bitwise/shift (`&`, `|`, `^`, `~`, `<<`, `>>`), сравнений, `==`, `!=`, `<>`, `===`, `!==`, ternary `?:` и casts.
 - Выражения конкатенации `.`, логические `&&`/`||` и `and`/`or` с short-circuit и PHP-приоритетом ниже присваивания, `xor`, индексный доступ `$array[$key]`, `$string[$offset]`, присваивание в массив по индексу и `$array[]` append.
-- Операторы присваивания как выражения, compound assignments (`+=`, `-=`, `*=`, `/=`, `%=`, `.=`), `list(...)` assignment для numeric array destructuring, statement-level `++`/`--`, `echo`, `print`, `unset`, `exit`/`die`, блоки, `if/elseif/else`, `while`, `do/while`, `for`, `switch`, `break`/`continue` включая numeric levels.
+- Операторы присваивания как выражения, compound assignments (`+=`, `-=`, `*=`, `/=`, `%=`, `.=`), `list(...)` assignment для numeric array destructuring, statement-level `++`/`--`, `echo`, `print`, `unset`, `exit`/`die`, блоки, `if/elseif/else` включая alternative `if: elseif: else: endif` syntax, `while` включая alternative `while: endwhile` syntax, `do/while`, `for` включая alternative `for: endfor` syntax, `switch` включая alternative `switch: endswitch` syntax, `break`/`continue` включая numeric levels.
 - PHP-массивы через `array(...)` с ordered hash map, auto-index и ключами `int`/`string`.
-- `foreach ($items as $value)` и `foreach ($items as $key => $value)`.
+- `foreach ($items as $value)` и `foreach ($items as $key => $value)`, включая alternative `foreach: endforeach` syntax.
 - Пользовательские функции: `function name($arg = null, &$ref) { ... }`, вызовы, default parameters, pass-by-reference parameters, локальные frame-ы и `return`.
 - Переменные функций: `global $name` и persistent `static $local = ...`.
 - Встроенные функции ядра: `count`, `strlen`, `substr`, `strpos`, `strtolower`, `strtoupper`, `trim`, `str_replace`, `array_key_exists`, `in_array`, `implode`, `explode`, `print_r`, `var_dump`, `round`, `floor`, `ceil`, `abs`, `min`, `max`, `time`, `date`, `file_exists`, `is_file`, `is_dir`, `basename`, `dirname`, `file_get_contents`, `file_put_contents`, `unlink`, `preg_match` с capture-массивом, `preg_replace`, `json_encode`, `json_decode`, `md5`, `sha1`, `hash`, `serialize`, `unserialize`, базовые `is_*`.
@@ -41,5 +41,5 @@ go run ./cmd/php53test tests/phpt
 
 ## Следующие шаги переноса
 
-1. Следующий P0-шаг: начать alternative control syntax (`if: endif`) как небольшой вертикальный срез с PHPT-контрактом.
-2. После этого продолжить оставшиеся P0-языковые конструкции из `AGENTS.md`: inline HTML, double-quoted interpolation и nested writable targets.
+1. Следующий P0-шаг: начать inline HTML/source mode support как небольшой вертикальный срез с PHPT-контрактом.
+2. После этого продолжить оставшиеся P0-языковые конструкции из `AGENTS.md`: double-quoted interpolation и nested writable targets.
