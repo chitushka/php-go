@@ -703,6 +703,13 @@ func (i *Interpreter) call(c *ast.CallExpr) (Value, error) {
 }
 
 func (i *Interpreter) callBuiltin(c *ast.CallExpr) (Value, bool, error) {
+	switch strings.ToLower(c.Name) {
+	case "isset":
+		return i.callIsset(c.Args)
+	case "empty":
+		return i.callEmpty(c.Args)
+	}
+
 	if strings.EqualFold(c.Name, "preg_match") && len(c.Args) >= 3 {
 		value, err := i.callPregMatchWithCaptures(c)
 		return value, true, err
@@ -735,6 +742,119 @@ func (i *Interpreter) callBuiltin(c *ast.CallExpr) (Value, bool, error) {
 		return NullValue(), ok, err
 	}
 	return fromBuiltinValue(value), true, nil
+}
+
+func (i *Interpreter) callIsset(args []ast.Expr) (Value, bool, error) {
+	if len(args) == 0 {
+		return NullValue(), true, fmt.Errorf("isset expects at least 1 argument, got 0")
+	}
+	for _, arg := range args {
+		value, exists, err := i.lookupConstructValue(arg)
+		if err != nil {
+			return NullValue(), true, err
+		}
+		if !exists || value.Kind == Null {
+			return BoolValue(false), true, nil
+		}
+	}
+	return BoolValue(true), true, nil
+}
+
+func (i *Interpreter) callEmpty(args []ast.Expr) (Value, bool, error) {
+	if len(args) != 1 {
+		return NullValue(), true, fmt.Errorf("empty expects 1 argument, got %d", len(args))
+	}
+	value, exists, err := i.lookupConstructValue(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	if !exists {
+		return BoolValue(true), true, nil
+	}
+	return BoolValue(!value.Truthy()), true, nil
+}
+
+func (i *Interpreter) lookupConstructValue(expr ast.Expr) (Value, bool, error) {
+	switch n := expr.(type) {
+	case *ast.Ident:
+		value, ok := i.getVar(n.Name)
+		return value, ok, nil
+	case *ast.IndexExpr:
+		return i.lookupIndexValue(n)
+	case *ast.PropertyFetchExpr:
+		return i.lookupPropertyValue(n)
+	case *ast.StaticPropertyFetchExpr:
+		return i.lookupStaticPropertyValue(n)
+	default:
+		value, err := i.eval(expr)
+		return value, true, err
+	}
+}
+
+func (i *Interpreter) lookupIndexValue(expr *ast.IndexExpr) (Value, bool, error) {
+	if expr.Index == nil {
+		return NullValue(), false, nil
+	}
+	left, exists, err := i.lookupConstructValue(expr.Left)
+	if err != nil || !exists {
+		return NullValue(), false, err
+	}
+	index, err := i.eval(expr.Index)
+	if err != nil {
+		return NullValue(), false, err
+	}
+	switch left.Kind {
+	case ArrayKind:
+		if left.A == nil {
+			return NullValue(), false, nil
+		}
+		value, ok := left.A.Get(KeyFromValue(index))
+		return value, ok, nil
+	case String:
+		offset, ok := indexOffset(index)
+		if !ok || offset < 0 || offset >= len(left.S) {
+			return NullValue(), false, nil
+		}
+		return StringValue(left.S[offset : offset+1]), true, nil
+	default:
+		return NullValue(), false, nil
+	}
+}
+
+func (i *Interpreter) lookupPropertyValue(expr *ast.PropertyFetchExpr) (Value, bool, error) {
+	obj, err := i.eval(expr.Object)
+	if err != nil || obj.Kind != ObjectKind || obj.O == nil {
+		return NullValue(), false, err
+	}
+	if err := i.checkPropertyAccess(obj.O, expr.Property); err != nil {
+		return NullValue(), false, nil
+	}
+	value, ok := obj.O.Props[expr.Property]
+	return value, ok, nil
+}
+
+func (i *Interpreter) lookupStaticPropertyValue(expr *ast.StaticPropertyFetchExpr) (Value, bool, error) {
+	resolved, err := i.resolveClassName(expr.ClassName)
+	if err != nil {
+		return NullValue(), false, nil
+	}
+	value, info, ok := i.findStaticProperty(resolved, expr.Property)
+	if !ok {
+		return NullValue(), false, nil
+	}
+	switch info.Visibility {
+	case "", "public":
+		return value, true, nil
+	case "private":
+		if i.currentClass() == info.Owner {
+			return value, true, nil
+		}
+	case "protected":
+		if i.classesRelated(i.currentClass(), info.Owner) {
+			return value, true, nil
+		}
+	}
+	return NullValue(), false, nil
 }
 
 func (i *Interpreter) callPregMatchWithCaptures(c *ast.CallExpr) (Value, error) {

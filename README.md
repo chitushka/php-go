@@ -6,7 +6,7 @@
 
 - CLI `php53`, читающий PHP-файл и выполняющий поддерживаемое подмножество.
 - CLI `php53test`, запускающий PHPT-подобные acceptance-тесты.
-- Лексер для `<?php`, закрывающего `?>`, комментариев, чисел, строк, переменных, идентификаторов, `echo`, `print`, `if`, `elseif`, `else`, `while`, `do`, `for`, `switch`, `global`, `static`, `unset`, `exit`/`die`, `true`, `false`, `null`.
+- Лексер для `<?php`, стартового short echo `<?=`, закрывающего `?>`, комментариев, чисел, строк с базовыми escape-последовательностями, переменных, идентификаторов, `echo`, `print`, `if`, `elseif`, `else`, `while`, `do`, `for`, `switch`, `global`, `static`, `unset`, `exit`/`die`, `true`, `false`, `null`.
 - Парсер выражений с приоритетами для `+`, `-`, `*`, `/`, `%`, bitwise/shift (`&`, `|`, `^`, `~`, `<<`, `>>`), сравнений, `==`, `!=`, `<>`, `===`, `!==`, ternary `?:` и casts.
 - Выражения конкатенации `.`, логические `&&`/`||` и `and`/`or` с short-circuit и PHP-приоритетом ниже присваивания, `xor`, индексный доступ `$array[$key]`, `$string[$offset]`, присваивание в массив по индексу и `$array[]` append.
 - Операторы присваивания как выражения, compound assignments (`+=`, `-=`, `*=`, `/=`, `%=`, `.=`), statement-level `++`/`--`, `echo`, `print`, `unset`, `exit`/`die`, блоки, `if/elseif/else`, `while`, `do/while`, `for`, `switch`, `break`/`continue` включая numeric levels.
@@ -14,7 +14,8 @@
 - `foreach ($items as $value)` и `foreach ($items as $key => $value)`.
 - Пользовательские функции: `function name($arg = null, &$ref) { ... }`, вызовы, default parameters, pass-by-reference parameters, локальные frame-ы и `return`.
 - Переменные функций: `global $name` и persistent `static $local = ...`.
-- Встроенные функции ядра: `isset`, `empty`, `count`, `strlen`, `substr`, `strpos`, `strtolower`, `strtoupper`, `trim`, `str_replace`, `array_key_exists`, `in_array`, `implode`, `explode`, `print_r`, `var_dump`, `round`, `floor`, `ceil`, `abs`, `min`, `max`, `time`, `date`, `file_exists`, `is_file`, `is_dir`, `basename`, `dirname`, `file_get_contents`, `file_put_contents`, `unlink`, `preg_match` с capture-массивом, `preg_replace`, `json_encode`, `json_decode`, `md5`, `sha1`, `hash`, `serialize`, `unserialize`, базовые `is_*`.
+- Встроенные функции ядра: `count`, `strlen`, `substr`, `strpos`, `strtolower`, `strtoupper`, `trim`, `str_replace`, `array_key_exists`, `in_array`, `implode`, `explode`, `print_r`, `var_dump`, `round`, `floor`, `ceil`, `abs`, `min`, `max`, `time`, `date`, `file_exists`, `is_file`, `is_dir`, `basename`, `dirname`, `file_get_contents`, `file_put_contents`, `unlink`, `preg_match` с capture-массивом, `preg_replace`, `json_encode`, `json_decode`, `md5`, `sha1`, `hash`, `serialize`, `unserialize`, базовые `is_*`.
+- `isset` и `empty` выполняются как language constructs: аргументы проверяются без обычного предварительного вычисления, поддержаны несколько аргументов `isset`, nested array access, свойства и static-свойства.
 - Builtins вынесены в пакет `internal/runtime/builtins`; новые функции добавляются по функциональным файлам (`strings.go`, `arrays.go`, `filesystem.go`, `regex.go`, `json.go`, `hash.go`, `serialization.go`) и регистрируются в `registry.go`.
 - Ограниченные `include`, `require`, `include_once` и `require_once` для строковых путей, разрешаемых относительно текущего PHP-файла.
 - Базовые классы: `class`, `extends`, `new`, методы, `__construct`, `$this`, динамические свойства, `$obj->method()`, static methods/properties.
@@ -40,4 +41,5 @@ go run ./cmd/php53test tests/phpt
 
 ## Следующие шаги переноса
 
-1. Продолжить P0-языковые конструкции из `AGENTS.md`: inline HTML/short echo, string escapes/interpolation, alternative control syntax, `list(...)` и nested writable targets.
+1. Следующий P0-шаг: начать `list(...)` assignment как небольшой вертикальный срез с PHPT-контрактом.
+2. После этого продолжить оставшиеся P0-языковые конструкции из `AGENTS.md`: inline HTML, double-quoted interpolation, alternative control syntax и nested writable targets.
