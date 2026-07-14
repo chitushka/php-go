@@ -31,6 +31,7 @@ const (
 var precedences = map[lexer.TokenType]int{
 	lexer.AndWord: wordLogical, lexer.OrWord: wordLogical, lexer.XorWord: wordLogical,
 	lexer.Assign:       assignment,
+	lexer.AssignRef:    assignment,
 	lexer.PlusAssign:   assignment,
 	lexer.MinusAssign:  assignment,
 	lexer.MulAssign:    assignment,
@@ -1357,7 +1358,7 @@ func (p *Parser) parseInfix(left ast.Expr) ast.Expr {
 		expr.Else = p.parseExpression(ternary - 1)
 		return expr
 	}
-	if p.cur.Type == lexer.Assign || isCompoundAssignOp(p.cur.Type) {
+	if p.cur.Type == lexer.Assign || p.cur.Type == lexer.AssignRef || isCompoundAssignOp(p.cur.Type) {
 		op := p.cur.Type
 		p.next()
 		value := p.parseExpression(assignment - 1)
@@ -1365,8 +1366,19 @@ func (p *Parser) parseInfix(left ast.Expr) ast.Expr {
 			p.errors = append(p.errors, "expression is not writable")
 			return left
 		}
+		if op == lexer.AssignRef && !isReferenceWritableExpr(left) {
+			p.errors = append(p.errors, "reference assignment target must be a variable")
+			return left
+		}
 		if isCompoundAssignOp(op) {
 			return &ast.AssignExpr{Target: left, Op: compoundBinaryOp(op), Value: value}
+		}
+		if op == lexer.AssignRef {
+			if !isReferenceWritableExpr(value) {
+				p.errors = append(p.errors, "reference assignment value must be a variable")
+				return left
+			}
+			return &ast.AssignExpr{Target: left, Op: "=", Value: value, ByRef: true}
 		}
 		return &ast.AssignExpr{Target: left, Op: "=", Value: value}
 	}
@@ -1399,6 +1411,15 @@ func (p *Parser) parseInfix(left ast.Expr) ast.Expr {
 func isWritableExpr(expr ast.Expr) bool {
 	switch expr.(type) {
 	case *ast.Ident, *ast.VariableVariable, *ast.PropertyFetchExpr, *ast.DynamicPropertyFetchExpr, *ast.StaticPropertyFetchExpr, *ast.DynamicStaticPropertyFetchExpr, *ast.IndexExpr, *ast.ListExpr:
+		return true
+	default:
+		return false
+	}
+}
+
+func isReferenceWritableExpr(expr ast.Expr) bool {
+	switch expr.(type) {
+	case *ast.Ident, *ast.VariableVariable:
 		return true
 	default:
 		return false

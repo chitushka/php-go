@@ -1670,6 +1670,16 @@ func (i *Interpreter) evalIndex(n *ast.IndexExpr) (Value, error) {
 }
 
 func (i *Interpreter) evalAssignExpr(n *ast.AssignExpr) (Value, error) {
+	if n.ByRef {
+		slot, err := i.referenceSlot(n.Value)
+		if err != nil {
+			return NullValue(), err
+		}
+		if err := i.bindReferenceTarget(n.Target, slot); err != nil {
+			return NullValue(), err
+		}
+		return slot.value, nil
+	}
 	value, err := i.eval(n.Value)
 	if err != nil {
 		return NullValue(), err
@@ -1700,6 +1710,30 @@ func (i *Interpreter) evalAssignExpr(n *ast.AssignExpr) (Value, error) {
 		return NullValue(), err
 	}
 	return value, nil
+}
+
+func (i *Interpreter) referenceSlot(expr ast.Expr) (*variableSlot, error) {
+	switch n := expr.(type) {
+	case *ast.Ident:
+		return i.ensureSlot(n.Name), nil
+	case *ast.VariableVariable:
+		return i.ensureSlot(i.variableVariableName(n.Name)), nil
+	default:
+		return nil, fmt.Errorf("reference assignment value must be a variable")
+	}
+}
+
+func (i *Interpreter) bindReferenceTarget(target ast.Expr, slot *variableSlot) error {
+	switch n := target.(type) {
+	case *ast.Ident:
+		i.bindSlot(n.Name, slot)
+		return nil
+	case *ast.VariableVariable:
+		i.bindSlot(i.variableVariableName(n.Name), slot)
+		return nil
+	default:
+		return fmt.Errorf("reference assignment target must be a variable")
+	}
 }
 
 func (i *Interpreter) evalIncDec(target ast.Expr, op string, post bool) (Value, error) {
@@ -3149,6 +3183,15 @@ func (i *Interpreter) ensureSlot(name string) *variableSlot {
 		return slot
 	}
 	return i.globalSlot(name)
+}
+
+func (i *Interpreter) bindSlot(name string, slot *variableSlot) {
+	if frame := i.currentFrame(); frame != nil {
+		frame[name] = slot
+		return
+	}
+	i.globals[name] = slot
+	i.Vars[name] = slot.value
 }
 
 func (i *Interpreter) globalSlot(name string) *variableSlot {

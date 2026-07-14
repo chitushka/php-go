@@ -23,6 +23,7 @@ const (
 	String TokenType = "STRING"
 
 	Assign          TokenType = "="
+	AssignRef       TokenType = "=&"
 	Plus            TokenType = "+"
 	Minus           TokenType = "-"
 	Dot             TokenType = "."

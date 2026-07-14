@@ -315,6 +315,7 @@ type AssignExpr struct {
 	Target Expr
 	Op     string
 	Value  Expr
+	ByRef  bool
 }
 
 func (*AssignExpr) exprNode() {}
