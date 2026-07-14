@@ -254,8 +254,8 @@ func (l *Lexer) NextToken() Token {
 		return Token{Type: Var, Literal: lit, Line: line, Column: col}
 	case '\'', '"':
 		quote := l.ch
-		lit := l.readString(quote)
-		return Token{Type: String, Literal: lit, Line: line, Column: col}
+		lit, interpolate := l.readString(quote)
+		return Token{Type: String, Literal: lit, Line: line, Column: col, Interpolate: interpolate}
 	case 0:
 		tok = l.token(EOF, "", line, col)
 	default:
@@ -364,7 +364,7 @@ func (l *Lexer) readNumber() (string, TokenType) {
 	return l.input[pos:l.position], typ
 }
 
-func (l *Lexer) readString(quote byte) string {
+func (l *Lexer) readString(quote byte) (string, bool) {
 	l.readChar()
 	var b strings.Builder
 	for l.ch != quote && l.ch != 0 {
@@ -408,8 +408,11 @@ func (l *Lexer) readString(quote byte) string {
 		case 'f':
 			b.WriteByte('\f')
 			l.readChar()
-		case '\\', '$', '"':
+		case '\\', '"':
 			b.WriteByte(l.ch)
+			l.readChar()
+		case '$':
+			b.WriteString(`\$`)
 			l.readChar()
 		case 'x', 'X':
 			l.readChar()
@@ -443,7 +446,7 @@ func (l *Lexer) readString(quote byte) string {
 	if l.ch == quote {
 		l.readChar()
 	}
-	return b.String()
+	return b.String(), quote == '"'
 }
 
 func isLetter(ch byte) bool { return ('a' <= ch && ch <= 'z') || ('A' <= ch && ch <= 'Z') || ch == '_' }

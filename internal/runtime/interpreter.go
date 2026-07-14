@@ -528,6 +528,13 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 	case *ast.FloatLit:
 		return FloatValue(n.Value), nil
 	case *ast.StringLit:
+		if n.Interpolate {
+			text, err := i.interpolateString(n.Value)
+			if err != nil {
+				return NullValue(), err
+			}
+			return StringValue(text), nil
+		}
 		return StringValue(n.Value), nil
 	case *ast.BoolLit:
 		return BoolValue(n.Value), nil
@@ -1586,6 +1593,43 @@ func (i *Interpreter) stringify(value Value) (string, error) {
 		}
 	}
 	return value.String(), nil
+}
+
+func (i *Interpreter) interpolateString(text string) (string, error) {
+	var out strings.Builder
+	for idx := 0; idx < len(text); {
+		if text[idx] == '\\' && idx+1 < len(text) && text[idx+1] == '$' {
+			out.WriteByte('$')
+			idx += 2
+			continue
+		}
+		if text[idx] != '$' || idx+1 >= len(text) || !isVarNameStart(text[idx+1]) {
+			out.WriteByte(text[idx])
+			idx++
+			continue
+		}
+		start := idx + 1
+		end := start + 1
+		for end < len(text) && isVarNameChar(text[end]) {
+			end++
+		}
+		value, _ := i.getVar(text[start:end])
+		rendered, err := i.stringify(value)
+		if err != nil {
+			return "", err
+		}
+		out.WriteString(rendered)
+		idx = end
+	}
+	return out.String(), nil
+}
+
+func isVarNameStart(ch byte) bool {
+	return ('a' <= ch && ch <= 'z') || ('A' <= ch && ch <= 'Z') || ch == '_'
+}
+
+func isVarNameChar(ch byte) bool {
+	return isVarNameStart(ch) || ('0' <= ch && ch <= '9')
 }
 
 func (i *Interpreter) castValue(typ string, value Value) (Value, error) {

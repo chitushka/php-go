@@ -42,11 +42,12 @@ func TestInlineHTMLTokenizesAsEchoString(t *testing.T) {
 
 func TestStringEscapes(t *testing.T) {
 	tests := []struct {
-		source string
-		want   string
+		source      string
+		want        string
+		interpolate bool
 	}{
-		{`<?php "a\n\t\x41\101\\\""` + ";", "a\n\tAA\\\""},
-		{`<?php 'it\'s \n \\ ok'` + ";", `it's \n \ ok`},
+		{`<?php "a\n\t\x41\101\\\"\$x"` + ";", "a\n\tAA\\\"\\$x", true},
+		{`<?php 'it\'s \n \\ ok'` + ";", `it's \n \ ok`, false},
 	}
 
 	for _, tt := range tests {
@@ -57,6 +58,9 @@ func TestStringEscapes(t *testing.T) {
 		}
 		if got.Literal != tt.want {
 			t.Fatalf("got literal %q, want %q", got.Literal, tt.want)
+		}
+		if got.Interpolate != tt.interpolate {
+			t.Fatalf("got interpolate %v, want %v", got.Interpolate, tt.interpolate)
 		}
 	}
 }

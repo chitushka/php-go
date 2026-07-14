@@ -247,7 +247,10 @@ type FloatLit struct{ Value float64 }
 
 func (*FloatLit) exprNode() {}
 
-type StringLit struct{ Value string }
+type StringLit struct {
+	Value       string
+	Interpolate bool
+}
 
 func (*StringLit) exprNode() {}
 
