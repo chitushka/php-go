@@ -273,6 +273,14 @@ type PrefixExpr struct {
 
 func (*PrefixExpr) exprNode() {}
 
+type IncDecExpr struct {
+	Target Expr
+	Op     string
+	Post   bool
+}
+
+func (*IncDecExpr) exprNode() {}
+
 type InfixExpr struct {
 	Left  Expr
 	Op    string

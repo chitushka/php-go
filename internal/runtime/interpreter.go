@@ -190,19 +190,7 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 			return nil, err
 		}
 	case *ast.IncDecStmt:
-		current, err := i.eval(n.Target)
-		if err != nil {
-			return nil, err
-		}
-		op := "+"
-		if n.Op == "--" {
-			op = "-"
-		}
-		result, err := Binary(op, current, IntValue(1))
-		if err != nil {
-			return nil, err
-		}
-		if err := i.assignTarget(n.Target, result); err != nil {
+		if _, err := i.evalIncDec(n.Target, n.Op, false); err != nil {
 			return nil, err
 		}
 	case *ast.EchoStmt:
@@ -564,6 +552,8 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 			z, err := Binary("^", v, IntValue(-1))
 			return z, err
 		}
+	case *ast.IncDecExpr:
+		return i.evalIncDec(n.Target, n.Op, n.Post)
 	case *ast.InfixExpr:
 		l, err := i.eval(n.Left)
 		if err != nil {
@@ -1510,6 +1500,126 @@ func (i *Interpreter) evalAssignExpr(n *ast.AssignExpr) (Value, error) {
 		return NullValue(), err
 	}
 	return value, nil
+}
+
+func (i *Interpreter) evalIncDec(target ast.Expr, op string, post bool) (Value, error) {
+	current, err := i.eval(target)
+	if err != nil {
+		return NullValue(), err
+	}
+	next := incrementValue(current)
+	if op == "--" {
+		next = decrementValue(current)
+	}
+	if err := i.assignTarget(target, next); err != nil {
+		return NullValue(), err
+	}
+	if post {
+		return current, nil
+	}
+	return next, nil
+}
+
+func incrementValue(value Value) Value {
+	switch value.Kind {
+	case Int:
+		return IntValue(value.I + 1)
+	case Float:
+		return FloatValue(value.F + 1)
+	case Null:
+		return IntValue(1)
+	case String:
+		if value.S == "" {
+			return StringValue("1")
+		}
+		if numeric, ok := parseNumericStringValue(value.S); ok {
+			return incrementValue(numeric)
+		}
+		return StringValue(incrementString(value.S))
+	default:
+		return value
+	}
+}
+
+func decrementValue(value Value) Value {
+	switch value.Kind {
+	case Int:
+		return IntValue(value.I - 1)
+	case Float:
+		return FloatValue(value.F - 1)
+	case String:
+		if value.S == "" {
+			return IntValue(-1)
+		}
+		if numeric, ok := parseNumericStringValue(value.S); ok {
+			return decrementValue(numeric)
+		}
+		return value
+	default:
+		return value
+	}
+}
+
+func parseNumericStringValue(text string) (Value, bool) {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return NullValue(), false
+	}
+	if value, err := strconv.ParseInt(trimmed, 10, 64); err == nil {
+		return IntValue(value), true
+	}
+	if value, err := strconv.ParseFloat(trimmed, 64); err == nil {
+		return FloatValue(value), true
+	}
+	return NullValue(), false
+}
+
+func incrementString(text string) string {
+	data := []byte(text)
+	carry := false
+	last := byte(0)
+
+	for pos := len(data) - 1; pos >= 0; pos-- {
+		ch := data[pos]
+		switch {
+		case ch >= 'a' && ch <= 'z':
+			last = 'a'
+			if ch == 'z' {
+				data[pos] = 'a'
+				carry = true
+			} else {
+				data[pos]++
+				carry = false
+			}
+		case ch >= 'A' && ch <= 'Z':
+			last = 'A'
+			if ch == 'Z' {
+				data[pos] = 'A'
+				carry = true
+			} else {
+				data[pos]++
+				carry = false
+			}
+		case ch >= '0' && ch <= '9':
+			last = '1'
+			if ch == '9' {
+				data[pos] = '0'
+				carry = true
+			} else {
+				data[pos]++
+				carry = false
+			}
+		default:
+			carry = false
+		}
+		if !carry {
+			break
+		}
+	}
+	if carry {
+		data = append([]byte{last}, data...)
+	}
+	return string(data)
 }
 
 func (i *Interpreter) assignIndex(target *ast.IndexExpr, value Value) error {

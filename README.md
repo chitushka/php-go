@@ -9,7 +9,7 @@
 - Лексер/source mode для inline HTML, `<?php`, short echo `<?=`, закрывающего `?>`, комментариев, чисел, строк с базовыми escape-последовательностями и простым `$var` double-quoted interpolation, переменных включая variable variables `$$name`, идентификаторов, `echo`, `print`, `if`, `elseif`, `else`, `while`, `do`, `for`, `switch`, `global`, `static`, `unset`, `exit`/`die`, `true`, `false`, `null`.
 - Парсер выражений с приоритетами для `+`, `-`, `*`, `/`, `%`, bitwise/shift (`&`, `|`, `^`, `~`, `<<`, `>>`), сравнений, `==`, `!=`, `<>`, `===`, `!==`, ternary `?:` и casts.
 - Выражения конкатенации `.`, логические `&&`/`||` и `and`/`or` с short-circuit и PHP-приоритетом ниже присваивания, `xor`, индексный доступ `$array[$key]`, `$string[$offset]`, присваивание в массив по индексу, `$array[]` append и nested writable array targets с auto-vivification.
-- Операторы присваивания как выражения, compound assignments (`+=`, `-=`, `*=`, `/=`, `%=`, `.=`), `list(...)` assignment для numeric array destructuring, statement-level `++`/`--`, `echo`, `print`, `unset`, `exit`/`die`, блоки, `if/elseif/else` включая alternative `if: elseif: else: endif` syntax, `while` включая alternative `while: endwhile` syntax, `do/while`, `for` включая alternative `for: endfor` syntax, `switch` включая alternative `switch: endswitch` syntax, `break`/`continue` включая numeric levels.
+- Операторы присваивания как выражения, compound assignments (`+=`, `-=`, `*=`, `/=`, `%=`, `.=`), `list(...)` assignment для numeric array destructuring, expression-value semantics для `++`/`--` включая PHP-style string increment, `echo`, `print`, `unset`, `exit`/`die`, блоки, `if/elseif/else` включая alternative `if: elseif: else: endif` syntax, `while` включая alternative `while: endwhile` syntax, `do/while`, `for` включая alternative `for: endfor` syntax, `switch` включая alternative `switch: endswitch` syntax, `break`/`continue` включая numeric levels.
 - PHP-массивы через `array(...)` с ordered hash map, auto-index и ключами `int`/`string`.
 - `foreach ($items as $value)` и `foreach ($items as $key => $value)`, включая alternative `foreach: endforeach` syntax.
 - Пользовательские функции: `function name($arg = null, &$ref) { ... }`, обычные вызовы и variable functions (`$fn()`), default parameters, pass-by-reference parameters, локальные frame-ы и `return`.
@@ -41,5 +41,5 @@ go run ./cmd/php53test tests/phpt
 
 ## Следующие шаги переноса
 
-1. Следующий P0-шаг: реализовать expression-value semantics для `++/--` (`$a++`, `++$a`) как небольшой вертикальный срез с PHPT-контрактом.
-2. После этого продолжить edge-case parity для уже начатых P0-конструкций, включая complex interpolation, broader writable targets, dynamic member edge cases и variable-function edge cases.
+1. Следующий P0-шаг: расширить double-quoted interpolation до complex `${...}` и array/object interpolation как небольшой вертикальный срез с PHPT-контрактом.
+2. После этого продолжить edge-case parity для уже начатых P0-конструкций, включая broader writable targets, dynamic member edge cases, variable-function edge cases и дополнительные operator precedence cases.

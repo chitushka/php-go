@@ -85,12 +85,9 @@ func (p *Parser) parseStatement() ast.Stmt {
 		if p.peek.Type == lexer.Assign || isCompoundAssignOp(p.peek.Type) {
 			return p.parseAssign()
 		}
-		if p.peek.Type == lexer.Increment || p.peek.Type == lexer.Decrement {
-			return p.parseIncDecStmt()
-		}
 		return p.parseExprOrPropertyAssign()
 	case lexer.Increment, lexer.Decrement:
-		return p.parsePrefixIncDecStmt()
+		return p.parseExprStmt()
 	case lexer.Echo:
 		return p.parseEcho()
 	case lexer.Print:
@@ -1081,6 +1078,15 @@ func (p *Parser) parseExpression(precedence int) ast.Expr {
 		op := p.cur.Literal
 		p.next()
 		left = &ast.PrefixExpr{Op: op, Right: p.parseExpression(prefix)}
+	case lexer.Increment, lexer.Decrement:
+		op := p.cur.Literal
+		p.next()
+		target := p.parseExpression(prefix)
+		if !isWritableExpr(target) {
+			p.errors = append(p.errors, "expression is not writable")
+			return target
+		}
+		left = &ast.IncDecExpr{Target: target, Op: op}
 	case lexer.LParen:
 		if castType, ok := castTypeFromToken(p.peek); ok {
 			p.next()
@@ -1121,6 +1127,13 @@ func (p *Parser) parsePostfix(left ast.Expr) ast.Expr {
 		case lexer.LParen:
 			p.next()
 			left = &ast.VariableCallExpr{Callee: left, Args: p.parseCallArgs()}
+		case lexer.Increment, lexer.Decrement:
+			p.next()
+			if !isWritableExpr(left) {
+				p.errors = append(p.errors, "expression is not writable")
+				return left
+			}
+			left = &ast.IncDecExpr{Target: left, Op: p.cur.Literal, Post: true}
 		default:
 			return left
 		}
