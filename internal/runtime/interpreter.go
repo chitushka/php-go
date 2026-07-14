@@ -523,6 +523,12 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 			return v, nil
 		}
 		return NullValue(), nil
+	case *ast.VariableVariable:
+		name := i.variableVariableName(n.Name)
+		if v, ok := i.getVar(name); ok {
+			return v, nil
+		}
+		return NullValue(), nil
 	case *ast.IntLit:
 		return IntValue(n.Value), nil
 	case *ast.FloatLit:
@@ -788,6 +794,9 @@ func (i *Interpreter) lookupConstructValue(expr ast.Expr) (Value, bool, error) {
 	case *ast.Ident:
 		value, ok := i.getVar(n.Name)
 		return value, ok, nil
+	case *ast.VariableVariable:
+		value, ok := i.getVar(i.variableVariableName(n.Name))
+		return value, ok, nil
 	case *ast.IndexExpr:
 		return i.lookupIndexValue(n)
 	case *ast.PropertyFetchExpr:
@@ -903,6 +912,9 @@ func (i *Interpreter) assignBuiltinResult(target ast.Expr, value Value) error {
 	switch n := target.(type) {
 	case *ast.Ident:
 		i.setVar(n.Name, value)
+		return nil
+	case *ast.VariableVariable:
+		i.setVar(i.variableVariableName(n.Name), value)
 		return nil
 	case *ast.IndexExpr:
 		return i.assignIndex(n, value)
@@ -1441,6 +1453,18 @@ func (i *Interpreter) ensureWritableArray(target ast.Expr) (*Array, error) {
 			return nil, fmt.Errorf("cannot assign index on non-array")
 		}
 		return current.A, nil
+	case *ast.VariableVariable:
+		name := i.variableVariableName(n.Name)
+		current, exists := i.getVar(name)
+		if !exists || current.Kind == Null {
+			arr := NewArray()
+			i.setVar(name, ArrayValue(arr))
+			return arr, nil
+		}
+		if current.Kind != ArrayKind || current.A == nil {
+			return nil, fmt.Errorf("cannot assign index on non-array")
+		}
+		return current.A, nil
 	case *ast.IndexExpr:
 		if n.Index == nil {
 			return nil, fmt.Errorf("cannot use [] as nested assignment target")
@@ -1480,6 +1504,9 @@ func (i *Interpreter) assignTarget(target ast.Expr, value Value) error {
 	switch n := target.(type) {
 	case *ast.Ident:
 		i.setVar(n.Name, value)
+		return nil
+	case *ast.VariableVariable:
+		i.setVar(i.variableVariableName(n.Name), value)
 		return nil
 	case *ast.PropertyFetchExpr:
 		obj, err := i.eval(n.Object)
@@ -1540,6 +1567,9 @@ func (i *Interpreter) unsetTarget(target ast.Expr) error {
 	switch n := target.(type) {
 	case *ast.Ident:
 		i.deleteVar(n.Name)
+		return nil
+	case *ast.VariableVariable:
+		i.deleteVar(i.variableVariableName(n.Name))
 		return nil
 	case *ast.IndexExpr:
 		if n.Index == nil {
@@ -2449,6 +2479,14 @@ func (i *Interpreter) bindGlobal(name string) {
 	if frame := i.currentFrame(); frame != nil {
 		frame[name] = i.globalSlot(name)
 	}
+}
+
+func (i *Interpreter) variableVariableName(nameVar string) string {
+	value, ok := i.getVar(nameVar)
+	if !ok {
+		return ""
+	}
+	return value.String()
 }
 
 func (i *Interpreter) bindStaticLocals(decls []ast.StaticLocalDecl) error {

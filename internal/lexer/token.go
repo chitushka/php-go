@@ -16,6 +16,7 @@ const (
 
 	Ident  TokenType = "IDENT"
 	Var    TokenType = "VAR"
+	VarVar TokenType = "VARVAR"
 	Int    TokenType = "INT"
 	Float  TokenType = "FLOAT"
 	String TokenType = "STRING"

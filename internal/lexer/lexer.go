@@ -250,6 +250,11 @@ func (l *Lexer) NextToken() Token {
 		tok = l.token(RBrace, string(l.ch), line, col)
 	case '$':
 		l.readChar()
+		if l.ch == '$' {
+			l.readChar()
+			lit := l.readIdentifier()
+			return Token{Type: VarVar, Literal: lit, Line: line, Column: col}
+		}
 		lit := l.readIdentifier()
 		return Token{Type: Var, Literal: lit, Line: line, Column: col}
 	case '\'', '"':

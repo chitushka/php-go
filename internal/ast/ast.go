@@ -239,6 +239,10 @@ type Ident struct{ Name string }
 
 func (*Ident) exprNode() {}
 
+type VariableVariable struct{ Name string }
+
+func (*VariableVariable) exprNode() {}
+
 type IntLit struct{ Value int64 }
 
 func (*IntLit) exprNode() {}

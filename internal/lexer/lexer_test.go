@@ -40,6 +40,15 @@ func TestInlineHTMLTokenizesAsEchoString(t *testing.T) {
 	}
 }
 
+func TestVariableVariableToken(t *testing.T) {
+	l := New("<?php $$name = 'value';")
+
+	got := l.NextToken()
+	if got.Type != VarVar || got.Literal != "name" {
+		t.Fatalf("got token %s (%q), want VARVAR (name)", got.Type, got.Literal)
+	}
+}
+
 func TestStringEscapes(t *testing.T) {
 	tests := []struct {
 		source      string

@@ -81,7 +81,7 @@ func (p *Parser) parseStatement() ast.Stmt {
 	switch p.cur.Type {
 	case lexer.Semicolon:
 		return nil
-	case lexer.Var:
+	case lexer.Var, lexer.VarVar:
 		if p.peek.Type == lexer.Assign || isCompoundAssignOp(p.peek.Type) {
 			return p.parseAssign()
 		}
@@ -164,7 +164,7 @@ func (p *Parser) parseAssign() ast.Stmt {
 }
 
 func (p *Parser) parseIncDecStmt() ast.Stmt {
-	target := &ast.Ident{Name: p.cur.Literal}
+	target := p.parseVariableTarget()
 	p.next()
 	op := p.cur.Literal
 	p.consumeSemi()
@@ -173,12 +173,21 @@ func (p *Parser) parseIncDecStmt() ast.Stmt {
 
 func (p *Parser) parsePrefixIncDecStmt() ast.Stmt {
 	op := p.cur.Literal
-	if !p.expectPeek(lexer.Var) {
+	if p.peek.Type != lexer.Var && p.peek.Type != lexer.VarVar {
+		p.errors = append(p.errors, fmt.Sprintf("expected variable, got %s", p.peek.Type))
 		return nil
 	}
-	target := &ast.Ident{Name: p.cur.Literal}
+	p.next()
+	target := p.parseVariableTarget()
 	p.consumeSemi()
 	return &ast.IncDecStmt{Target: target, Op: op}
+}
+
+func (p *Parser) parseVariableTarget() ast.Expr {
+	if p.cur.Type == lexer.VarVar {
+		return &ast.VariableVariable{Name: p.cur.Literal}
+	}
+	return &ast.Ident{Name: p.cur.Literal}
 }
 
 func (p *Parser) parseEcho() ast.Stmt {
@@ -1022,6 +1031,8 @@ func (p *Parser) parseExpression(precedence int) ast.Expr {
 	switch p.cur.Type {
 	case lexer.Var:
 		left = &ast.Ident{Name: p.cur.Literal}
+	case lexer.VarVar:
+		left = &ast.VariableVariable{Name: p.cur.Literal}
 	case lexer.Ident:
 		if p.peek.Type == lexer.ScopeResolution {
 			left = p.parseStaticAccess()
@@ -1329,7 +1340,7 @@ func (p *Parser) parseInfix(left ast.Expr) ast.Expr {
 
 func isWritableExpr(expr ast.Expr) bool {
 	switch expr.(type) {
-	case *ast.Ident, *ast.PropertyFetchExpr, *ast.StaticPropertyFetchExpr, *ast.IndexExpr, *ast.ListExpr:
+	case *ast.Ident, *ast.VariableVariable, *ast.PropertyFetchExpr, *ast.StaticPropertyFetchExpr, *ast.IndexExpr, *ast.ListExpr:
 		return true
 	default:
 		return false
