@@ -480,6 +480,8 @@ func (p *Parser) parseForClauseStmt() ast.Stmt {
 		switch target := expr.(type) {
 		case *ast.PropertyFetchExpr:
 			return &ast.PropertyAssignStmt{Object: target.Object, Property: target.Property, Value: value}
+		case *ast.DynamicPropertyFetchExpr:
+			return &ast.ExprStmt{Expr: &ast.AssignExpr{Target: target, Op: "=", Value: value}}
 		case *ast.StaticPropertyFetchExpr:
 			return &ast.StaticPropertyAssignStmt{ClassName: target.ClassName, Property: target.Property, Value: value}
 		case *ast.IndexExpr:
@@ -988,6 +990,8 @@ func (p *Parser) parseExprOrPropertyAssign() ast.Stmt {
 		switch target := expr.(type) {
 		case *ast.PropertyFetchExpr:
 			return &ast.PropertyAssignStmt{Object: target.Object, Property: target.Property, Value: value}
+		case *ast.DynamicPropertyFetchExpr:
+			return &ast.ExprStmt{Expr: &ast.AssignExpr{Target: target, Op: "=", Value: value}}
 		case *ast.StaticPropertyFetchExpr:
 			return &ast.StaticPropertyAssignStmt{ClassName: target.ClassName, Property: target.Property, Value: value}
 		case *ast.IndexExpr:
@@ -1165,15 +1169,34 @@ func (p *Parser) parseNew() ast.Expr {
 }
 
 func (p *Parser) parseObjectAccess(object ast.Expr) ast.Expr {
-	if !p.expectPeek(lexer.Ident) {
+	switch p.peek.Type {
+	case lexer.Ident:
+		p.next()
+		name := p.cur.Literal
+		if p.peek.Type == lexer.LParen {
+			p.next()
+			return &ast.MethodCallExpr{Object: object, Method: name, Args: p.parseCallArgs()}
+		}
+		return &ast.PropertyFetchExpr{Object: object, Property: name}
+	case lexer.Var, lexer.VarVar:
+		p.next()
+		name := p.dynamicMemberName()
+		if p.peek.Type == lexer.LParen {
+			p.next()
+			return &ast.DynamicMethodCallExpr{Object: object, Method: name, Args: p.parseCallArgs()}
+		}
+		return &ast.DynamicPropertyFetchExpr{Object: object, Property: name}
+	default:
+		p.errors = append(p.errors, fmt.Sprintf("expected object member after ->, got %s", p.peek.Type))
 		return object
 	}
-	name := p.cur.Literal
-	if p.peek.Type == lexer.LParen {
-		p.next()
-		return &ast.MethodCallExpr{Object: object, Method: name, Args: p.parseCallArgs()}
+}
+
+func (p *Parser) dynamicMemberName() ast.Expr {
+	if p.cur.Type == lexer.VarVar {
+		return &ast.VariableVariable{Name: p.cur.Literal}
 	}
-	return &ast.PropertyFetchExpr{Object: object, Property: name}
+	return &ast.Ident{Name: p.cur.Literal}
 }
 
 func (p *Parser) parseIndexAccess(left ast.Expr) ast.Expr {
@@ -1343,7 +1366,7 @@ func (p *Parser) parseInfix(left ast.Expr) ast.Expr {
 
 func isWritableExpr(expr ast.Expr) bool {
 	switch expr.(type) {
-	case *ast.Ident, *ast.VariableVariable, *ast.PropertyFetchExpr, *ast.StaticPropertyFetchExpr, *ast.IndexExpr, *ast.ListExpr:
+	case *ast.Ident, *ast.VariableVariable, *ast.PropertyFetchExpr, *ast.DynamicPropertyFetchExpr, *ast.StaticPropertyFetchExpr, *ast.IndexExpr, *ast.ListExpr:
 		return true
 	default:
 		return false

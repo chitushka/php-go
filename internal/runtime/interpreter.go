@@ -673,28 +673,17 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 	case *ast.NewExpr:
 		return i.newObject(n)
 	case *ast.PropertyFetchExpr:
-		obj, err := i.eval(n.Object)
+		return i.fetchProperty(n.Object, n.Property)
+	case *ast.DynamicPropertyFetchExpr:
+		property, err := i.dynamicMemberName(n.Property)
 		if err != nil {
 			return NullValue(), err
 		}
-		if obj.Kind != ObjectKind || obj.O == nil {
-			return NullValue(), fmt.Errorf("cannot fetch property %s on non-object", n.Property)
-		}
-		if err := i.checkPropertyAccess(obj.O, n.Property); err != nil {
-			if i.hasPublicMethod(obj.O, "__get") {
-				return i.callMagicGet(obj.O, n.Property)
-			}
-			return NullValue(), err
-		}
-		if value, ok := obj.O.Props[n.Property]; ok {
-			return value, nil
-		}
-		if i.shouldUseGet(obj.O) {
-			return i.callMagicGet(obj.O, n.Property)
-		}
-		return NullValue(), nil
+		return i.fetchProperty(n.Object, property)
 	case *ast.MethodCallExpr:
 		return i.callMethod(n)
+	case *ast.DynamicMethodCallExpr:
+		return i.callDynamicMethod(n)
 	case *ast.StaticPropertyFetchExpr:
 		if err := i.checkStaticPropertyAccess(n.ClassName, n.Property); err != nil {
 			return NullValue(), err
@@ -725,6 +714,14 @@ func (i *Interpreter) callVariable(c *ast.VariableCallExpr) (Value, error) {
 		return NullValue(), err
 	}
 	return i.call(&ast.CallExpr{Name: name.String(), Args: c.Args})
+}
+
+func (i *Interpreter) dynamicMemberName(expr ast.Expr) (string, error) {
+	value, err := i.eval(expr)
+	if err != nil {
+		return "", err
+	}
+	return value.String(), nil
 }
 
 func (i *Interpreter) callBuiltin(c *ast.CallExpr) (Value, bool, error) {
@@ -811,6 +808,8 @@ func (i *Interpreter) lookupConstructValue(expr ast.Expr) (Value, bool, error) {
 		return i.lookupIndexValue(n)
 	case *ast.PropertyFetchExpr:
 		return i.lookupPropertyValue(n)
+	case *ast.DynamicPropertyFetchExpr:
+		return i.lookupDynamicPropertyValue(n)
 	case *ast.StaticPropertyFetchExpr:
 		return i.lookupStaticPropertyValue(n)
 	default:
@@ -850,15 +849,50 @@ func (i *Interpreter) lookupIndexValue(expr *ast.IndexExpr) (Value, bool, error)
 }
 
 func (i *Interpreter) lookupPropertyValue(expr *ast.PropertyFetchExpr) (Value, bool, error) {
-	obj, err := i.eval(expr.Object)
+	return i.lookupObjectProperty(expr.Object, expr.Property)
+}
+
+func (i *Interpreter) lookupDynamicPropertyValue(expr *ast.DynamicPropertyFetchExpr) (Value, bool, error) {
+	property, err := i.dynamicMemberName(expr.Property)
+	if err != nil {
+		return NullValue(), false, err
+	}
+	return i.lookupObjectProperty(expr.Object, property)
+}
+
+func (i *Interpreter) lookupObjectProperty(object ast.Expr, property string) (Value, bool, error) {
+	obj, err := i.eval(object)
 	if err != nil || obj.Kind != ObjectKind || obj.O == nil {
 		return NullValue(), false, err
 	}
-	if err := i.checkPropertyAccess(obj.O, expr.Property); err != nil {
+	if err := i.checkPropertyAccess(obj.O, property); err != nil {
 		return NullValue(), false, nil
 	}
-	value, ok := obj.O.Props[expr.Property]
+	value, ok := obj.O.Props[property]
 	return value, ok, nil
+}
+
+func (i *Interpreter) fetchProperty(object ast.Expr, property string) (Value, error) {
+	obj, err := i.eval(object)
+	if err != nil {
+		return NullValue(), err
+	}
+	if obj.Kind != ObjectKind || obj.O == nil {
+		return NullValue(), fmt.Errorf("cannot fetch property %s on non-object", property)
+	}
+	if err := i.checkPropertyAccess(obj.O, property); err != nil {
+		if i.hasPublicMethod(obj.O, "__get") {
+			return i.callMagicGet(obj.O, property)
+		}
+		return NullValue(), err
+	}
+	if value, ok := obj.O.Props[property]; ok {
+		return value, nil
+	}
+	if i.shouldUseGet(obj.O) {
+		return i.callMagicGet(obj.O, property)
+	}
+	return NullValue(), nil
 }
 
 func (i *Interpreter) lookupStaticPropertyValue(expr *ast.StaticPropertyFetchExpr) (Value, bool, error) {
@@ -1237,36 +1271,48 @@ func (i *Interpreter) newObject(n *ast.NewExpr) (Value, error) {
 }
 
 func (i *Interpreter) callMethod(n *ast.MethodCallExpr) (Value, error) {
-	obj, err := i.eval(n.Object)
+	return i.callMethodName(n.Object, n.Method, n.Args)
+}
+
+func (i *Interpreter) callDynamicMethod(n *ast.DynamicMethodCallExpr) (Value, error) {
+	method, err := i.dynamicMemberName(n.Method)
+	if err != nil {
+		return NullValue(), err
+	}
+	return i.callMethodName(n.Object, method, n.Args)
+}
+
+func (i *Interpreter) callMethodName(object ast.Expr, methodName string, args []ast.Expr) (Value, error) {
+	obj, err := i.eval(object)
 	if err != nil {
 		return NullValue(), err
 	}
 	if obj.Kind != ObjectKind || obj.O == nil {
-		return NullValue(), fmt.Errorf("cannot call method %s on non-object", n.Method)
+		return NullValue(), fmt.Errorf("cannot call method %s on non-object", methodName)
 	}
-	if obj.O.ClassName == "Exception" && n.Method == "getMessage" {
-		if len(n.Args) != 0 {
-			return NullValue(), fmt.Errorf("Exception::getMessage expects 0 arguments, got %d", len(n.Args))
+	if obj.O.ClassName == "Exception" && methodName == "getMessage" {
+		if len(args) != 0 {
+			return NullValue(), fmt.Errorf("Exception::getMessage expects 0 arguments, got %d", len(args))
 		}
 		if message, ok := obj.O.Props["message"]; ok {
 			return message, nil
 		}
 		return StringValue(""), nil
 	}
-	method, ok := obj.O.Methods[n.Method]
+	method, ok := obj.O.Methods[methodName]
 	if !ok {
-		if n.Method != "__call" && i.hasPublicMethod(obj.O, "__call") {
-			return i.callMagicCall(obj.O, n.Method, n.Args)
+		if methodName != "__call" && i.hasPublicMethod(obj.O, "__call") {
+			return i.callMagicCall(obj.O, methodName, args)
 		}
-		return NullValue(), fmt.Errorf("undefined method %s::%s", obj.O.ClassName, n.Method)
+		return NullValue(), fmt.Errorf("undefined method %s::%s", obj.O.ClassName, methodName)
 	}
 	if err := i.checkMethodAccess(obj.O.ClassName, method); err != nil {
-		if n.Method != "__call" && i.hasPublicMethod(obj.O, "__call") {
-			return i.callMagicCall(obj.O, n.Method, n.Args)
+		if methodName != "__call" && i.hasPublicMethod(obj.O, "__call") {
+			return i.callMagicCall(obj.O, methodName, args)
 		}
 		return NullValue(), err
 	}
-	return i.callFunction(method, n.Args, obj.O, obj.O.ClassName)
+	return i.callFunction(method, args, obj.O, obj.O.ClassName)
 }
 
 func (i *Interpreter) callStatic(n *ast.StaticCallExpr) (Value, error) {
@@ -1519,26 +1565,13 @@ func (i *Interpreter) assignTarget(target ast.Expr, value Value) error {
 		i.setVar(i.variableVariableName(n.Name), value)
 		return nil
 	case *ast.PropertyFetchExpr:
-		obj, err := i.eval(n.Object)
+		return i.assignProperty(n.Object, n.Property, value)
+	case *ast.DynamicPropertyFetchExpr:
+		property, err := i.dynamicMemberName(n.Property)
 		if err != nil {
 			return err
 		}
-		if obj.Kind != ObjectKind || obj.O == nil {
-			return fmt.Errorf("cannot assign property %s on non-object", n.Property)
-		}
-		if err := i.checkPropertyAccess(obj.O, n.Property); err != nil {
-			if i.hasPublicMethod(obj.O, "__set") {
-				_, callErr := i.callMagicSet(obj.O, n.Property, value)
-				return callErr
-			}
-			return err
-		}
-		if _, ok := obj.O.Props[n.Property]; !ok && i.shouldUseSet(obj.O) {
-			_, callErr := i.callMagicSet(obj.O, n.Property, value)
-			return callErr
-		}
-		obj.O.Props[n.Property] = value
-		return nil
+		return i.assignProperty(n.Object, property, value)
 	case *ast.StaticPropertyFetchExpr:
 		if err := i.checkStaticPropertyAccess(n.ClassName, n.Property); err != nil {
 			return err
@@ -1552,6 +1585,29 @@ func (i *Interpreter) assignTarget(target ast.Expr, value Value) error {
 	default:
 		return fmt.Errorf("expression is not writable")
 	}
+}
+
+func (i *Interpreter) assignProperty(object ast.Expr, property string, value Value) error {
+	obj, err := i.eval(object)
+	if err != nil {
+		return err
+	}
+	if obj.Kind != ObjectKind || obj.O == nil {
+		return fmt.Errorf("cannot assign property %s on non-object", property)
+	}
+	if err := i.checkPropertyAccess(obj.O, property); err != nil {
+		if i.hasPublicMethod(obj.O, "__set") {
+			_, callErr := i.callMagicSet(obj.O, property, value)
+			return callErr
+		}
+		return err
+	}
+	if _, ok := obj.O.Props[property]; !ok && i.shouldUseSet(obj.O) {
+		_, callErr := i.callMagicSet(obj.O, property, value)
+		return callErr
+	}
+	obj.O.Props[property] = value
+	return nil
 }
 
 func (i *Interpreter) assignList(target *ast.ListExpr, value Value) error {
@@ -1607,22 +1663,32 @@ func (i *Interpreter) unsetTarget(target ast.Expr) error {
 		}
 		return nil
 	case *ast.PropertyFetchExpr:
-		obj, err := i.eval(n.Object)
+		return i.unsetProperty(n.Object, n.Property)
+	case *ast.DynamicPropertyFetchExpr:
+		property, err := i.dynamicMemberName(n.Property)
 		if err != nil {
 			return err
 		}
-		if obj.Kind != ObjectKind || obj.O == nil {
-			return nil
-		}
-		if err := i.checkPropertyAccess(obj.O, n.Property); err != nil {
-			return err
-		}
-		delete(obj.O.Props, n.Property)
-		delete(obj.O.PropMeta, n.Property)
-		return nil
+		return i.unsetProperty(n.Object, property)
 	default:
 		return nil
 	}
+}
+
+func (i *Interpreter) unsetProperty(object ast.Expr, property string) error {
+	obj, err := i.eval(object)
+	if err != nil {
+		return err
+	}
+	if obj.Kind != ObjectKind || obj.O == nil {
+		return nil
+	}
+	if err := i.checkPropertyAccess(obj.O, property); err != nil {
+		return err
+	}
+	delete(obj.O.Props, property)
+	delete(obj.O.PropMeta, property)
+	return nil
 }
 
 func indexOffset(value Value) (int, bool) {
