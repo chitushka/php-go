@@ -1006,9 +1006,8 @@ func (p *Parser) parseObjectAccess(object ast.Expr) ast.Expr {
 
 func (p *Parser) parseIndexAccess(left ast.Expr) ast.Expr {
 	if p.peek.Type == lexer.RBracket {
-		p.errors = append(p.errors, "empty index fetch is not supported")
 		p.next()
-		return left
+		return &ast.IndexExpr{Left: left}
 	}
 	p.next()
 	index := p.parseExpression(lowest)

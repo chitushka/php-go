@@ -474,6 +474,14 @@ func TestArrayIndexFetchAndAssign(t *testing.T) {
 	}
 }
 
+func TestArrayAppendAssign(t *testing.T) {
+	src := "<?php $items = array('first'); $items[] = 'second'; $items[5] = 'sixth'; $items[] = 'seventh'; echo count($items); echo ':'; echo $items[0]; echo ':'; echo $items[1]; echo ':'; echo $items[6]; $new[] = 'created'; echo ':'; echo $new[0]; $null = null; $null[] = 'from-null'; echo ':'; echo $null[0];"
+	got := run(t, src)
+	if got != "4:first:second:seventh:created:from-null" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestStringIndexFetch(t *testing.T) {
 	got := run(t, "<?php $s = 'php'; echo $s[0]; echo $s[1]; echo $s[2];")
 	if got != "php" {

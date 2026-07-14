@@ -1146,6 +1146,9 @@ func (i *Interpreter) execSwitch(n *ast.SwitchStmt) (*returnSignal, error) {
 }
 
 func (i *Interpreter) evalIndex(n *ast.IndexExpr) (Value, error) {
+	if n.Index == nil {
+		return NullValue(), fmt.Errorf("cannot use [] for reading")
+	}
 	left, err := i.eval(n.Left)
 	if err != nil {
 		return NullValue(), err
@@ -1206,23 +1209,35 @@ func (i *Interpreter) evalAssignExpr(n *ast.AssignExpr) (Value, error) {
 }
 
 func (i *Interpreter) assignIndex(target *ast.IndexExpr, value Value) error {
-	index, err := i.eval(target.Index)
-	if err != nil {
-		return err
+	var key ArrayKey
+	appendValue := target.Index == nil
+	if !appendValue {
+		index, err := i.eval(target.Index)
+		if err != nil {
+			return err
+		}
+		key = KeyFromValue(index)
 	}
-	key := KeyFromValue(index)
 	if ident, ok := target.Left.(*ast.Ident); ok {
 		current, exists := i.getVar(ident.Name)
 		if !exists || current.Kind == Null {
 			arr := NewArray()
-			arr.Set(key, value)
+			if appendValue {
+				arr.Append(value)
+			} else {
+				arr.Set(key, value)
+			}
 			i.setVar(ident.Name, ArrayValue(arr))
 			return nil
 		}
 		if current.Kind != ArrayKind || current.A == nil {
 			return fmt.Errorf("cannot assign index on non-array")
 		}
-		current.A.Set(key, value)
+		if appendValue {
+			current.A.Append(value)
+		} else {
+			current.A.Set(key, value)
+		}
 		return nil
 	}
 	left, err := i.eval(target.Left)
@@ -1232,7 +1247,11 @@ func (i *Interpreter) assignIndex(target *ast.IndexExpr, value Value) error {
 	if left.Kind != ArrayKind || left.A == nil {
 		return fmt.Errorf("cannot assign index on non-array")
 	}
-	left.A.Set(key, value)
+	if appendValue {
+		left.A.Append(value)
+	} else {
+		left.A.Set(key, value)
+	}
 	return nil
 }
 
@@ -1281,6 +1300,9 @@ func (i *Interpreter) unsetTarget(target ast.Expr) error {
 		i.deleteVar(n.Name)
 		return nil
 	case *ast.IndexExpr:
+		if n.Index == nil {
+			return fmt.Errorf("cannot use [] for unset")
+		}
 		index, err := i.eval(n.Index)
 		if err != nil {
 			return err
