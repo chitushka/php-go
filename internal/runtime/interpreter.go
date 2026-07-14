@@ -615,6 +615,8 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 		return i.eval(n.Else)
 	case *ast.AssignExpr:
 		return i.evalAssignExpr(n)
+	case *ast.ListExpr:
+		return NullValue(), nil
 	case *ast.CastExpr:
 		value, err := i.eval(n.Expr)
 		if err != nil {
@@ -1478,9 +1480,30 @@ func (i *Interpreter) assignTarget(target ast.Expr, value Value) error {
 		return nil
 	case *ast.IndexExpr:
 		return i.assignIndex(n, value)
+	case *ast.ListExpr:
+		return i.assignList(n, value)
 	default:
 		return fmt.Errorf("expression is not writable")
 	}
+}
+
+func (i *Interpreter) assignList(target *ast.ListExpr, value Value) error {
+	if value.Kind != ArrayKind || value.A == nil {
+		return fmt.Errorf("list assignment expects array")
+	}
+	for idx, elem := range target.Targets {
+		if elem == nil {
+			continue
+		}
+		elemValue, ok := value.A.Get(IntKey(int64(idx)))
+		if !ok {
+			elemValue = NullValue()
+		}
+		if err := i.assignTarget(elem, elemValue); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (i *Interpreter) unsetTarget(target ast.Expr) error {

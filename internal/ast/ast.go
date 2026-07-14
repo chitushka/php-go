@@ -290,6 +290,12 @@ type AssignExpr struct {
 
 func (*AssignExpr) exprNode() {}
 
+type ListExpr struct {
+	Targets []Expr
+}
+
+func (*ListExpr) exprNode() {}
+
 type CastExpr struct {
 	Type string
 	Expr Expr

@@ -933,6 +933,8 @@ func (p *Parser) parseExpression(precedence int) ast.Expr {
 		left = &ast.NullLit{}
 	case lexer.Array:
 		left = p.parseArray()
+	case lexer.List:
+		left = p.parseList()
 	case lexer.NewKeyword:
 		left = p.parseNew()
 	case lexer.Bang, lexer.Minus, lexer.Plus, lexer.Tilde:
@@ -1117,6 +1119,38 @@ func (p *Parser) parseArray() ast.Expr {
 	return lit
 }
 
+func (p *Parser) parseList() ast.Expr {
+	lit := &ast.ListExpr{}
+	if !p.expectPeek(lexer.LParen) {
+		return lit
+	}
+	for {
+		if p.peek.Type == lexer.RParen {
+			p.next()
+			return lit
+		}
+		if p.peek.Type == lexer.Comma {
+			lit.Targets = append(lit.Targets, nil)
+			p.next()
+			continue
+		}
+		p.next()
+		target := p.parseExpression(lowest)
+		if target != nil && !isWritableExpr(target) {
+			p.errors = append(p.errors, "list element is not writable")
+		}
+		lit.Targets = append(lit.Targets, target)
+		if p.peek.Type != lexer.Comma {
+			break
+		}
+		p.next()
+	}
+	if !p.expectPeek(lexer.RParen) {
+		return lit
+	}
+	return lit
+}
+
 func (p *Parser) parseInfix(left ast.Expr) ast.Expr {
 	if p.cur.Type == lexer.Question {
 		expr := &ast.TernaryExpr{Cond: left}
@@ -1174,7 +1208,7 @@ func (p *Parser) parseInfix(left ast.Expr) ast.Expr {
 
 func isWritableExpr(expr ast.Expr) bool {
 	switch expr.(type) {
-	case *ast.Ident, *ast.PropertyFetchExpr, *ast.StaticPropertyFetchExpr, *ast.IndexExpr:
+	case *ast.Ident, *ast.PropertyFetchExpr, *ast.StaticPropertyFetchExpr, *ast.IndexExpr, *ast.ListExpr:
 		return true
 	default:
 		return false

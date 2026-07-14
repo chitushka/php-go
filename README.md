@@ -9,7 +9,7 @@
 - Лексер для `<?php`, стартового short echo `<?=`, закрывающего `?>`, комментариев, чисел, строк с базовыми escape-последовательностями, переменных, идентификаторов, `echo`, `print`, `if`, `elseif`, `else`, `while`, `do`, `for`, `switch`, `global`, `static`, `unset`, `exit`/`die`, `true`, `false`, `null`.
 - Парсер выражений с приоритетами для `+`, `-`, `*`, `/`, `%`, bitwise/shift (`&`, `|`, `^`, `~`, `<<`, `>>`), сравнений, `==`, `!=`, `<>`, `===`, `!==`, ternary `?:` и casts.
 - Выражения конкатенации `.`, логические `&&`/`||` и `and`/`or` с short-circuit и PHP-приоритетом ниже присваивания, `xor`, индексный доступ `$array[$key]`, `$string[$offset]`, присваивание в массив по индексу и `$array[]` append.
-- Операторы присваивания как выражения, compound assignments (`+=`, `-=`, `*=`, `/=`, `%=`, `.=`), statement-level `++`/`--`, `echo`, `print`, `unset`, `exit`/`die`, блоки, `if/elseif/else`, `while`, `do/while`, `for`, `switch`, `break`/`continue` включая numeric levels.
+- Операторы присваивания как выражения, compound assignments (`+=`, `-=`, `*=`, `/=`, `%=`, `.=`), `list(...)` assignment для numeric array destructuring, statement-level `++`/`--`, `echo`, `print`, `unset`, `exit`/`die`, блоки, `if/elseif/else`, `while`, `do/while`, `for`, `switch`, `break`/`continue` включая numeric levels.
 - PHP-массивы через `array(...)` с ordered hash map, auto-index и ключами `int`/`string`.
 - `foreach ($items as $value)` и `foreach ($items as $key => $value)`.
 - Пользовательские функции: `function name($arg = null, &$ref) { ... }`, вызовы, default parameters, pass-by-reference parameters, локальные frame-ы и `return`.
@@ -41,5 +41,5 @@ go run ./cmd/php53test tests/phpt
 
 ## Следующие шаги переноса
 
-1. Следующий P0-шаг: начать `list(...)` assignment как небольшой вертикальный срез с PHPT-контрактом.
-2. После этого продолжить оставшиеся P0-языковые конструкции из `AGENTS.md`: inline HTML, double-quoted interpolation, alternative control syntax и nested writable targets.
+1. Следующий P0-шаг: начать alternative control syntax (`if: endif`) как небольшой вертикальный срез с PHPT-контрактом.
+2. После этого продолжить оставшиеся P0-языковые конструкции из `AGENTS.md`: inline HTML, double-quoted interpolation и nested writable targets.

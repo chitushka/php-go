@@ -83,6 +83,7 @@ const (
 	Continue    TokenType = "CONTINUE"
 	As          TokenType = "AS"
 	Array       TokenType = "ARRAY"
+	List        TokenType = "LIST"
 	Function    TokenType = "FUNCTION"
 	Return      TokenType = "RETURN"
 	Global      TokenType = "GLOBAL"
@@ -136,6 +137,7 @@ var keywords = map[string]TokenType{
 	"continue":     Continue,
 	"as":           As,
 	"array":        Array,
+	"list":         List,
 	"function":     Function,
 	"return":       Return,
 	"global":       Global,
