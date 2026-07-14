@@ -274,6 +274,12 @@ type MagicConstExpr struct {
 
 func (*MagicConstExpr) exprNode() {}
 
+type BareConstExpr struct {
+	Name string
+}
+
+func (*BareConstExpr) exprNode() {}
+
 type PrefixExpr struct {
 	Op    string
 	Right Expr

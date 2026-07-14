@@ -23,6 +23,7 @@
 - `self::`, `parent::`, `static::`, late static binding для static members, а также базовые проверки `final` и `abstract`.
 - `interface`, `extends` для интерфейсов, `implements` и runtime-проверка обязательных методов.
 - Class constants через `const NAME = ...`, доступ `Class::NAME`, `self::NAME`, `parent::NAME` и наследование констант.
+- Bare/runtime constants: bare-доступ `NAME`, `define()`, `defined()`, `constant()`, case-insensitive `define(..., true)` и fallback неизвестной bare-константы в строку имени.
 - Magic constants: `__FILE__`, `__DIR__`, `__LINE__`, `__FUNCTION__`, `__CLASS__`, `__METHOD__`.
 - `instanceof` для классов, родителей и интерфейсов.
 - Magic methods `__get`, `__set`, `__call`, `__toString` для базового property/method overloading и строкового вывода объектов.
@@ -42,5 +43,5 @@ go run ./cmd/php53test tests/phpt
 
 ## Следующие шаги переноса
 
-1. Следующий P1-шаг: начать bare constants и `define`-style runtime constants как небольшой vertical slice с PHPT-контрактом.
+1. Следующий P1-шаг: начать references vertical slice с assignment by reference (`=&`) и PHPT-контрактом для базового aliasing.
 2. `declare`/`eval` отложены до отдельного решения; `eval` может остаться выключенным из-за security-модели.

@@ -18,23 +18,25 @@ import (
 )
 
 type Interpreter struct {
-	Vars            map[string]Value
-	globals         map[string]*variableSlot
-	functions       map[string]*ast.FunctionDeclStmt
-	classes         map[string]*ast.ClassDeclStmt
-	interfaces      map[string]*ast.InterfaceDeclStmt
-	constants       map[string]map[string]Value
-	staticVars      map[string]map[string]*variableSlot
-	statics         map[string]map[string]Value
-	staticMeta      map[string]map[string]PropertyMeta
-	frames          []frame
-	responseHeaders []string
-	uploadedFiles   map[string]bool
-	includedOnce    map[string]bool
-	baseDir         string
-	dirStack        []string
-	fileStack       []string
-	Out             bytes.Buffer
+	Vars                        map[string]Value
+	globals                     map[string]*variableSlot
+	functions                   map[string]*ast.FunctionDeclStmt
+	classes                     map[string]*ast.ClassDeclStmt
+	interfaces                  map[string]*ast.InterfaceDeclStmt
+	constants                   map[string]map[string]Value
+	runtimeConstants            map[string]Value
+	runtimeInsensitiveConstants map[string]Value
+	staticVars                  map[string]map[string]*variableSlot
+	statics                     map[string]map[string]Value
+	staticMeta                  map[string]map[string]PropertyMeta
+	frames                      []frame
+	responseHeaders             []string
+	uploadedFiles               map[string]bool
+	includedOnce                map[string]bool
+	baseDir                     string
+	dirStack                    []string
+	fileStack                   []string
+	Out                         bytes.Buffer
 }
 
 func NewInterpreter() *Interpreter {
@@ -46,20 +48,22 @@ func NewInterpreterWithBaseDir(baseDir string) *Interpreter {
 		baseDir = "."
 	}
 	return &Interpreter{
-		Vars:          map[string]Value{},
-		globals:       map[string]*variableSlot{},
-		functions:     map[string]*ast.FunctionDeclStmt{},
-		classes:       map[string]*ast.ClassDeclStmt{},
-		interfaces:    map[string]*ast.InterfaceDeclStmt{},
-		constants:     map[string]map[string]Value{},
-		staticVars:    map[string]map[string]*variableSlot{},
-		statics:       map[string]map[string]Value{},
-		staticMeta:    map[string]map[string]PropertyMeta{},
-		uploadedFiles: map[string]bool{},
-		includedOnce:  map[string]bool{},
-		baseDir:       baseDir,
-		dirStack:      []string{baseDir},
-		fileStack:     []string{},
+		Vars:                        map[string]Value{},
+		globals:                     map[string]*variableSlot{},
+		functions:                   map[string]*ast.FunctionDeclStmt{},
+		classes:                     map[string]*ast.ClassDeclStmt{},
+		interfaces:                  map[string]*ast.InterfaceDeclStmt{},
+		constants:                   map[string]map[string]Value{},
+		runtimeConstants:            map[string]Value{},
+		runtimeInsensitiveConstants: map[string]Value{},
+		staticVars:                  map[string]map[string]*variableSlot{},
+		statics:                     map[string]map[string]Value{},
+		staticMeta:                  map[string]map[string]PropertyMeta{},
+		uploadedFiles:               map[string]bool{},
+		includedOnce:                map[string]bool{},
+		baseDir:                     baseDir,
+		dirStack:                    []string{baseDir},
+		fileStack:                   []string{},
 	}
 }
 
@@ -563,6 +567,8 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 		return NullValue(), nil
 	case *ast.MagicConstExpr:
 		return i.evalMagicConst(n), nil
+	case *ast.BareConstExpr:
+		return i.runtimeConstantValue(n.Name), nil
 	case *ast.PrefixExpr:
 		v, err := i.eval(n.Right)
 		if err != nil {
@@ -761,6 +767,62 @@ func (i *Interpreter) evalMagicConst(c *ast.MagicConstExpr) Value {
 	}
 }
 
+func (i *Interpreter) runtimeConstantValue(name string) Value {
+	value, ok := i.lookupRuntimeConstant(name)
+	if !ok {
+		return StringValue(name)
+	}
+	return value
+}
+
+func (i *Interpreter) lookupRuntimeConstant(name string) (Value, bool) {
+	switch strings.ToLower(name) {
+	case "true":
+		return BoolValue(true), true
+	case "false":
+		return BoolValue(false), true
+	case "null":
+		return NullValue(), true
+	}
+	if value, ok := i.runtimeConstants[name]; ok {
+		return value, true
+	}
+	value, ok := i.runtimeInsensitiveConstants[strings.ToLower(name)]
+	return value, ok
+}
+
+func (i *Interpreter) runtimeConstantNameTaken(name string, insensitive bool) bool {
+	if _, ok := i.lookupRuntimeConstant(name); ok {
+		return true
+	}
+	if !insensitive {
+		return false
+	}
+	needle := strings.ToLower(name)
+	for existing := range i.runtimeConstants {
+		if strings.ToLower(existing) == needle {
+			return true
+		}
+	}
+	_, ok := i.runtimeInsensitiveConstants[needle]
+	return ok
+}
+
+func (i *Interpreter) lookupNamedConstant(name string) (Value, bool) {
+	if value, ok := i.lookupRuntimeConstant(name); ok {
+		return value, true
+	}
+	className, constName, ok := strings.Cut(name, "::")
+	if !ok || className == "" || constName == "" {
+		return NullValue(), false
+	}
+	resolved, err := i.resolveClassName(className)
+	if err != nil {
+		return NullValue(), false
+	}
+	return i.findClassConstant(resolved, constName)
+}
+
 func (i *Interpreter) call(c *ast.CallExpr) (Value, error) {
 	if value, ok, err := i.callBuiltin(c); ok || err != nil {
 		return value, err
@@ -794,6 +856,12 @@ func (i *Interpreter) callBuiltin(c *ast.CallExpr) (Value, bool, error) {
 		return i.callIsset(c.Args)
 	case "empty":
 		return i.callEmpty(c.Args)
+	case "define":
+		return i.callDefine(c.Args)
+	case "defined":
+		return i.callDefined(c.Args)
+	case "constant":
+		return i.callConstant(c.Args)
 	}
 
 	if strings.EqualFold(c.Name, "preg_match") && len(c.Args) >= 3 {
@@ -828,6 +896,69 @@ func (i *Interpreter) callBuiltin(c *ast.CallExpr) (Value, bool, error) {
 		return NullValue(), ok, err
 	}
 	return fromBuiltinValue(value), true, nil
+}
+
+func (i *Interpreter) callDefine(args []ast.Expr) (Value, bool, error) {
+	if len(args) < 2 || len(args) > 3 {
+		return NullValue(), true, fmt.Errorf("define expects 2 or 3 arguments, got %d", len(args))
+	}
+	nameValue, err := i.eval(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	value, err := i.eval(args[1])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	insensitive := false
+	if len(args) == 3 {
+		flag, err := i.eval(args[2])
+		if err != nil {
+			return NullValue(), true, err
+		}
+		insensitive = flag.Truthy()
+	}
+	name := nameValue.String()
+	if name == "" || strings.Contains(name, "::") {
+		return BoolValue(false), true, nil
+	}
+	if i.runtimeConstantNameTaken(name, insensitive) {
+		return BoolValue(false), true, nil
+	}
+	if insensitive {
+		key := strings.ToLower(name)
+		i.runtimeInsensitiveConstants[key] = value
+		return BoolValue(true), true, nil
+	}
+	i.runtimeConstants[name] = value
+	return BoolValue(true), true, nil
+}
+
+func (i *Interpreter) callDefined(args []ast.Expr) (Value, bool, error) {
+	if len(args) != 1 {
+		return NullValue(), true, fmt.Errorf("defined expects 1 argument, got %d", len(args))
+	}
+	name, err := i.eval(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	_, ok := i.lookupNamedConstant(name.String())
+	return BoolValue(ok), true, nil
+}
+
+func (i *Interpreter) callConstant(args []ast.Expr) (Value, bool, error) {
+	if len(args) != 1 {
+		return NullValue(), true, fmt.Errorf("constant expects 1 argument, got %d", len(args))
+	}
+	name, err := i.eval(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	value, ok := i.lookupNamedConstant(name.String())
+	if !ok {
+		return NullValue(), true, fmt.Errorf("undefined constant %s", name.String())
+	}
+	return value, true, nil
 }
 
 func (i *Interpreter) callIsset(args []ast.Expr) (Value, bool, error) {

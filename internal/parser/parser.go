@@ -1047,8 +1047,7 @@ func (p *Parser) parseExpression(precedence int) ast.Expr {
 		} else if p.peek.Type == lexer.LParen {
 			left = p.parseCall()
 		} else {
-			p.errors = append(p.errors, fmt.Sprintf("unexpected bare identifier %s at %d:%d", p.cur.Literal, p.cur.Line, p.cur.Column))
-			return &ast.NullLit{}
+			left = &ast.BareConstExpr{Name: p.cur.Literal}
 		}
 	case lexer.Self, lexer.Parent, lexer.Static:
 		if p.peek.Type == lexer.ScopeResolution {
