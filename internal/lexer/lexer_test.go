@@ -5,10 +5,37 @@ import "testing"
 func TestShortEchoOpenTagTokenizesAsEcho(t *testing.T) {
 	l := New("<?= $name ?>")
 
-	tests := []TokenType{Echo, Var, EOF}
+	tests := []TokenType{Echo, Var, Semicolon, EOF}
 	for _, want := range tests {
 		if got := l.NextToken(); got.Type != want {
 			t.Fatalf("got token %s (%q), want %s", got.Type, got.Literal, want)
+		}
+	}
+}
+
+func TestInlineHTMLTokenizesAsEchoString(t *testing.T) {
+	l := New("Hello <?php echo $name; ?>!")
+
+	tests := []struct {
+		typ TokenType
+		lit string
+	}{
+		{Echo, "echo"},
+		{String, "Hello "},
+		{Semicolon, ";"},
+		{Echo, "echo"},
+		{Var, "name"},
+		{Semicolon, ";"},
+		{Semicolon, ";"},
+		{Echo, "echo"},
+		{String, "!"},
+		{Semicolon, ";"},
+		{EOF, ""},
+	}
+	for _, want := range tests {
+		got := l.NextToken()
+		if got.Type != want.typ || got.Literal != want.lit {
+			t.Fatalf("got token %s (%q), want %s (%q)", got.Type, got.Literal, want.typ, want.lit)
 		}
 	}
 }

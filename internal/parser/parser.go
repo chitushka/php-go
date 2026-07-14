@@ -79,6 +79,8 @@ func (p *Parser) ParseProgram() *ast.Program {
 
 func (p *Parser) parseStatement() ast.Stmt {
 	switch p.cur.Type {
+	case lexer.Semicolon:
+		return nil
 	case lexer.Var:
 		if p.peek.Type == lexer.Assign || isCompoundAssignOp(p.peek.Type) {
 			return p.parseAssign()

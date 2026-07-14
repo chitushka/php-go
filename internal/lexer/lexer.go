@@ -12,17 +12,65 @@ type Lexer struct {
 }
 
 func New(input string) *Lexer {
-	input = normalizeInput(input)
+	input = normalizeSource(input)
 	l := &Lexer{input: input, line: 1}
 	l.readChar()
 	return l
 }
 
-func normalizeInput(input string) string {
-	if strings.HasPrefix(input, "<?=") {
-		return "echo " + input[len("<?="):]
+func normalizeSource(input string) string {
+	var out strings.Builder
+	inPHP := false
+	for input != "" {
+		if !inPHP {
+			openPHP := strings.Index(input, "<?php")
+			openEcho := strings.Index(input, "<?=")
+			if openPHP < 0 && openEcho < 0 {
+				writeInlineHTML(&out, input)
+				break
+			}
+			useEcho := openEcho >= 0 && (openPHP < 0 || openEcho < openPHP)
+			open := openPHP
+			tagLen := len("<?php")
+			if useEcho {
+				open = openEcho
+				tagLen = len("<?=")
+			}
+			writeInlineHTML(&out, input[:open])
+			input = input[open+tagLen:]
+			if useEcho {
+				out.WriteString(" echo ")
+			}
+			inPHP = true
+			continue
+		}
+
+		close := strings.Index(input, "?>")
+		if close < 0 {
+			out.WriteString(input)
+			break
+		}
+		out.WriteString(input[:close])
+		out.WriteString(";")
+		input = input[close+len("?>"):]
+		inPHP = false
 	}
-	return strings.TrimPrefix(input, "<?php")
+	return out.String()
+}
+
+func writeInlineHTML(out *strings.Builder, text string) {
+	if text == "" {
+		return
+	}
+	out.WriteString(" echo '")
+	for idx := 0; idx < len(text); idx++ {
+		switch text[idx] {
+		case '\\', '\'':
+			out.WriteByte('\\')
+		}
+		out.WriteByte(text[idx])
+	}
+	out.WriteString("';")
 }
 
 func (l *Lexer) NextToken() Token {
