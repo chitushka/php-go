@@ -12,10 +12,17 @@ type Lexer struct {
 }
 
 func New(input string) *Lexer {
-	input = strings.TrimPrefix(input, "<?php")
+	input = normalizeInput(input)
 	l := &Lexer{input: input, line: 1}
 	l.readChar()
 	return l
+}
+
+func normalizeInput(input string) string {
+	if strings.HasPrefix(input, "<?=") {
+		return "echo " + input[len("<?="):]
+	}
+	return strings.TrimPrefix(input, "<?php")
 }
 
 func (l *Lexer) NextToken() Token {
