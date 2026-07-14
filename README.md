@@ -11,9 +11,9 @@
 - Выражения конкатенации `.`, логические `&&`/`||` и `and`/`or` с short-circuit и PHP-приоритетом ниже присваивания, `xor`, индексный доступ `$array[$key]`, `$string[$offset]`, присваивание в массив по индексу, `$array[]` append и nested writable array targets с auto-vivification.
 - Операторы присваивания как выражения, compound assignments (`+=`, `-=`, `*=`, `/=`, `%=`, `.=`), `list(...)` assignment для numeric array destructuring, expression-value semantics для `++`/`--` включая PHP-style string increment, `echo`, `print`, `unset`, `exit`/`die`, блоки, `if/elseif/else` включая alternative `if: elseif: else: endif` syntax, `while` включая alternative `while: endwhile` syntax, `do/while`, `for` включая alternative `for: endfor` syntax, `switch` включая alternative `switch: endswitch` syntax, `break`/`continue` включая numeric levels.
 - PHP-массивы через `array(...)` с ordered hash map, auto-index и ключами `int`/`string`.
-- `foreach ($items as $value)` и `foreach ($items as $key => $value)`, включая alternative `foreach: endforeach` syntax.
+- `foreach ($items as $value)`, `foreach ($items as $key => $value)` и `foreach` by reference (`&$value`), включая alternative `foreach: endforeach` syntax.
 - Пользовательские функции: `function name($arg = null, &$ref) { ... }`, обычные вызовы и variable functions (`$fn()`), default parameters, pass-by-reference parameters, локальные frame-ы и `return`.
-- References: базовое assignment by reference (`=&`) для переменных, variable variables и array elements с aliasing через общий variable slot.
+- References: базовое assignment by reference (`=&`) для переменных, variable variables и array elements, а также `foreach` by reference с aliasing через общий variable slot.
 - Переменные функций: `global $name` и persistent `static $local = ...`.
 - Встроенные функции ядра: `count`, `strlen`, `substr`, `strpos`, `strtolower`, `strtoupper`, `trim`, `str_replace`, `array_key_exists`, `in_array`, `implode`, `explode`, `print_r`, `var_dump`, `round`, `floor`, `ceil`, `abs`, `min`, `max`, `time`, `date`, `file_exists`, `is_file`, `is_dir`, `basename`, `dirname`, `file_get_contents`, `file_put_contents`, `unlink`, `preg_match` с capture-массивом, `preg_replace`, `json_encode`, `json_decode`, `md5`, `sha1`, `hash`, `serialize`, `unserialize`, базовые `is_*`.
 - `isset` и `empty` выполняются как language constructs: аргументы проверяются без обычного предварительного вычисления, поддержаны несколько аргументов `isset`, nested array access, свойства и static-свойства.
@@ -44,5 +44,5 @@ go run ./cmd/php53test tests/phpt
 
 ## Следующие шаги переноса
 
-1. Следующий P1-шаг: расширить references на `foreach` by reference как отдельный vertical slice с PHPT-контрактом.
+1. Следующий P1-шаг: расширить references на return by reference как отдельный vertical slice с PHPT-контрактом.
 2. `declare`/`eval` отложены до отдельного решения; `eval` может остаться выключенным из-за security-модели.

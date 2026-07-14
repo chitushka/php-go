@@ -602,6 +602,14 @@ func TestArrayElementReferences(t *testing.T) {
 	}
 }
 
+func TestForeachByReference(t *testing.T) {
+	src := "<?php $items = array(1, 2); foreach ($items as &$value) { $value = $value + 1; } echo $items[0]; echo $items[1]; $value = 9; echo $items[1];"
+	got := run(t, src)
+	if got != "239" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestBuiltinIssetAndEmpty(t *testing.T) {
 	src := "<?php $items = array('a' => 1, 'b' => null, 'c' => 'x'); if (isset($items['a'])) { echo 'a'; } if (!isset($items['b'])) { echo 'b'; } if (!isset($missing)) { echo 'c'; } if (empty($items['b'])) { echo 'd'; } if (empty(0)) { echo 'e'; } if (!empty($items['c'])) { echo 'f'; }"
 	got := run(t, src)

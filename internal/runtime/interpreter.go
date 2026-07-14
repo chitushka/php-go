@@ -380,7 +380,11 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 			if n.KeyVar != "" {
 				i.setVar(n.KeyVar, entry.Key.Value())
 			}
-			i.setVar(n.ValueVar, entry.RuntimeValue())
+			if n.ValueByRef {
+				i.bindSlot(n.ValueVar, src.A.EnsureSlot(entry.Key))
+			} else {
+				i.setVar(n.ValueVar, entry.RuntimeValue())
+			}
 			ret, err := i.exec(n.Body)
 			if handled, propagated, ok := consumeBreak(err); ok {
 				if handled {

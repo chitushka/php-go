@@ -75,10 +75,11 @@ type ForStmt struct {
 func (*ForStmt) stmtNode() {}
 
 type ForeachStmt struct {
-	Source   Expr
-	KeyVar   string
-	ValueVar string
-	Body     *BlockStmt
+	Source     Expr
+	KeyVar     string
+	ValueVar   string
+	ValueByRef bool
+	Body       *BlockStmt
 }
 
 func (*ForeachStmt) stmtNode() {}

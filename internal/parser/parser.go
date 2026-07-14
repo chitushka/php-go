@@ -503,19 +503,22 @@ func (p *Parser) parseForeach() ast.Stmt {
 	if !p.expectPeek(lexer.As) {
 		return nil
 	}
-	if !p.expectPeek(lexer.Var) {
+
+	valueVar, valueByRef, ok := p.parseForeachVariable()
+	if !ok {
 		return nil
 	}
-
-	valueVar := p.cur.Literal
 	keyVar := ""
 	if p.peek.Type == lexer.DoubleArrow {
+		if valueByRef {
+			p.errors = append(p.errors, "foreach key cannot be assigned by reference")
+		}
 		keyVar = valueVar
 		p.next()
-		if !p.expectPeek(lexer.Var) {
+		valueVar, valueByRef, ok = p.parseForeachVariable()
+		if !ok {
 			return nil
 		}
-		valueVar = p.cur.Literal
 	}
 
 	if !p.expectPeek(lexer.RParen) {
@@ -523,23 +526,35 @@ func (p *Parser) parseForeach() ast.Stmt {
 	}
 	if p.peek.Type == lexer.Colon {
 		p.next()
-		return p.parseAlternativeForeach(source, keyVar, valueVar)
+		return p.parseAlternativeForeach(source, keyVar, valueVar, valueByRef)
 	}
 	if !p.expectPeek(lexer.LBrace) {
 		return nil
 	}
 	body := p.parseBlock().(*ast.BlockStmt)
-	return &ast.ForeachStmt{Source: source, KeyVar: keyVar, ValueVar: valueVar, Body: body}
+	return &ast.ForeachStmt{Source: source, KeyVar: keyVar, ValueVar: valueVar, ValueByRef: valueByRef, Body: body}
 }
 
-func (p *Parser) parseAlternativeForeach(source ast.Expr, keyVar string, valueVar string) ast.Stmt {
+func (p *Parser) parseForeachVariable() (string, bool, bool) {
+	byRef := false
+	if p.peek.Type == lexer.Ampersand {
+		p.next()
+		byRef = true
+	}
+	if !p.expectPeek(lexer.Var) {
+		return "", byRef, false
+	}
+	return p.cur.Literal, byRef, true
+}
+
+func (p *Parser) parseAlternativeForeach(source ast.Expr, keyVar string, valueVar string, valueByRef bool) ast.Stmt {
 	body := p.parseAlternativeControlBlock(lexer.EndForeach)
 	if p.cur.Type != lexer.EndForeach {
 		p.errors = append(p.errors, fmt.Sprintf("expected endforeach, got %s", p.cur.Type))
-		return &ast.ForeachStmt{Source: source, KeyVar: keyVar, ValueVar: valueVar, Body: body}
+		return &ast.ForeachStmt{Source: source, KeyVar: keyVar, ValueVar: valueVar, ValueByRef: valueByRef, Body: body}
 	}
 	p.consumeSemi()
-	return &ast.ForeachStmt{Source: source, KeyVar: keyVar, ValueVar: valueVar, Body: body}
+	return &ast.ForeachStmt{Source: source, KeyVar: keyVar, ValueVar: valueVar, ValueByRef: valueByRef, Body: body}
 }
 
 func (p *Parser) parseSwitch() ast.Stmt {
