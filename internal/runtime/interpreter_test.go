@@ -589,6 +589,19 @@ func TestFunctionCompatibilityValidation(t *testing.T) {
 	}
 }
 
+func TestFunctionCallReferenceAndNameRules(t *testing.T) {
+	src := "<?php function Bump(&$value) { $value = $value + 1; } $items = array('n' => 1); bump($items['n']); echo $items['n']; $name = 'x'; $x = 2; BUMP($$name); echo $x;"
+	got := run(t, src)
+	if got != "23" {
+		t.Fatalf("got %q", got)
+	}
+
+	err := runErr(t, "<?php function Same() {} function same() {}")
+	if err == nil || err.Error() != "cannot redeclare function same" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestGlobalStatementSharesGlobalVariable(t *testing.T) {
 	src := "<?php $x = 1; function bump() { global $x; $x = $x + 2; } bump(); echo $x;"
 	got := run(t, src)

@@ -874,7 +874,7 @@ func (i *Interpreter) call(c *ast.CallExpr) (Value, error) {
 	if value, ok, err := i.callBuiltin(c); ok || err != nil {
 		return value, err
 	}
-	fn, ok := i.functions[c.Name]
+	fn, ok := i.functions[functionNameKey(c.Name)]
 	if !ok {
 		return NullValue(), fmt.Errorf("undefined function %s", c.Name)
 	}
@@ -1430,11 +1430,11 @@ func (i *Interpreter) callFunctionResult(fn *ast.FunctionDeclStmt, args []ast.Ex
 			return &variableSlot{value: value}, nil
 		}
 		if param.ByRef {
-			ident, ok := args[idx].(*ast.Ident)
-			if !ok {
+			slot, err := i.referenceSlot(args[idx])
+			if err != nil {
 				return nil, fmt.Errorf("argument %d for %s must be a variable passed by reference", idx+1, fn.Name)
 			}
-			return i.ensureSlot(ident.Name), nil
+			return slot, nil
 		}
 		value, err := i.eval(args[idx])
 		if err != nil {
@@ -1489,11 +1489,11 @@ func (i *Interpreter) callClosureResult(closure *Closure, args []ast.Expr) (func
 			return &variableSlot{value: value}, nil
 		}
 		if param.ByRef {
-			ident, ok := args[idx].(*ast.Ident)
-			if !ok {
+			slot, err := i.referenceSlot(args[idx])
+			if err != nil {
 				return nil, fmt.Errorf("argument %d for %s must be a variable passed by reference", idx+1, fn.Name)
 			}
-			return i.ensureSlot(ident.Name), nil
+			return slot, nil
 		}
 		value, err := i.eval(args[idx])
 		if err != nil {
@@ -1835,7 +1835,7 @@ func (i *Interpreter) referenceSlot(expr ast.Expr) (*variableSlot, error) {
 }
 
 func (i *Interpreter) callFunctionReference(c *ast.CallExpr) (*variableSlot, error) {
-	fn, ok := i.functions[c.Name]
+	fn, ok := i.functions[functionNameKey(c.Name)]
 	if !ok {
 		return nil, fmt.Errorf("undefined function %s", c.Name)
 	}
@@ -2772,14 +2772,19 @@ func (i *Interpreter) exceptionMatches(value Value, catchClass string) bool {
 }
 
 func (i *Interpreter) defineFunction(fn *ast.FunctionDeclStmt) error {
-	if _, exists := i.functions[fn.Name]; exists {
+	key := functionNameKey(fn.Name)
+	if _, exists := i.functions[key]; exists {
 		return fmt.Errorf("cannot redeclare function %s", fn.Name)
 	}
 	if err := validateFunctionCompatibility(fn, "function "+fn.Name); err != nil {
 		return err
 	}
-	i.functions[fn.Name] = fn
+	i.functions[key] = fn
 	return nil
+}
+
+func functionNameKey(name string) string {
+	return strings.ToLower(name)
 }
 
 func validateFunctionCompatibility(fn *ast.FunctionDeclStmt, label string) error {
