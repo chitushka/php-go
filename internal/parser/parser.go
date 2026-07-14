@@ -1061,7 +1061,7 @@ func (p *Parser) parseExpression(precedence int) ast.Expr {
 		v, _ := strconv.ParseFloat(p.cur.Literal, 64)
 		left = &ast.FloatLit{Value: v}
 	case lexer.String:
-		left = &ast.StringLit{Value: p.cur.Literal, Interpolate: p.cur.Interpolate}
+		left = &ast.StringLit{Value: p.cur.Literal, Interpolate: p.cur.Interpolate, Backtick: p.cur.Backtick}
 	case lexer.True:
 		left = &ast.BoolLit{Value: true}
 	case lexer.False:

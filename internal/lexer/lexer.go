@@ -110,6 +110,10 @@ func (l *Lexer) NextToken() Token {
 			tok = l.token(Bang, string(l.ch), line, col)
 		}
 	case '<':
+		if l.peekChar() == '<' && l.peekOffset(2) == '<' {
+			lit, interpolate := l.readHeredoc()
+			return Token{Type: String, Literal: lit, Line: line, Column: col, Interpolate: interpolate}
+		}
 		if l.peekChar() == '=' {
 			ch := l.ch
 			l.readChar()
@@ -261,6 +265,9 @@ func (l *Lexer) NextToken() Token {
 		quote := l.ch
 		lit, interpolate := l.readString(quote)
 		return Token{Type: String, Literal: lit, Line: line, Column: col, Interpolate: interpolate}
+	case '`':
+		lit, interpolate := l.readString('`')
+		return Token{Type: String, Literal: lit, Line: line, Column: col, Interpolate: interpolate, Backtick: true}
 	case 0:
 		tok = l.token(EOF, "", line, col)
 	default:
@@ -303,6 +310,14 @@ func (l *Lexer) peekChar() byte {
 		return 0
 	}
 	return l.input[l.readPosition]
+}
+
+func (l *Lexer) peekOffset(offset int) byte {
+	pos := l.position + offset
+	if pos >= len(l.input) {
+		return 0
+	}
+	return l.input[pos]
 }
 
 func (l *Lexer) skipIgnored() {
@@ -413,7 +428,7 @@ func (l *Lexer) readString(quote byte) (string, bool) {
 		case 'f':
 			b.WriteByte('\f')
 			l.readChar()
-		case '\\', '"':
+		case '\\', quote:
 			b.WriteByte(l.ch)
 			l.readChar()
 		case '$':
@@ -451,7 +466,74 @@ func (l *Lexer) readString(quote byte) (string, bool) {
 	if l.ch == quote {
 		l.readChar()
 	}
-	return b.String(), quote == '"'
+	return b.String(), quote != '\''
+}
+
+func (l *Lexer) readHeredoc() (string, bool) {
+	l.readChar()
+	l.readChar()
+	l.readChar()
+	for l.ch == ' ' || l.ch == '\t' {
+		l.readChar()
+	}
+
+	interpolate := true
+	label := ""
+	if l.ch == '\'' || l.ch == '"' {
+		quote := l.ch
+		interpolate = quote == '"'
+		l.readChar()
+		start := l.position
+		for l.ch != quote && l.ch != 0 && l.ch != '\n' {
+			l.readChar()
+		}
+		label = l.input[start:l.position]
+		if l.ch == quote {
+			l.readChar()
+		}
+	} else {
+		label = l.readIdentifier()
+	}
+
+	for l.ch != 0 && l.ch != '\n' {
+		l.readChar()
+	}
+	if l.ch == '\n' {
+		l.readChar()
+	}
+
+	contentStart := l.position
+	contentEnd, _, labelEnd := findHeredocTerminator(l.input, contentStart, label)
+	for l.position < labelEnd {
+		l.readChar()
+	}
+	return l.input[contentStart:contentEnd], interpolate
+}
+
+func findHeredocTerminator(input string, start int, label string) (int, int, int) {
+	if label == "" {
+		return len(input), len(input), len(input)
+	}
+	for pos := start; pos <= len(input); {
+		lineStart := pos
+		lineEnd := strings.IndexByte(input[pos:], '\n')
+		if lineEnd < 0 {
+			lineEnd = len(input)
+		} else {
+			lineEnd += pos
+		}
+		labelEnd := lineStart + len(label)
+		if labelEnd <= len(input) && strings.HasPrefix(input[lineStart:lineEnd], label) {
+			if labelEnd == lineEnd || input[labelEnd] == ';' || input[labelEnd] == '\r' {
+				return lineStart, lineStart, labelEnd
+			}
+		}
+		if lineEnd == len(input) {
+			break
+		}
+		pos = lineEnd + 1
+	}
+	return len(input), len(input), len(input)
 }
 
 func isLetter(ch byte) bool { return ('a' <= ch && ch <= 'z') || ('A' <= ch && ch <= 'Z') || ch == '_' }

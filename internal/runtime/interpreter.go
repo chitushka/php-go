@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	goruntime "runtime"
 	"strconv"
 	"strings"
 
@@ -522,6 +524,17 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 	case *ast.FloatLit:
 		return FloatValue(n.Value), nil
 	case *ast.StringLit:
+		if n.Backtick {
+			text := n.Value
+			if n.Interpolate {
+				var err error
+				text, err = i.interpolateString(text)
+				if err != nil {
+					return NullValue(), err
+				}
+			}
+			return i.evalBacktick(text)
+		}
 		if n.Interpolate {
 			text, err := i.interpolateString(n.Value)
 			if err != nil {
@@ -690,6 +703,23 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 		return i.callDynamicStatic(n)
 	}
 	return NullValue(), fmt.Errorf("unsupported expression %T", e)
+}
+
+func (i *Interpreter) evalBacktick(command string) (Value, error) {
+	var cmd *exec.Cmd
+	if goruntime.GOOS == "windows" {
+		cmd = exec.Command("cmd", "/C", command)
+	} else {
+		cmd = exec.Command("sh", "-c", command)
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok && len(exitErr.Stderr) == 0 {
+			return StringValue(string(out)), nil
+		}
+		return NullValue(), err
+	}
+	return StringValue(string(out)), nil
 }
 
 func (i *Interpreter) call(c *ast.CallExpr) (Value, error) {

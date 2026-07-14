@@ -254,6 +254,7 @@ func (*FloatLit) exprNode() {}
 type StringLit struct {
 	Value       string
 	Interpolate bool
+	Backtick    bool
 }
 
 func (*StringLit) exprNode() {}

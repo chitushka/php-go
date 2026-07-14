@@ -8,6 +8,7 @@ type Token struct {
 	Line        int
 	Column      int
 	Interpolate bool
+	Backtick    bool
 }
 
 const (

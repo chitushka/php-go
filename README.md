@@ -6,7 +6,7 @@
 
 - CLI `php53`, читающий PHP-файл и выполняющий поддерживаемое подмножество.
 - CLI `php53test`, запускающий PHPT-подобные acceptance-тесты.
-- Лексер/source mode для inline HTML, `<?php`, short echo `<?=`, закрывающего `?>`, комментариев, чисел, строк с базовыми escape-последовательностями, `$var` и базовым complex double-quoted interpolation (`$arr[key]`, `$obj->prop`, `${name}`, `{$arr['key']}`), переменных включая variable variables `$$name`, идентификаторов, `echo`, `print`, `if`, `elseif`, `else`, `while`, `do`, `for`, `switch`, `global`, `static`, `unset`, `exit`/`die`, `true`, `false`, `null`.
+- Лексер/source mode для inline HTML, `<?php`, short echo `<?=`, закрывающего `?>`, комментариев, чисел, строк с базовыми escape-последовательностями, `$var` и базовым complex double-quoted interpolation (`$arr[key]`, `$obj->prop`, `${name}`, `{$arr['key']}`), heredoc/nowdoc и backticks, переменных включая variable variables `$$name`, идентификаторов, `echo`, `print`, `if`, `elseif`, `else`, `while`, `do`, `for`, `switch`, `global`, `static`, `unset`, `exit`/`die`, `true`, `false`, `null`.
 - Парсер выражений с приоритетами для `+`, `-`, `*`, `/`, `%`, bitwise/shift (`&`, `|`, `^`, `~`, `<<`, `>>`), сравнений, `==`, `!=`, `<>`, `===`, `!==`, ternary `?:` и casts.
 - Выражения конкатенации `.`, логические `&&`/`||` и `and`/`or` с short-circuit и PHP-приоритетом ниже присваивания, `xor`, индексный доступ `$array[$key]`, `$string[$offset]`, присваивание в массив по индексу, `$array[]` append и nested writable array targets с auto-vivification.
 - Операторы присваивания как выражения, compound assignments (`+=`, `-=`, `*=`, `/=`, `%=`, `.=`), `list(...)` assignment для numeric array destructuring, expression-value semantics для `++`/`--` включая PHP-style string increment, `echo`, `print`, `unset`, `exit`/`die`, блоки, `if/elseif/else` включая alternative `if: elseif: else: endif` syntax, `while` включая alternative `while: endwhile` syntax, `do/while`, `for` включая alternative `for: endfor` syntax, `switch` включая alternative `switch: endswitch` syntax, `break`/`continue` включая numeric levels.
@@ -41,5 +41,5 @@ go run ./cmd/php53test tests/phpt
 
 ## Следующие шаги переноса
 
-1. Следующий P0-шаг: начать heredoc/nowdoc/backticks как строковый vertical slice с PHPT-контрактом.
+1. Следующий P0-шаг: начать language constructs `declare`/`eval` как небольшой vertical slice с PHPT-контрактом.
 2. После этого продолжить edge-case parity для уже начатых P0-конструкций, включая broader writable targets, dynamic member edge cases, variable-function edge cases и дополнительные operator precedence cases.
