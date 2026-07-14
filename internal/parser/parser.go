@@ -620,6 +620,9 @@ func (p *Parser) parseLoopControlLevel(name string) int {
 	} else {
 		level = parsed
 	}
+	if p.peek.Type != lexer.Semicolon {
+		p.errors = append(p.errors, fmt.Sprintf("%s level must be followed by semicolon", name))
+	}
 	p.consumeSemi()
 	return level
 }

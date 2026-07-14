@@ -35,6 +35,12 @@ func runErr(t *testing.T, src string) error {
 	return i.Run(program)
 }
 
+func parseErrors(src string) []string {
+	p := parser.New(lexer.New(src))
+	p.ParseProgram()
+	return p.Errors()
+}
+
 func TestEchoArithmetic(t *testing.T) {
 	if got := run(t, "<?php echo 1 + 2 * 3;"); got != "7" {
 		t.Fatalf("got %q", got)
@@ -537,6 +543,15 @@ func TestNumericBreakAndContinue(t *testing.T) {
 	got := run(t, src)
 	if got != "00010220:0-" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestNumericBreakAndContinueRejectExpressions(t *testing.T) {
+	if errs := parseErrors("<?php while (1) { break 1 + 1; }"); len(errs) == 0 {
+		t.Fatal("expected parse error for break expression level")
+	}
+	if errs := parseErrors("<?php while (1) { continue 1 + 1; }"); len(errs) == 0 {
+		t.Fatal("expected parse error for continue expression level")
 	}
 }
 
