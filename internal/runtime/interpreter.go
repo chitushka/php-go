@@ -834,8 +834,13 @@ func (i *Interpreter) lookupRuntimeConstant(name string) (Value, bool) {
 	if value, ok := i.runtimeConstants[name]; ok {
 		return value, true
 	}
-	value, ok := i.runtimeInsensitiveConstants[strings.ToLower(name)]
-	return value, ok
+	if value, ok := i.runtimeInsensitiveConstants[strings.ToLower(name)]; ok {
+		return value, true
+	}
+	if base := namespaceBaseName(name); base != name {
+		return i.lookupRuntimeConstant(base)
+	}
+	return NullValue(), false
 }
 
 func (i *Interpreter) runtimeConstantNameTaken(name string, insensitive bool) bool {
@@ -876,6 +881,9 @@ func (i *Interpreter) call(c *ast.CallExpr) (Value, error) {
 	}
 	fn, ok := i.functions[functionNameKey(c.Name)]
 	if !ok {
+		if base := namespaceBaseName(c.Name); base != c.Name {
+			return i.call(&ast.CallExpr{Name: base, Args: c.Args})
+		}
 		return NullValue(), fmt.Errorf("undefined function %s", c.Name)
 	}
 	return i.callFunction(fn, c.Args, nil, "")
@@ -1837,6 +1845,9 @@ func (i *Interpreter) referenceSlot(expr ast.Expr) (*variableSlot, error) {
 func (i *Interpreter) callFunctionReference(c *ast.CallExpr) (*variableSlot, error) {
 	fn, ok := i.functions[functionNameKey(c.Name)]
 	if !ok {
+		if base := namespaceBaseName(c.Name); base != c.Name {
+			return i.callFunctionReference(&ast.CallExpr{Name: base, Args: c.Args})
+		}
 		return nil, fmt.Errorf("undefined function %s", c.Name)
 	}
 	if !fn.ReturnsByRef {
@@ -2785,6 +2796,14 @@ func (i *Interpreter) defineFunction(fn *ast.FunctionDeclStmt) error {
 
 func functionNameKey(name string) string {
 	return strings.ToLower(name)
+}
+
+func namespaceBaseName(name string) string {
+	name = strings.TrimPrefix(name, "\\")
+	if idx := strings.LastIndex(name, "\\"); idx >= 0 {
+		return name[idx+1:]
+	}
+	return name
 }
 
 func validateFunctionCompatibility(fn *ast.FunctionDeclStmt, label string) error {

@@ -96,6 +96,7 @@ const (
 	Function    TokenType = "FUNCTION"
 	Return      TokenType = "RETURN"
 	Use         TokenType = "USE"
+	Namespace   TokenType = "NAMESPACE"
 	Global      TokenType = "GLOBAL"
 	Unset       TokenType = "UNSET"
 	Include     TokenType = "INCLUDE"
@@ -156,6 +157,7 @@ var keywords = map[string]TokenType{
 	"function":     Function,
 	"return":       Return,
 	"use":          Use,
+	"namespace":    Namespace,
 	"global":       Global,
 	"unset":        Unset,
 	"include":      Include,

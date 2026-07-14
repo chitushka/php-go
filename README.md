@@ -26,6 +26,7 @@
 - Class constants через `const NAME = ...`, доступ `Class::NAME`, `self::NAME`, `parent::NAME` и наследование констант.
 - Bare/runtime constants: bare-доступ `NAME`, `define()`, `defined()`, `constant()`, case-insensitive `define(..., true)` и fallback неизвестной bare-константы в строку имени.
 - Magic constants: `__FILE__`, `__DIR__`, `__LINE__`, `__FUNCTION__`, `__CLASS__`, `__METHOD__`.
+- Namespaces/imports: базовые `namespace`, `use ... as ...`, leading `\`, `__NAMESPACE__`, namespaced functions/classes/constants и fallback namespaced function/constant lookup к global имени.
 - `instanceof` для классов, родителей и интерфейсов.
 - Magic methods `__get`, `__set`, `__call`, `__toString` для базового property/method overloading и строкового вывода объектов.
 - Исключения: `throw`, `try`, `catch (Exception $e)` и минимальный встроенный `Exception::getMessage()`.
@@ -44,5 +45,5 @@ go run ./cmd/php53test tests/phpt
 
 ## Следующие шаги переноса
 
-1. Следующий P1-шаг: начать namespaces/imports (`namespace`, `use`, leading `\`, `__NAMESPACE__`) как отдельный vertical slice с PHPT-контрактом.
+1. Следующий шаг: начать P2 PHP 5.3 method/property compatibility rules: override signatures, visibility widening/narrowing и static/non-static conflicts как отдельный vertical slice с PHPT-контрактом.
 2. `declare`/`eval` отложены до отдельного решения; `eval` может остаться выключенным из-за security-модели.

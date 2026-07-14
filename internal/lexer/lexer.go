@@ -272,6 +272,12 @@ func (l *Lexer) NextToken() Token {
 	case '`':
 		lit, interpolate := l.readString('`')
 		return Token{Type: String, Literal: lit, Line: line, Column: col, Interpolate: interpolate, Backtick: true}
+	case '\\':
+		if isLetter(l.peekChar()) {
+			lit := l.readIdentifier()
+			return Token{Type: Ident, Literal: lit, Line: line, Column: col}
+		}
+		tok = l.token(Illegal, string(l.ch), line, col)
 	case 0:
 		tok = l.token(EOF, "", line, col)
 	default:
@@ -366,7 +372,7 @@ func (l *Lexer) skipBlockComment() {
 
 func (l *Lexer) readIdentifier() string {
 	pos := l.position
-	for isLetter(l.ch) || isDigit(l.ch) {
+	for isLetter(l.ch) || isDigit(l.ch) || (l.ch == '\\' && isLetter(l.peekChar())) {
 		l.readChar()
 	}
 	return l.input[pos:l.position]

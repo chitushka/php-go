@@ -54,12 +54,19 @@ var precedences = map[lexer.TokenType]int{
 }
 
 type Parser struct {
-	l         *lexer.Lexer
-	cur, peek lexer.Token
-	errors    []string
+	l                *lexer.Lexer
+	cur, peek        lexer.Token
+	errors           []string
+	currentNamespace string
+	imports          map[string]string
 }
 
-func New(l *lexer.Lexer) *Parser   { p := &Parser{l: l}; p.next(); p.next(); return p }
+func New(l *lexer.Lexer) *Parser {
+	p := &Parser{l: l, imports: map[string]string{}}
+	p.next()
+	p.next()
+	return p
+}
 func (p *Parser) Errors() []string { return p.errors }
 func (p *Parser) next()            { p.cur = p.peek; p.peek = p.l.NextToken() }
 
@@ -116,6 +123,10 @@ func (p *Parser) parseStatement() ast.Stmt {
 		return p.parseContinue()
 	case lexer.Function:
 		return p.parseFunctionDecl()
+	case lexer.Namespace:
+		return p.parseNamespaceDecl()
+	case lexer.Use:
+		return p.parseUseImport()
 	case lexer.Return:
 		return p.parseReturn()
 	case lexer.Global:
@@ -154,6 +165,40 @@ func (p *Parser) parseStatement() ast.Stmt {
 	default:
 		return p.parseExprStmt()
 	}
+}
+
+func (p *Parser) parseNamespaceDecl() ast.Stmt {
+	if !p.expectPeek(lexer.Ident) {
+		return nil
+	}
+	p.currentNamespace = trimLeadingNamespace(p.cur.Literal)
+	p.imports = map[string]string{}
+	p.consumeSemi()
+	return nil
+}
+
+func (p *Parser) parseUseImport() ast.Stmt {
+	for {
+		if !p.expectPeek(lexer.Ident) {
+			return nil
+		}
+		name := trimLeadingNamespace(p.cur.Literal)
+		alias := namespaceBaseName(name)
+		if p.peek.Type == lexer.As {
+			p.next()
+			if !p.expectPeek(lexer.Ident) {
+				return nil
+			}
+			alias = namespaceBaseName(p.cur.Literal)
+		}
+		p.imports[alias] = name
+		if p.peek.Type != lexer.Comma {
+			break
+		}
+		p.next()
+	}
+	p.consumeSemi()
+	return nil
 }
 
 func (p *Parser) parseAssign() ast.Stmt {
@@ -637,10 +682,10 @@ func (p *Parser) parseFunctionDecl() ast.Stmt {
 }
 
 func (p *Parser) parseFunctionDeclWith(visibility string, static bool) ast.Stmt {
-	return p.parseFunctionDeclFull(visibility, static, false, false)
+	return p.parseFunctionDeclFull(visibility, static, false, false, true)
 }
 
-func (p *Parser) parseFunctionDeclFull(visibility string, static bool, final bool, abstract bool) ast.Stmt {
+func (p *Parser) parseFunctionDeclFull(visibility string, static bool, final bool, abstract bool, qualifyName bool) ast.Stmt {
 	returnsByRef := false
 	if p.peek.Type == lexer.Ampersand {
 		p.next()
@@ -650,6 +695,9 @@ func (p *Parser) parseFunctionDeclFull(visibility string, static bool, final boo
 		return nil
 	}
 	name := p.cur.Literal
+	if qualifyName {
+		name = p.resolveDeclarationName(name)
+	}
 	if !p.expectPeek(lexer.LParen) {
 		return nil
 	}
@@ -855,14 +903,14 @@ func (p *Parser) parseClassDecl(final bool, abstract bool) ast.Stmt {
 	if !p.expectPeek(lexer.Ident) {
 		return nil
 	}
-	name := p.cur.Literal
+	name := p.resolveDeclarationName(p.cur.Literal)
 	parent := ""
 	if p.peek.Type == lexer.Extends {
 		p.next()
 		if !p.expectPeek(lexer.Ident) {
 			return nil
 		}
-		parent = p.cur.Literal
+		parent = p.resolveClassName(p.cur.Literal)
 	}
 	implements := p.parseImplementsList()
 	if !p.expectPeek(lexer.LBrace) {
@@ -874,7 +922,7 @@ func (p *Parser) parseClassDecl(final bool, abstract bool) ast.Stmt {
 		visibility, static, finalMember, abstractMember := p.parseMemberModifiers()
 		switch p.cur.Type {
 		case lexer.Function:
-			method, ok := p.parseFunctionDeclFull(visibility, static, finalMember, abstractMember).(*ast.FunctionDeclStmt)
+			method, ok := p.parseFunctionDeclFull(visibility, static, finalMember, abstractMember, false).(*ast.FunctionDeclStmt)
 			if ok && method != nil {
 				class.Methods = append(class.Methods, method)
 			}
@@ -901,7 +949,7 @@ func (p *Parser) parseImplementsList() []string {
 		if !p.expectPeek(lexer.Ident) {
 			return names
 		}
-		names = append(names, p.cur.Literal)
+		names = append(names, p.resolveClassName(p.cur.Literal))
 		if p.peek.Type != lexer.Comma {
 			break
 		}
@@ -914,7 +962,7 @@ func (p *Parser) parseInterfaceDecl() ast.Stmt {
 	if !p.expectPeek(lexer.Ident) {
 		return nil
 	}
-	name := p.cur.Literal
+	name := p.resolveDeclarationName(p.cur.Literal)
 	var parents []string
 	if p.peek.Type == lexer.Extends {
 		p.next()
@@ -922,7 +970,7 @@ func (p *Parser) parseInterfaceDecl() ast.Stmt {
 			if !p.expectPeek(lexer.Ident) {
 				return nil
 			}
-			parents = append(parents, p.cur.Literal)
+			parents = append(parents, p.resolveClassName(p.cur.Literal))
 			if p.peek.Type != lexer.Comma {
 				break
 			}
@@ -940,7 +988,7 @@ func (p *Parser) parseInterfaceDecl() ast.Stmt {
 			p.errors = append(p.errors, fmt.Sprintf("expected interface method in %s, got %s", name, p.cur.Type))
 			return iface
 		}
-		method, ok := p.parseFunctionDeclFull(visibility, static, false, true).(*ast.FunctionDeclStmt)
+		method, ok := p.parseFunctionDeclFull(visibility, static, false, true, false).(*ast.FunctionDeclStmt)
 		if ok && method != nil {
 			iface.Methods = append(iface.Methods, method)
 		}
@@ -1033,7 +1081,7 @@ func (p *Parser) parseTryCatch() ast.Stmt {
 	if !p.expectPeek(lexer.Ident) {
 		return nil
 	}
-	catchClass := p.cur.Literal
+	catchClass := p.resolveClassName(p.cur.Literal)
 	if !p.expectPeek(lexer.Var) {
 		return nil
 	}
@@ -1112,14 +1160,16 @@ func (p *Parser) parseExpression(precedence int) ast.Expr {
 	case lexer.VarVar:
 		left = &ast.VariableVariable{Name: p.cur.Literal}
 	case lexer.Ident:
-		if isMagicConstant(p.cur.Literal) {
+		if strings.EqualFold(p.cur.Literal, "__NAMESPACE__") {
+			left = &ast.StringLit{Value: p.currentNamespace}
+		} else if isMagicConstant(p.cur.Literal) {
 			left = &ast.MagicConstExpr{Name: p.cur.Literal, Line: p.cur.Line}
 		} else if p.peek.Type == lexer.ScopeResolution {
 			left = p.parseStaticAccess()
 		} else if p.peek.Type == lexer.LParen {
 			left = p.parseCall()
 		} else {
-			left = &ast.BareConstExpr{Name: p.cur.Literal}
+			left = &ast.BareConstExpr{Name: p.resolveConstantName(p.cur.Literal)}
 		}
 	case lexer.Self, lexer.Parent, lexer.Static:
 		if p.peek.Type == lexer.ScopeResolution {
@@ -1225,6 +1275,8 @@ func (p *Parser) parseStaticAccess() ast.Expr {
 		className = "parent"
 	case lexer.Static:
 		className = "static"
+	default:
+		className = p.resolveClassName(className)
 	}
 	if !p.expectPeek(lexer.ScopeResolution) {
 		return &ast.NullLit{}
@@ -1265,7 +1317,7 @@ func (p *Parser) parseNew() ast.Expr {
 	if !p.expectPeek(lexer.Ident) {
 		return expr
 	}
-	expr.ClassName = p.cur.Literal
+	expr.ClassName = p.resolveClassName(p.cur.Literal)
 	if p.peek.Type != lexer.LParen {
 		return expr
 	}
@@ -1319,7 +1371,7 @@ func (p *Parser) parseIndexAccess(left ast.Expr) ast.Expr {
 }
 
 func (p *Parser) parseCall() ast.Expr {
-	call := &ast.CallExpr{Name: p.cur.Literal}
+	call := &ast.CallExpr{Name: p.resolveFunctionName(p.cur.Literal)}
 	if !p.expectPeek(lexer.LParen) {
 		return call
 	}
@@ -1460,7 +1512,7 @@ func (p *Parser) parseInfix(left ast.Expr) ast.Expr {
 		switch p.peek.Type {
 		case lexer.Ident, lexer.Self, lexer.Parent, lexer.Static:
 			p.next()
-			expr.ClassName = p.cur.Literal
+			expr.ClassName = p.resolveClassName(p.cur.Literal)
 			switch p.cur.Type {
 			case lexer.Self:
 				expr.ClassName = "self"
@@ -1582,6 +1634,66 @@ func castTypeFromToken(tok lexer.Token) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+func (p *Parser) resolveDeclarationName(name string) string {
+	name = trimLeadingNamespace(name)
+	if p.currentNamespace == "" || strings.Contains(name, "\\") {
+		return name
+	}
+	return p.currentNamespace + "\\" + name
+}
+
+func (p *Parser) resolveClassName(name string) string {
+	if name == "self" || name == "parent" || name == "static" {
+		return name
+	}
+	if strings.HasPrefix(name, "\\") {
+		return trimLeadingNamespace(name)
+	}
+	first, rest, hasRest := strings.Cut(name, "\\")
+	if imported, ok := p.imports[first]; ok {
+		if hasRest {
+			return imported + "\\" + rest
+		}
+		return imported
+	}
+	if p.currentNamespace == "" || strings.Contains(name, "\\") {
+		return name
+	}
+	return p.currentNamespace + "\\" + name
+}
+
+func (p *Parser) resolveFunctionName(name string) string {
+	if strings.HasPrefix(name, "\\") {
+		return trimLeadingNamespace(name)
+	}
+	if p.currentNamespace == "" || strings.Contains(name, "\\") {
+		return name
+	}
+	return p.currentNamespace + "\\" + name
+}
+
+func (p *Parser) resolveConstantName(name string) string {
+	if strings.HasPrefix(name, "\\") {
+		return trimLeadingNamespace(name)
+	}
+	if p.currentNamespace == "" || strings.Contains(name, "\\") {
+		return name
+	}
+	return p.currentNamespace + "\\" + name
+}
+
+func trimLeadingNamespace(name string) string {
+	return strings.TrimPrefix(name, "\\")
+}
+
+func namespaceBaseName(name string) string {
+	name = trimLeadingNamespace(name)
+	if idx := strings.LastIndex(name, "\\"); idx >= 0 {
+		return name[idx+1:]
+	}
+	return name
 }
 
 func isCastType(name string) bool {
