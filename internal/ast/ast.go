@@ -129,6 +129,11 @@ type Param struct {
 	ByRef   bool
 }
 
+type ClosureUse struct {
+	Name  string
+	ByRef bool
+}
+
 type ReturnStmt struct {
 	Value Expr
 }
@@ -366,6 +371,15 @@ type VariableCallExpr struct {
 }
 
 func (*VariableCallExpr) exprNode() {}
+
+type ClosureExpr struct {
+	Params       []Param
+	Uses         []ClosureUse
+	Body         *BlockStmt
+	ReturnsByRef bool
+}
+
+func (*ClosureExpr) exprNode() {}
 
 type NewExpr struct {
 	ClassName string

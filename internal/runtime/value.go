@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+
+	"php-src-go/internal/ast"
 )
 
 type Kind int
@@ -16,7 +18,13 @@ const (
 	String
 	ArrayKind
 	ObjectKind
+	ClosureKind
 )
+
+type Closure struct {
+	Fn       *ast.FunctionDeclStmt
+	Captures map[string]*variableSlot
+}
 
 type Value struct {
 	Kind Kind
@@ -26,6 +34,7 @@ type Value struct {
 	S    string
 	A    *Array
 	O    *Object
+	C    *Closure
 }
 
 func NullValue() Value            { return Value{Kind: Null} }
@@ -35,6 +44,9 @@ func FloatValue(v float64) Value  { return Value{Kind: Float, F: v} }
 func StringValue(v string) Value  { return Value{Kind: String, S: v} }
 func ArrayValue(v *Array) Value   { return Value{Kind: ArrayKind, A: v} }
 func ObjectValue(v *Object) Value { return Value{Kind: ObjectKind, O: v} }
+func ClosureValue(v *Closure) Value {
+	return Value{Kind: ClosureKind, C: v}
+}
 
 func (v Value) Truthy() bool {
 	switch v.Kind {
@@ -52,6 +64,8 @@ func (v Value) Truthy() bool {
 		return v.A != nil && len(v.A.Entries) > 0
 	case ObjectKind:
 		return v.O != nil
+	case ClosureKind:
+		return v.C != nil
 	}
 	return false
 }
@@ -75,6 +89,8 @@ func (v Value) String() string {
 		return "Array"
 	case ObjectKind:
 		return "Object"
+	case ClosureKind:
+		return "Closure"
 	}
 	return ""
 }

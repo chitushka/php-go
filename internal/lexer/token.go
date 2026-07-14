@@ -95,6 +95,7 @@ const (
 	List        TokenType = "LIST"
 	Function    TokenType = "FUNCTION"
 	Return      TokenType = "RETURN"
+	Use         TokenType = "USE"
 	Global      TokenType = "GLOBAL"
 	Unset       TokenType = "UNSET"
 	Include     TokenType = "INCLUDE"
@@ -154,6 +155,7 @@ var keywords = map[string]TokenType{
 	"list":         List,
 	"function":     Function,
 	"return":       Return,
+	"use":          Use,
 	"global":       Global,
 	"unset":        Unset,
 	"include":      Include,

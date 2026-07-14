@@ -30,6 +30,7 @@ type Interpreter struct {
 	statics                     map[string]map[string]Value
 	staticMeta                  map[string]map[string]PropertyMeta
 	frames                      []frame
+	closureSeq                  int
 	responseHeaders             []string
 	uploadedFiles               map[string]bool
 	includedOnce                map[string]bool
@@ -713,6 +714,8 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 		return i.call(n)
 	case *ast.VariableCallExpr:
 		return i.callVariable(n)
+	case *ast.ClosureExpr:
+		return i.evalClosure(n)
 	case *ast.NewExpr:
 		return i.newObject(n)
 	case *ast.PropertyFetchExpr:
@@ -760,6 +763,29 @@ func (i *Interpreter) evalBacktick(command string) (Value, error) {
 		return NullValue(), err
 	}
 	return StringValue(string(out)), nil
+}
+
+func (i *Interpreter) evalClosure(c *ast.ClosureExpr) (Value, error) {
+	i.closureSeq++
+	fn := &ast.FunctionDeclStmt{
+		Name:         fmt.Sprintf("{closure#%d}", i.closureSeq),
+		Params:       c.Params,
+		Body:         c.Body,
+		ReturnsByRef: c.ReturnsByRef,
+	}
+	captures := map[string]*variableSlot{}
+	for _, use := range c.Uses {
+		if use.ByRef {
+			captures[use.Name] = i.ensureSlot(use.Name)
+			continue
+		}
+		value, ok := i.getVar(use.Name)
+		if !ok {
+			value = NullValue()
+		}
+		captures[use.Name] = &variableSlot{value: value}
+	}
+	return ClosureValue(&Closure{Fn: fn, Captures: captures}), nil
 }
 
 func (i *Interpreter) evalMagicConst(c *ast.MagicConstExpr) Value {
@@ -853,11 +879,14 @@ func (i *Interpreter) call(c *ast.CallExpr) (Value, error) {
 }
 
 func (i *Interpreter) callVariable(c *ast.VariableCallExpr) (Value, error) {
-	name, err := i.eval(c.Callee)
+	callee, err := i.eval(c.Callee)
 	if err != nil {
 		return NullValue(), err
 	}
-	return i.call(&ast.CallExpr{Name: name.String(), Args: c.Args})
+	if callee.Kind == ClosureKind {
+		return i.callClosure(callee.C, c.Args)
+	}
+	return i.call(&ast.CallExpr{Name: callee.String(), Args: c.Args})
 }
 
 func (i *Interpreter) dynamicMemberName(expr ast.Expr) (string, error) {
@@ -1318,6 +1347,8 @@ func toBuiltinValue(value Value) builtins.Value {
 		return builtins.ArrayValue(toBuiltinArray(value.A))
 	case ObjectKind:
 		return builtins.ObjectValue()
+	case ClosureKind:
+		return builtins.ObjectValue()
 	default:
 		return builtins.NullValue()
 	}
@@ -1384,7 +1415,7 @@ func (i *Interpreter) callFunction(fn *ast.FunctionDeclStmt, args []ast.Expr, th
 }
 
 func (i *Interpreter) callFunctionResult(fn *ast.FunctionDeclStmt, args []ast.Expr, thisObj *Object, calledClass string) (functionCallResult, error) {
-	return i.callFunctionWithBinderResult(fn, len(args), thisObj, calledClass, func(idx int, param ast.Param) (*variableSlot, error) {
+	return i.callFunctionWithBinderResult(fn, len(args), thisObj, calledClass, nil, func(idx int, param ast.Param) (*variableSlot, error) {
 		if idx >= len(args) {
 			if param.Default == nil {
 				return nil, fmt.Errorf("function %s expects at least %d arguments, got %d", fn.Name, i.requiredParamCount(fn), len(args))
@@ -1411,7 +1442,7 @@ func (i *Interpreter) callFunctionResult(fn *ast.FunctionDeclStmt, args []ast.Ex
 }
 
 func (i *Interpreter) callFunctionValues(fn *ast.FunctionDeclStmt, args []Value, thisObj *Object, calledClass string) (Value, error) {
-	result, err := i.callFunctionWithBinderResult(fn, len(args), thisObj, calledClass, func(idx int, param ast.Param) (*variableSlot, error) {
+	result, err := i.callFunctionWithBinderResult(fn, len(args), thisObj, calledClass, nil, func(idx int, param ast.Param) (*variableSlot, error) {
 		if idx >= len(args) {
 			if param.Default == nil {
 				return nil, fmt.Errorf("function %s expects at least %d arguments, got %d", fn.Name, i.requiredParamCount(fn), len(args))
@@ -1430,12 +1461,51 @@ func (i *Interpreter) callFunctionValues(fn *ast.FunctionDeclStmt, args []Value,
 	return result.value, err
 }
 
-func (i *Interpreter) callFunctionWithBinder(fn *ast.FunctionDeclStmt, provided int, thisObj *Object, calledClass string, bind func(int, ast.Param) (*variableSlot, error)) (Value, error) {
-	result, err := i.callFunctionWithBinderResult(fn, provided, thisObj, calledClass, bind)
+func (i *Interpreter) callClosure(closure *Closure, args []ast.Expr) (Value, error) {
+	if closure == nil || closure.Fn == nil {
+		return NullValue(), fmt.Errorf("invalid closure")
+	}
+	result, err := i.callClosureResult(closure, args)
 	return result.value, err
 }
 
-func (i *Interpreter) callFunctionWithBinderResult(fn *ast.FunctionDeclStmt, provided int, thisObj *Object, calledClass string, bind func(int, ast.Param) (*variableSlot, error)) (functionCallResult, error) {
+func (i *Interpreter) callClosureResult(closure *Closure, args []ast.Expr) (functionCallResult, error) {
+	if closure == nil || closure.Fn == nil {
+		return functionCallResult{}, fmt.Errorf("invalid closure")
+	}
+	fn := closure.Fn
+	return i.callFunctionWithBinderResult(fn, len(args), nil, "", closure.Captures, func(idx int, param ast.Param) (*variableSlot, error) {
+		if idx >= len(args) {
+			if param.Default == nil {
+				return nil, fmt.Errorf("function %s expects at least %d arguments, got %d", fn.Name, i.requiredParamCount(fn), len(args))
+			}
+			value, err := i.eval(param.Default)
+			if err != nil {
+				return nil, err
+			}
+			return &variableSlot{value: value}, nil
+		}
+		if param.ByRef {
+			ident, ok := args[idx].(*ast.Ident)
+			if !ok {
+				return nil, fmt.Errorf("argument %d for %s must be a variable passed by reference", idx+1, fn.Name)
+			}
+			return i.ensureSlot(ident.Name), nil
+		}
+		value, err := i.eval(args[idx])
+		if err != nil {
+			return nil, err
+		}
+		return &variableSlot{value: value}, nil
+	})
+}
+
+func (i *Interpreter) callFunctionWithBinder(fn *ast.FunctionDeclStmt, provided int, thisObj *Object, calledClass string, bind func(int, ast.Param) (*variableSlot, error)) (Value, error) {
+	result, err := i.callFunctionWithBinderResult(fn, provided, thisObj, calledClass, nil, bind)
+	return result.value, err
+}
+
+func (i *Interpreter) callFunctionWithBinderResult(fn *ast.FunctionDeclStmt, provided int, thisObj *Object, calledClass string, captures map[string]*variableSlot, bind func(int, ast.Param) (*variableSlot, error)) (functionCallResult, error) {
 	if fn.Abstract {
 		return functionCallResult{}, fmt.Errorf("cannot call abstract method %s::%s", fn.Owner, fn.Name)
 	}
@@ -1446,6 +1516,9 @@ func (i *Interpreter) callFunctionWithBinderResult(fn *ast.FunctionDeclStmt, pro
 		calledClass = fn.Owner
 	}
 	callFrame := frame{vars: map[string]*variableSlot{}, className: fn.Owner, calledClass: calledClass, function: fn.Name, functionKey: functionKey(fn), returnByRef: fn.ReturnsByRef}
+	for name, slot := range captures {
+		callFrame.vars[name] = slot
+	}
 	if thisObj != nil {
 		callFrame.vars["this"] = &variableSlot{value: ObjectValue(thisObj)}
 	}
@@ -1777,11 +1850,27 @@ func (i *Interpreter) callFunctionReference(c *ast.CallExpr) (*variableSlot, err
 }
 
 func (i *Interpreter) callVariableFunctionReference(c *ast.VariableCallExpr) (*variableSlot, error) {
-	name, err := i.eval(c.Callee)
+	callee, err := i.eval(c.Callee)
 	if err != nil {
 		return nil, err
 	}
-	return i.callFunctionReference(&ast.CallExpr{Name: name.String(), Args: c.Args})
+	if callee.Kind == ClosureKind {
+		if callee.C == nil || callee.C.Fn == nil {
+			return nil, fmt.Errorf("invalid closure")
+		}
+		if !callee.C.Fn.ReturnsByRef {
+			return nil, fmt.Errorf("closure does not return by reference")
+		}
+		result, err := i.callClosureResult(callee.C, c.Args)
+		if err != nil {
+			return nil, err
+		}
+		if result.slot == nil {
+			return nil, fmt.Errorf("closure did not return a reference")
+		}
+		return result.slot, nil
+	}
+	return i.callFunctionReference(&ast.CallExpr{Name: callee.String(), Args: c.Args})
 }
 
 func (i *Interpreter) bindReferenceTarget(target ast.Expr, slot *variableSlot) error {

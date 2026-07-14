@@ -698,6 +698,57 @@ func (p *Parser) parseFunctionParams() []ast.Param {
 	return params
 }
 
+func (p *Parser) parseClosure() ast.Expr {
+	returnsByRef := false
+	if p.peek.Type == lexer.Ampersand {
+		p.next()
+		returnsByRef = true
+	}
+	if !p.expectPeek(lexer.LParen) {
+		return &ast.NullLit{}
+	}
+	params := p.parseFunctionParams()
+	uses := p.parseClosureUses()
+	if !p.expectPeek(lexer.LBrace) {
+		return &ast.NullLit{}
+	}
+	body := p.parseBlock().(*ast.BlockStmt)
+	return &ast.ClosureExpr{Params: params, Uses: uses, Body: body, ReturnsByRef: returnsByRef}
+}
+
+func (p *Parser) parseClosureUses() []ast.ClosureUse {
+	var uses []ast.ClosureUse
+	if p.peek.Type != lexer.Use {
+		return uses
+	}
+	p.next()
+	if !p.expectPeek(lexer.LParen) {
+		return uses
+	}
+	if p.peek.Type == lexer.RParen {
+		p.next()
+		return uses
+	}
+	for {
+		use := ast.ClosureUse{}
+		if p.peek.Type == lexer.Ampersand {
+			p.next()
+			use.ByRef = true
+		}
+		if !p.expectPeek(lexer.Var) {
+			return uses
+		}
+		use.Name = p.cur.Literal
+		uses = append(uses, use)
+		if p.peek.Type != lexer.Comma {
+			break
+		}
+		p.next()
+	}
+	p.expectPeek(lexer.RParen)
+	return uses
+}
+
 func (p *Parser) parseReturn() ast.Stmt {
 	if p.peek.Type == lexer.Semicolon {
 		p.next()
@@ -1095,6 +1146,8 @@ func (p *Parser) parseExpression(precedence int) ast.Expr {
 		left = p.parseArray()
 	case lexer.List:
 		left = p.parseList()
+	case lexer.Function:
+		left = p.parseClosure()
 	case lexer.NewKeyword:
 		left = p.parseNew()
 	case lexer.Bang, lexer.Minus, lexer.Plus, lexer.Tilde:

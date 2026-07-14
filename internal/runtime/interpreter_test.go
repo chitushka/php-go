@@ -618,6 +618,14 @@ func TestReturnByReference(t *testing.T) {
 	}
 }
 
+func TestClosureUseCaptures(t *testing.T) {
+	src := "<?php $base = 2; $add = function($value) use ($base) { return $base + $value; }; $base = 10; echo $add(3); $n = 1; $bump = function() use (&$n) { $n = $n + 1; return $n; }; echo $bump(); echo $n;"
+	got := run(t, src)
+	if got != "522" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestBuiltinIssetAndEmpty(t *testing.T) {
 	src := "<?php $items = array('a' => 1, 'b' => null, 'c' => 'x'); if (isset($items['a'])) { echo 'a'; } if (!isset($items['b'])) { echo 'b'; } if (!isset($missing)) { echo 'c'; } if (empty($items['b'])) { echo 'd'; } if (empty(0)) { echo 'e'; } if (!empty($items['c'])) { echo 'f'; }"
 	got := run(t, src)
