@@ -335,6 +335,13 @@ type CallExpr struct {
 
 func (*CallExpr) exprNode() {}
 
+type VariableCallExpr struct {
+	Callee Expr
+	Args   []Expr
+}
+
+func (*VariableCallExpr) exprNode() {}
+
 type NewExpr struct {
 	ClassName string
 	Args      []Expr

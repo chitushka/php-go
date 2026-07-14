@@ -668,6 +668,8 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 		return i.evalIndex(n)
 	case *ast.CallExpr:
 		return i.call(n)
+	case *ast.VariableCallExpr:
+		return i.callVariable(n)
 	case *ast.NewExpr:
 		return i.newObject(n)
 	case *ast.PropertyFetchExpr:
@@ -715,6 +717,14 @@ func (i *Interpreter) call(c *ast.CallExpr) (Value, error) {
 		return NullValue(), fmt.Errorf("undefined function %s", c.Name)
 	}
 	return i.callFunction(fn, c.Args, nil, "")
+}
+
+func (i *Interpreter) callVariable(c *ast.VariableCallExpr) (Value, error) {
+	name, err := i.eval(c.Callee)
+	if err != nil {
+		return NullValue(), err
+	}
+	return i.call(&ast.CallExpr{Name: name.String(), Args: c.Args})
 }
 
 func (i *Interpreter) callBuiltin(c *ast.CallExpr) (Value, bool, error) {

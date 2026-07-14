@@ -1110,6 +1110,9 @@ func (p *Parser) parsePostfix(left ast.Expr) ast.Expr {
 		case lexer.LBracket:
 			p.next()
 			left = p.parseIndexAccess(left)
+		case lexer.LParen:
+			p.next()
+			left = &ast.VariableCallExpr{Callee: left, Args: p.parseCallArgs()}
 		default:
 			return left
 		}
