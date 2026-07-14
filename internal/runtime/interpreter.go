@@ -1416,41 +1416,64 @@ func (i *Interpreter) assignIndex(target *ast.IndexExpr, value Value) error {
 		}
 		key = KeyFromValue(index)
 	}
-	if ident, ok := target.Left.(*ast.Ident); ok {
-		current, exists := i.getVar(ident.Name)
-		if !exists || current.Kind == Null {
-			arr := NewArray()
-			if appendValue {
-				arr.Append(value)
-			} else {
-				arr.Set(key, value)
-			}
-			i.setVar(ident.Name, ArrayValue(arr))
-			return nil
-		}
-		if current.Kind != ArrayKind || current.A == nil {
-			return fmt.Errorf("cannot assign index on non-array")
-		}
-		if appendValue {
-			current.A.Append(value)
-		} else {
-			current.A.Set(key, value)
-		}
-		return nil
-	}
-	left, err := i.eval(target.Left)
+	arr, err := i.ensureWritableArray(target.Left)
 	if err != nil {
 		return err
 	}
-	if left.Kind != ArrayKind || left.A == nil {
-		return fmt.Errorf("cannot assign index on non-array")
-	}
 	if appendValue {
-		left.A.Append(value)
+		arr.Append(value)
 	} else {
-		left.A.Set(key, value)
+		arr.Set(key, value)
 	}
 	return nil
+}
+
+func (i *Interpreter) ensureWritableArray(target ast.Expr) (*Array, error) {
+	switch n := target.(type) {
+	case *ast.Ident:
+		current, exists := i.getVar(n.Name)
+		if !exists || current.Kind == Null {
+			arr := NewArray()
+			i.setVar(n.Name, ArrayValue(arr))
+			return arr, nil
+		}
+		if current.Kind != ArrayKind || current.A == nil {
+			return nil, fmt.Errorf("cannot assign index on non-array")
+		}
+		return current.A, nil
+	case *ast.IndexExpr:
+		if n.Index == nil {
+			return nil, fmt.Errorf("cannot use [] as nested assignment target")
+		}
+		parent, err := i.ensureWritableArray(n.Left)
+		if err != nil {
+			return nil, err
+		}
+		index, err := i.eval(n.Index)
+		if err != nil {
+			return nil, err
+		}
+		key := KeyFromValue(index)
+		current, exists := parent.Get(key)
+		if !exists || current.Kind == Null {
+			arr := NewArray()
+			parent.Set(key, ArrayValue(arr))
+			return arr, nil
+		}
+		if current.Kind != ArrayKind || current.A == nil {
+			return nil, fmt.Errorf("cannot assign index on non-array")
+		}
+		return current.A, nil
+	default:
+		value, err := i.eval(target)
+		if err != nil {
+			return nil, err
+		}
+		if value.Kind != ArrayKind || value.A == nil {
+			return nil, fmt.Errorf("cannot assign index on non-array")
+		}
+		return value.A, nil
+	}
 }
 
 func (i *Interpreter) assignTarget(target ast.Expr, value Value) error {
