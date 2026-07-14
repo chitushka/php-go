@@ -1890,17 +1890,53 @@ func (i *Interpreter) interpolateString(text string) (string, error) {
 			idx += 2
 			continue
 		}
+		if text[idx] == '{' && idx+1 < len(text) && text[idx+1] == '$' {
+			end := interpolationBraceEnd(text, idx+1)
+			if end < 0 {
+				out.WriteByte(text[idx])
+				idx++
+				continue
+			}
+			value, err := i.interpolationExprValue(text[idx+1 : end])
+			if err != nil {
+				return "", err
+			}
+			rendered, err := i.stringify(value)
+			if err != nil {
+				return "", err
+			}
+			out.WriteString(rendered)
+			idx = end + 1
+			continue
+		}
+		if text[idx] == '$' && idx+1 < len(text) && text[idx+1] == '{' {
+			end := interpolationBraceEnd(text, idx+1)
+			if end < 0 {
+				out.WriteByte(text[idx])
+				idx++
+				continue
+			}
+			value, err := i.dollarBraceInterpolationValue(text[idx+2 : end])
+			if err != nil {
+				return "", err
+			}
+			rendered, err := i.stringify(value)
+			if err != nil {
+				return "", err
+			}
+			out.WriteString(rendered)
+			idx = end + 1
+			continue
+		}
 		if text[idx] != '$' || idx+1 >= len(text) || !isVarNameStart(text[idx+1]) {
 			out.WriteByte(text[idx])
 			idx++
 			continue
 		}
-		start := idx + 1
-		end := start + 1
-		for end < len(text) && isVarNameChar(text[end]) {
-			end++
+		value, end, err := i.interpolationVariableValue(text, idx+1)
+		if err != nil {
+			return "", err
 		}
-		value, _ := i.getVar(text[start:end])
 		rendered, err := i.stringify(value)
 		if err != nil {
 			return "", err
@@ -1909,6 +1945,206 @@ func (i *Interpreter) interpolateString(text string) (string, error) {
 		idx = end
 	}
 	return out.String(), nil
+}
+
+func (i *Interpreter) dollarBraceInterpolationValue(expr string) (Value, error) {
+	if expr == "" {
+		return NullValue(), nil
+	}
+	if expr[0] == '$' {
+		nameValue, err := i.interpolationExprValue(expr)
+		if err != nil {
+			return NullValue(), err
+		}
+		value, _ := i.getVar(nameValue.String())
+		return value, nil
+	}
+	value, end, err := i.interpolationVariableValue("$"+expr, 1)
+	if err != nil {
+		return NullValue(), err
+	}
+	if end != len(expr)+1 {
+		value, _ = i.getVar(expr)
+	}
+	return value, nil
+}
+
+func (i *Interpreter) interpolationExprValue(expr string) (Value, error) {
+	if strings.HasPrefix(expr, "$$") {
+		name, end := interpolationName(expr, 2)
+		if name == "" || end != len(expr) {
+			return NullValue(), nil
+		}
+		nameValue, _ := i.getVar(name)
+		value, _ := i.getVar(nameValue.String())
+		return value, nil
+	}
+	if strings.HasPrefix(expr, "$") {
+		value, _, err := i.interpolationVariableValue(expr, 1)
+		return value, err
+	}
+	value, _, err := i.interpolationVariableValue("$"+expr, 1)
+	return value, err
+}
+
+func (i *Interpreter) interpolationVariableValue(text string, start int) (Value, int, error) {
+	name, idx := interpolationName(text, start)
+	if name == "" {
+		return NullValue(), start, nil
+	}
+	value, _ := i.getVar(name)
+	for idx < len(text) {
+		switch {
+		case text[idx] == '[':
+			key, next, ok, err := i.interpolationArrayKey(text, idx+1)
+			if err != nil || !ok {
+				return value, idx, err
+			}
+			value = interpolationIndexValue(value, key)
+			idx = next
+		case strings.HasPrefix(text[idx:], "->"):
+			prop, next := interpolationName(text, idx+2)
+			if prop == "" {
+				return value, idx, nil
+			}
+			var err error
+			value, err = i.interpolationPropertyValue(value, prop)
+			if err != nil {
+				return NullValue(), idx, err
+			}
+			idx = next
+		default:
+			return value, idx, nil
+		}
+	}
+	return value, idx, nil
+}
+
+func (i *Interpreter) interpolationArrayKey(text string, start int) (ArrayKey, int, bool, error) {
+	if start >= len(text) {
+		return StringKey(""), start, false, nil
+	}
+	if text[start] == '$' {
+		value, end, err := i.interpolationVariableValue(text, start+1)
+		if err != nil {
+			return StringKey(""), end, false, err
+		}
+		if end >= len(text) || text[end] != ']' {
+			return StringKey(""), start, false, nil
+		}
+		return KeyFromValue(value), end + 1, true, nil
+	}
+	if text[start] == '\'' || text[start] == '"' {
+		key, end, ok := interpolationQuotedKey(text, start)
+		if !ok || end >= len(text) || text[end] != ']' {
+			return StringKey(""), start, false, nil
+		}
+		return StringKey(key), end + 1, true, nil
+	}
+	end := start
+	for end < len(text) && text[end] != ']' {
+		end++
+	}
+	if end >= len(text) {
+		return StringKey(""), start, false, nil
+	}
+	raw := strings.TrimSpace(text[start:end])
+	if raw == "" {
+		return StringKey(""), start, false, nil
+	}
+	if n, err := strconv.ParseInt(raw, 10, 64); err == nil {
+		return IntKey(n), end + 1, true, nil
+	}
+	return StringKey(raw), end + 1, true, nil
+}
+
+func (i *Interpreter) interpolationPropertyValue(value Value, property string) (Value, error) {
+	if value.Kind != ObjectKind || value.O == nil {
+		return NullValue(), nil
+	}
+	if err := i.checkPropertyAccess(value.O, property); err != nil {
+		if i.hasPublicMethod(value.O, "__get") {
+			return i.callMagicGet(value.O, property)
+		}
+		return NullValue(), nil
+	}
+	if propValue, ok := value.O.Props[property]; ok {
+		return propValue, nil
+	}
+	if i.shouldUseGet(value.O) {
+		return i.callMagicGet(value.O, property)
+	}
+	return NullValue(), nil
+}
+
+func interpolationIndexValue(value Value, key ArrayKey) Value {
+	switch value.Kind {
+	case ArrayKind:
+		if value.A == nil {
+			return NullValue()
+		}
+		item, _ := value.A.Get(key)
+		return item
+	case String:
+		offset, ok := indexOffset(key.Value())
+		if !ok || offset < 0 || offset >= len(value.S) {
+			return NullValue()
+		}
+		return StringValue(value.S[offset : offset+1])
+	default:
+		return NullValue()
+	}
+}
+
+func interpolationName(text string, start int) (string, int) {
+	if start >= len(text) || !isVarNameStart(text[start]) {
+		return "", start
+	}
+	end := start + 1
+	for end < len(text) && isVarNameChar(text[end]) {
+		end++
+	}
+	return text[start:end], end
+}
+
+func interpolationQuotedKey(text string, start int) (string, int, bool) {
+	quote := text[start]
+	var out strings.Builder
+	idx := start + 1
+	for idx < len(text) {
+		if text[idx] == quote {
+			return out.String(), idx + 1, true
+		}
+		if text[idx] == '\\' && idx+1 < len(text) {
+			idx++
+		}
+		out.WriteByte(text[idx])
+		idx++
+	}
+	return "", start, false
+}
+
+func interpolationBraceEnd(text string, start int) int {
+	quote := byte(0)
+	for idx := start + 1; idx < len(text); idx++ {
+		if quote != 0 {
+			if text[idx] == '\\' && idx+1 < len(text) {
+				idx++
+				continue
+			}
+			if text[idx] == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch text[idx] {
+		case '\'', '"':
+			quote = text[idx]
+		case '}':
+			return idx
+		}
+	}
+	return -1
 }
 
 func isVarNameStart(ch byte) bool {
