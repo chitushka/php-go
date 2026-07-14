@@ -149,6 +149,7 @@ type StaticLocalDecl struct {
 type IncludeStmt struct {
 	Path    Expr
 	Require bool
+	Once    bool
 }
 
 func (*IncludeStmt) stmtNode() {}

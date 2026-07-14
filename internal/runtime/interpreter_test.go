@@ -155,6 +155,17 @@ func TestNestedIncludeUsesIncludedFileDirectory(t *testing.T) {
 	}
 }
 
+func TestIncludeOnceAndRequireOnceShareIncludedFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "once.php"), []byte("<?php echo 'I'; $count = $count + 1;"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got := runFile(t, dir, "<?php $count = 0; include_once 'once.php'; include_once './once.php'; require_once 'once.php'; echo ':'; echo $count;")
+	if got != "I:1" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestClassConstructorMethodAndThis(t *testing.T) {
 	src := "<?php class Box { function __construct($value) { $this->value = $value; } function get() { return $this->value; } } $box = new Box(9); echo $box->get();"
 	got := run(t, src)

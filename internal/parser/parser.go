@@ -122,9 +122,13 @@ func (p *Parser) parseStatement() ast.Stmt {
 	case lexer.Global:
 		return p.parseGlobal()
 	case lexer.Include:
-		return p.parseInclude(false)
+		return p.parseInclude(false, false)
 	case lexer.Require:
-		return p.parseInclude(true)
+		return p.parseInclude(true, false)
+	case lexer.IncludeOnce:
+		return p.parseInclude(false, true)
+	case lexer.RequireOnce:
+		return p.parseInclude(true, true)
 	case lexer.Class:
 		return p.parseClassDecl(false, false)
 	case lexer.Interface:
@@ -592,7 +596,7 @@ func (p *Parser) parseStaticLocal() ast.Stmt {
 	return stmt
 }
 
-func (p *Parser) parseInclude(require bool) ast.Stmt {
+func (p *Parser) parseInclude(require bool, once bool) ast.Stmt {
 	if p.peek.Type == lexer.Semicolon {
 		p.errors = append(p.errors, "include/require expects a path expression")
 		return nil
@@ -600,7 +604,7 @@ func (p *Parser) parseInclude(require bool) ast.Stmt {
 	p.next()
 	path := p.parseExpression(lowest)
 	p.consumeSemi()
-	return &ast.IncludeStmt{Path: path, Require: require}
+	return &ast.IncludeStmt{Path: path, Require: require, Once: once}
 }
 
 func (p *Parser) parseClassDeclWithLeadingModifier(mod string) ast.Stmt {

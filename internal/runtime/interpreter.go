@@ -28,6 +28,7 @@ type Interpreter struct {
 	frames          []frame
 	responseHeaders []string
 	uploadedFiles   map[string]bool
+	includedOnce    map[string]bool
 	baseDir         string
 	dirStack        []string
 	Out             bytes.Buffer
@@ -52,6 +53,7 @@ func NewInterpreterWithBaseDir(baseDir string) *Interpreter {
 		statics:       map[string]map[string]Value{},
 		staticMeta:    map[string]map[string]PropertyMeta{},
 		uploadedFiles: map[string]bool{},
+		includedOnce:  map[string]bool{},
 		baseDir:       baseDir,
 		dirStack:      []string{baseDir},
 	}
@@ -453,7 +455,7 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 		if path.Kind != String {
 			return nil, fmt.Errorf("include/require path must be string")
 		}
-		if err := i.include(path.S, n.Require); err != nil {
+		if err := i.include(path.S, n.Require, n.Once); err != nil {
 			return nil, err
 		}
 	case *ast.ExprStmt:
@@ -2026,10 +2028,10 @@ func (i *Interpreter) interfaceExtendsInterface(name, ancestor string) bool {
 	return false
 }
 
-func (i *Interpreter) include(path string, require bool) error {
-	resolved := path
-	if !filepath.IsAbs(resolved) {
-		resolved = filepath.Join(i.currentDir(), path)
+func (i *Interpreter) include(path string, require bool, once bool) error {
+	resolved := i.resolveIncludePath(path)
+	if once && i.includedOnce[resolved] {
+		return nil
 	}
 	data, err := os.ReadFile(resolved)
 	if err != nil {
@@ -2046,10 +2048,24 @@ func (i *Interpreter) include(path string, require bool) error {
 		return fmt.Errorf("parse errors in %s: %v", resolved, p.Errors())
 	}
 
+	if once {
+		i.includedOnce[resolved] = true
+	}
 	i.dirStack = append(i.dirStack, filepath.Dir(resolved))
 	err = i.Run(program)
 	i.dirStack = i.dirStack[:len(i.dirStack)-1]
 	return err
+}
+
+func (i *Interpreter) resolveIncludePath(path string) string {
+	resolved := path
+	if !filepath.IsAbs(resolved) {
+		resolved = filepath.Join(i.currentDir(), path)
+	}
+	if abs, err := filepath.Abs(resolved); err == nil {
+		resolved = abs
+	}
+	return filepath.Clean(resolved)
 }
 
 func (i *Interpreter) currentDir() string {

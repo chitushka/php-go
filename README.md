@@ -16,7 +16,7 @@
 - Переменные функций: `global $name` и persistent `static $local = ...`.
 - Встроенные функции ядра: `isset`, `empty`, `count`, `strlen`, `substr`, `strpos`, `strtolower`, `strtoupper`, `trim`, `str_replace`, `array_key_exists`, `in_array`, `implode`, `explode`, `print_r`, `var_dump`, `round`, `floor`, `ceil`, `abs`, `min`, `max`, `time`, `date`, `file_exists`, `is_file`, `is_dir`, `basename`, `dirname`, `file_get_contents`, `file_put_contents`, `unlink`, `preg_match` с capture-массивом, `preg_replace`, `json_encode`, `json_decode`, `md5`, `sha1`, `hash`, `serialize`, `unserialize`, базовые `is_*`.
 - Builtins вынесены в пакет `internal/runtime/builtins`; новые функции добавляются по функциональным файлам (`strings.go`, `arrays.go`, `filesystem.go`, `regex.go`, `json.go`, `hash.go`, `serialization.go`) и регистрируются в `registry.go`.
-- Ограниченные `include` и `require` для строковых путей, разрешаемых относительно текущего PHP-файла.
+- Ограниченные `include`, `require`, `include_once` и `require_once` для строковых путей, разрешаемых относительно текущего PHP-файла.
 - Базовые классы: `class`, `extends`, `new`, методы, `__construct`, `$this`, динамические свойства, `$obj->method()`, static methods/properties.
 - Модификаторы `public`, `protected`, `private`, `static` для методов и свойств, включая runtime-проверку доступа.
 - `self::`, `parent::`, `static::`, late static binding для static members, а также базовые проверки `final` и `abstract`.
@@ -40,4 +40,4 @@ go run ./cmd/php53test tests/phpt
 
 ## Следующие шаги переноса
 
-1. Продолжить P0-языковые конструкции из `AGENTS.md`: inline HTML/short echo, string escapes/interpolation, alternative control syntax, `list(...)`, `include_once`/`require_once` и nested writable targets.
+1. Продолжить P0-языковые конструкции из `AGENTS.md`: inline HTML/short echo, string escapes/interpolation, alternative control syntax, `list(...)` и nested writable targets.
