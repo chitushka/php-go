@@ -110,14 +110,15 @@ type ContinueStmt struct {
 func (*ContinueStmt) stmtNode() {}
 
 type FunctionDeclStmt struct {
-	Name       string
-	Params     []Param
-	Body       *BlockStmt
-	Visibility string
-	Static     bool
-	Owner      string
-	Final      bool
-	Abstract   bool
+	Name         string
+	Params       []Param
+	Body         *BlockStmt
+	Visibility   string
+	Static       bool
+	Owner        string
+	Final        bool
+	Abstract     bool
+	ReturnsByRef bool
 }
 
 func (*FunctionDeclStmt) stmtNode() {}

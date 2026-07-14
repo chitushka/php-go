@@ -610,6 +610,14 @@ func TestForeachByReference(t *testing.T) {
 	}
 }
 
+func TestReturnByReference(t *testing.T) {
+	src := "<?php function &counter_ref() { static $value = 1; return $value; } $ref =& counter_ref(); $ref = 7; echo counter_ref();"
+	got := run(t, src)
+	if got != "7" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestBuiltinIssetAndEmpty(t *testing.T) {
 	src := "<?php $items = array('a' => 1, 'b' => null, 'c' => 'x'); if (isset($items['a'])) { echo 'a'; } if (!isset($items['b'])) { echo 'b'; } if (!isset($missing)) { echo 'c'; } if (empty($items['b'])) { echo 'd'; } if (empty(0)) { echo 'e'; } if (!empty($items['c'])) { echo 'f'; }"
 	got := run(t, src)

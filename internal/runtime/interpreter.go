@@ -118,6 +118,7 @@ func (i *Interpreter) Run(p *ast.Program) error {
 
 type returnSignal struct {
 	value Value
+	slot  *variableSlot
 }
 
 type variableSlot struct {
@@ -149,6 +150,12 @@ type frame struct {
 	calledClass string
 	function    string
 	functionKey string
+	returnByRef bool
+}
+
+type functionCallResult struct {
+	value Value
+	slot  *variableSlot
 }
 
 type thrownError struct {
@@ -484,6 +491,13 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 	case *ast.ReturnStmt:
 		if n.Value == nil {
 			return &returnSignal{value: NullValue()}, nil
+		}
+		if i.currentReturnByRef() {
+			slot, err := i.referenceSlot(n.Value)
+			if err != nil {
+				return nil, err
+			}
+			return &returnSignal{value: slot.value, slot: slot}, nil
 		}
 		v, err := i.eval(n.Value)
 		if err != nil {
@@ -1365,7 +1379,12 @@ func fromBuiltinArrayKey(key builtins.ArrayKey) ArrayKey {
 }
 
 func (i *Interpreter) callFunction(fn *ast.FunctionDeclStmt, args []ast.Expr, thisObj *Object, calledClass string) (Value, error) {
-	return i.callFunctionWithBinder(fn, len(args), thisObj, calledClass, func(idx int, param ast.Param) (*variableSlot, error) {
+	result, err := i.callFunctionResult(fn, args, thisObj, calledClass)
+	return result.value, err
+}
+
+func (i *Interpreter) callFunctionResult(fn *ast.FunctionDeclStmt, args []ast.Expr, thisObj *Object, calledClass string) (functionCallResult, error) {
+	return i.callFunctionWithBinderResult(fn, len(args), thisObj, calledClass, func(idx int, param ast.Param) (*variableSlot, error) {
 		if idx >= len(args) {
 			if param.Default == nil {
 				return nil, fmt.Errorf("function %s expects at least %d arguments, got %d", fn.Name, i.requiredParamCount(fn), len(args))
@@ -1392,7 +1411,7 @@ func (i *Interpreter) callFunction(fn *ast.FunctionDeclStmt, args []ast.Expr, th
 }
 
 func (i *Interpreter) callFunctionValues(fn *ast.FunctionDeclStmt, args []Value, thisObj *Object, calledClass string) (Value, error) {
-	return i.callFunctionWithBinder(fn, len(args), thisObj, calledClass, func(idx int, param ast.Param) (*variableSlot, error) {
+	result, err := i.callFunctionWithBinderResult(fn, len(args), thisObj, calledClass, func(idx int, param ast.Param) (*variableSlot, error) {
 		if idx >= len(args) {
 			if param.Default == nil {
 				return nil, fmt.Errorf("function %s expects at least %d arguments, got %d", fn.Name, i.requiredParamCount(fn), len(args))
@@ -1408,26 +1427,32 @@ func (i *Interpreter) callFunctionValues(fn *ast.FunctionDeclStmt, args []Value,
 		}
 		return &variableSlot{value: args[idx]}, nil
 	})
+	return result.value, err
 }
 
 func (i *Interpreter) callFunctionWithBinder(fn *ast.FunctionDeclStmt, provided int, thisObj *Object, calledClass string, bind func(int, ast.Param) (*variableSlot, error)) (Value, error) {
+	result, err := i.callFunctionWithBinderResult(fn, provided, thisObj, calledClass, bind)
+	return result.value, err
+}
+
+func (i *Interpreter) callFunctionWithBinderResult(fn *ast.FunctionDeclStmt, provided int, thisObj *Object, calledClass string, bind func(int, ast.Param) (*variableSlot, error)) (functionCallResult, error) {
 	if fn.Abstract {
-		return NullValue(), fmt.Errorf("cannot call abstract method %s::%s", fn.Owner, fn.Name)
+		return functionCallResult{}, fmt.Errorf("cannot call abstract method %s::%s", fn.Owner, fn.Name)
 	}
 	if provided > len(fn.Params) {
-		return NullValue(), fmt.Errorf("function %s expects at most %d arguments, got %d", fn.Name, len(fn.Params), provided)
+		return functionCallResult{}, fmt.Errorf("function %s expects at most %d arguments, got %d", fn.Name, len(fn.Params), provided)
 	}
 	if calledClass == "" {
 		calledClass = fn.Owner
 	}
-	callFrame := frame{vars: map[string]*variableSlot{}, className: fn.Owner, calledClass: calledClass, function: fn.Name, functionKey: functionKey(fn)}
+	callFrame := frame{vars: map[string]*variableSlot{}, className: fn.Owner, calledClass: calledClass, function: fn.Name, functionKey: functionKey(fn), returnByRef: fn.ReturnsByRef}
 	if thisObj != nil {
 		callFrame.vars["this"] = &variableSlot{value: ObjectValue(thisObj)}
 	}
 	for idx, param := range fn.Params {
 		slot, err := bind(idx, param)
 		if err != nil {
-			return NullValue(), err
+			return functionCallResult{}, err
 		}
 		callFrame.vars[param.Name] = slot
 	}
@@ -1435,12 +1460,12 @@ func (i *Interpreter) callFunctionWithBinder(fn *ast.FunctionDeclStmt, provided 
 	ret, err := i.exec(fn.Body)
 	i.frames = i.frames[:len(i.frames)-1]
 	if err != nil {
-		return NullValue(), err
+		return functionCallResult{}, err
 	}
 	if ret == nil {
-		return NullValue(), nil
+		return functionCallResult{value: NullValue()}, nil
 	}
-	return ret.value, nil
+	return functionCallResult{value: ret.value, slot: ret.slot}, nil
 }
 
 func (i *Interpreter) requiredParamCount(fn *ast.FunctionDeclStmt) int {
@@ -1724,9 +1749,39 @@ func (i *Interpreter) referenceSlot(expr ast.Expr) (*variableSlot, error) {
 		return i.ensureSlot(i.variableVariableName(n.Name)), nil
 	case *ast.IndexExpr:
 		return i.arrayIndexSlot(n)
+	case *ast.CallExpr:
+		return i.callFunctionReference(n)
+	case *ast.VariableCallExpr:
+		return i.callVariableFunctionReference(n)
 	default:
 		return nil, fmt.Errorf("reference assignment value must be a variable")
 	}
+}
+
+func (i *Interpreter) callFunctionReference(c *ast.CallExpr) (*variableSlot, error) {
+	fn, ok := i.functions[c.Name]
+	if !ok {
+		return nil, fmt.Errorf("undefined function %s", c.Name)
+	}
+	if !fn.ReturnsByRef {
+		return nil, fmt.Errorf("function %s does not return by reference", c.Name)
+	}
+	result, err := i.callFunctionResult(fn, c.Args, nil, "")
+	if err != nil {
+		return nil, err
+	}
+	if result.slot == nil {
+		return nil, fmt.Errorf("function %s did not return a reference", c.Name)
+	}
+	return result.slot, nil
+}
+
+func (i *Interpreter) callVariableFunctionReference(c *ast.VariableCallExpr) (*variableSlot, error) {
+	name, err := i.eval(c.Callee)
+	if err != nil {
+		return nil, err
+	}
+	return i.callFunctionReference(&ast.CallExpr{Name: name.String(), Args: c.Args})
 }
 
 func (i *Interpreter) bindReferenceTarget(target ast.Expr, slot *variableSlot) error {
@@ -2967,6 +3022,10 @@ func (i *Interpreter) currentFunction() string {
 		return ""
 	}
 	return i.frames[len(i.frames)-1].function
+}
+
+func (i *Interpreter) currentReturnByRef() bool {
+	return len(i.frames) > 0 && i.frames[len(i.frames)-1].returnByRef
 }
 
 func (i *Interpreter) currentMethod() string {

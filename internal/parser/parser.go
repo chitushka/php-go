@@ -641,6 +641,11 @@ func (p *Parser) parseFunctionDeclWith(visibility string, static bool) ast.Stmt 
 }
 
 func (p *Parser) parseFunctionDeclFull(visibility string, static bool, final bool, abstract bool) ast.Stmt {
+	returnsByRef := false
+	if p.peek.Type == lexer.Ampersand {
+		p.next()
+		returnsByRef = true
+	}
 	if !p.expectPeek(lexer.Ident) {
 		return nil
 	}
@@ -653,13 +658,13 @@ func (p *Parser) parseFunctionDeclFull(visibility string, static bool, final boo
 		if !p.expectPeek(lexer.Semicolon) {
 			return nil
 		}
-		return &ast.FunctionDeclStmt{Name: name, Params: params, Visibility: visibility, Static: static, Final: final, Abstract: abstract}
+		return &ast.FunctionDeclStmt{Name: name, Params: params, Visibility: visibility, Static: static, Final: final, Abstract: abstract, ReturnsByRef: returnsByRef}
 	}
 	if !p.expectPeek(lexer.LBrace) {
 		return nil
 	}
 	body := p.parseBlock().(*ast.BlockStmt)
-	return &ast.FunctionDeclStmt{Name: name, Params: params, Body: body, Visibility: visibility, Static: static, Final: final, Abstract: abstract}
+	return &ast.FunctionDeclStmt{Name: name, Params: params, Body: body, Visibility: visibility, Static: static, Final: final, Abstract: abstract, ReturnsByRef: returnsByRef}
 }
 
 func (p *Parser) parseFunctionParams() []ast.Param {
@@ -1434,7 +1439,7 @@ func isWritableExpr(expr ast.Expr) bool {
 
 func isReferenceWritableExpr(expr ast.Expr) bool {
 	switch expr.(type) {
-	case *ast.Ident, *ast.VariableVariable, *ast.IndexExpr:
+	case *ast.Ident, *ast.VariableVariable, *ast.IndexExpr, *ast.CallExpr, *ast.VariableCallExpr:
 		return true
 	default:
 		return false
