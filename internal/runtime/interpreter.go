@@ -773,6 +773,9 @@ func (i *Interpreter) evalClosure(c *ast.ClosureExpr) (Value, error) {
 		Body:         c.Body,
 		ReturnsByRef: c.ReturnsByRef,
 	}
+	if err := validateFunctionCompatibility(fn, "closure"); err != nil {
+		return NullValue(), err
+	}
 	captures := map[string]*variableSlot{}
 	for _, use := range c.Uses {
 		if use.ByRef {
@@ -2772,8 +2775,61 @@ func (i *Interpreter) defineFunction(fn *ast.FunctionDeclStmt) error {
 	if _, exists := i.functions[fn.Name]; exists {
 		return fmt.Errorf("cannot redeclare function %s", fn.Name)
 	}
+	if err := validateFunctionCompatibility(fn, "function "+fn.Name); err != nil {
+		return err
+	}
 	i.functions[fn.Name] = fn
 	return nil
+}
+
+func validateFunctionCompatibility(fn *ast.FunctionDeclStmt, label string) error {
+	seenOptional := ""
+	for _, param := range fn.Params {
+		if param.Default != nil {
+			if err := validateDefaultExpression(param.Default); err != nil {
+				return fmt.Errorf("%s parameter $%s default must be a constant expression", label, param.Name)
+			}
+			if seenOptional == "" {
+				seenOptional = param.Name
+			}
+			continue
+		}
+		if seenOptional != "" {
+			return fmt.Errorf("%s required parameter $%s cannot follow optional parameter $%s", label, param.Name, seenOptional)
+		}
+	}
+	return nil
+}
+
+func validateDefaultExpression(expr ast.Expr) error {
+	switch n := expr.(type) {
+	case *ast.IntLit, *ast.FloatLit, *ast.StringLit, *ast.BoolLit, *ast.NullLit, *ast.BareConstExpr, *ast.MagicConstExpr, *ast.ClassConstFetchExpr:
+		return nil
+	case *ast.PrefixExpr:
+		if n.Op != "+" && n.Op != "-" {
+			return fmt.Errorf("invalid default expression")
+		}
+		switch n.Right.(type) {
+		case *ast.IntLit, *ast.FloatLit:
+			return nil
+		default:
+			return fmt.Errorf("invalid default expression")
+		}
+	case *ast.ArrayLit:
+		for _, elem := range n.Elements {
+			if elem.Key != nil {
+				if err := validateDefaultExpression(elem.Key); err != nil {
+					return err
+				}
+			}
+			if err := validateDefaultExpression(elem.Value); err != nil {
+				return err
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("invalid default expression")
+	}
 }
 
 func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
@@ -2803,6 +2859,9 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 		method.Owner = class.Name
 		if method.Visibility == "" {
 			method.Visibility = "public"
+		}
+		if err := validateFunctionCompatibility(method, "method "+class.Name+"::"+method.Name); err != nil {
+			return err
 		}
 		if method.Final && method.Abstract {
 			return fmt.Errorf("method %s::%s cannot be both final and abstract", class.Name, method.Name)
@@ -2872,6 +2931,9 @@ func (i *Interpreter) defineInterface(iface *ast.InterfaceDeclStmt) error {
 		method.Owner = iface.Name
 		method.Visibility = "public"
 		method.Abstract = true
+		if err := validateFunctionCompatibility(method, "method "+iface.Name+"::"+method.Name); err != nil {
+			return err
+		}
 	}
 	i.interfaces[iface.Name] = iface
 	return nil

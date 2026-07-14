@@ -563,6 +563,32 @@ func TestFunctionDefaultParameters(t *testing.T) {
 	}
 }
 
+func TestFunctionCompatibilityValidation(t *testing.T) {
+	cases := []struct {
+		src  string
+		want string
+	}{
+		{
+			src:  "<?php function bad($optional = 1, $required) {}",
+			want: "function bad required parameter $required cannot follow optional parameter $optional",
+		},
+		{
+			src:  "<?php $x = 1; function bad_default($value = $x) {}",
+			want: "function bad_default parameter $value default must be a constant expression",
+		},
+		{
+			src:  "<?php $x = 1; $fn = function($value = $x) { return $value; };",
+			want: "closure parameter $value default must be a constant expression",
+		},
+	}
+	for _, tc := range cases {
+		err := runErr(t, tc.src)
+		if err == nil || err.Error() != tc.want {
+			t.Fatalf("for %q got %v, want %q", tc.src, err, tc.want)
+		}
+	}
+}
+
 func TestGlobalStatementSharesGlobalVariable(t *testing.T) {
 	src := "<?php $x = 1; function bump() { global $x; $x = $x + 2; } bump(); echo $x;"
 	got := run(t, src)
