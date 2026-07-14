@@ -9,7 +9,7 @@
 - Лексер для `<?php`, закрывающего `?>`, комментариев, чисел, строк, переменных, идентификаторов, `echo`, `print`, `if`, `elseif`, `else`, `while`, `do`, `for`, `switch`, `global`, `static`, `unset`, `exit`/`die`, `true`, `false`, `null`.
 - Парсер выражений с приоритетами для `+`, `-`, `*`, `/`, `%`, bitwise/shift (`&`, `|`, `^`, `~`, `<<`, `>>`), сравнений, `==`, `!=`, `<>`, `===`, `!==`, ternary `?:` и casts.
 - Выражения конкатенации `.`, логические `&&`/`||` и `and`/`or` с short-circuit и PHP-приоритетом ниже присваивания, `xor`, индексный доступ `$array[$key]`, `$string[$offset]`, присваивание в массив по индексу и `$array[]` append.
-- Операторы присваивания как выражения, compound assignments (`+=`, `-=`, `*=`, `/=`, `%=`, `.=`), statement-level `++`/`--`, `echo`, `print`, `unset`, `exit`/`die`, блоки, `if/elseif/else`, `while`, `do/while`, `for`, `switch`, `break`, `continue`.
+- Операторы присваивания как выражения, compound assignments (`+=`, `-=`, `*=`, `/=`, `%=`, `.=`), statement-level `++`/`--`, `echo`, `print`, `unset`, `exit`/`die`, блоки, `if/elseif/else`, `while`, `do/while`, `for`, `switch`, `break`/`continue` включая numeric levels.
 - PHP-массивы через `array(...)` с ordered hash map, auto-index и ключами `int`/`string`.
 - `foreach ($items as $value)` и `foreach ($items as $key => $value)`.
 - Пользовательские функции: `function name($arg = null, &$ref) { ... }`, вызовы, default parameters, pass-by-reference parameters, локальные frame-ы и `return`.

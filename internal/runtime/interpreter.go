@@ -106,11 +106,15 @@ type variableSlot struct {
 	globalName string
 }
 
-type breakSignal struct{}
+type breakSignal struct {
+	Level int
+}
 
 func (*breakSignal) Error() string { return "break used outside loop or switch" }
 
-type continueSignal struct{}
+type continueSignal struct {
+	Level int
+}
 
 func (*continueSignal) Error() string { return "continue used outside loop" }
 
@@ -258,10 +262,16 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 				break
 			}
 			ret, err := i.exec(n.Body)
-			if _, ok := err.(*breakSignal); ok {
-				break
+			if handled, propagated, ok := consumeBreak(err); ok {
+				if handled {
+					break
+				}
+				return nil, propagated
 			}
-			if _, ok := err.(*continueSignal); ok {
+			if handled, propagated, ok := consumeContinue(err); ok {
+				if !handled {
+					return nil, propagated
+				}
 				guard++
 				if guard > 1000000 {
 					return nil, fmt.Errorf("while guard exceeded")
@@ -280,10 +290,17 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 		guard := 0
 		for {
 			ret, err := i.exec(n.Body)
-			if _, ok := err.(*breakSignal); ok {
-				break
+			if handled, propagated, ok := consumeBreak(err); ok {
+				if handled {
+					break
+				}
+				return nil, propagated
 			}
-			if _, ok := err.(*continueSignal); !ok {
+			if handled, propagated, ok := consumeContinue(err); ok {
+				if !handled {
+					return nil, propagated
+				}
+			} else {
 				if err != nil || ret != nil {
 					return ret, err
 				}
@@ -318,10 +335,17 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 				}
 			}
 			ret, err := i.exec(n.Body)
-			if _, ok := err.(*breakSignal); ok {
-				break
+			if handled, propagated, ok := consumeBreak(err); ok {
+				if handled {
+					break
+				}
+				return nil, propagated
 			}
-			if _, ok := err.(*continueSignal); !ok {
+			if handled, propagated, ok := consumeContinue(err); ok {
+				if !handled {
+					return nil, propagated
+				}
+			} else {
 				if err != nil || ret != nil {
 					return ret, err
 				}
@@ -350,10 +374,16 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 			}
 			i.setVar(n.ValueVar, entry.Value)
 			ret, err := i.exec(n.Body)
-			if _, ok := err.(*breakSignal); ok {
-				break
+			if handled, propagated, ok := consumeBreak(err); ok {
+				if handled {
+					break
+				}
+				return nil, propagated
 			}
-			if _, ok := err.(*continueSignal); ok {
+			if handled, propagated, ok := consumeContinue(err); ok {
+				if !handled {
+					return nil, propagated
+				}
 				continue
 			}
 			if err != nil || ret != nil {
@@ -366,8 +396,17 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 			return ret, nil
 		}
 		if err != nil {
-			if _, ok := err.(*breakSignal); ok {
-				return nil, nil
+			if handled, propagated, ok := consumeBreak(err); ok {
+				if handled {
+					return nil, nil
+				}
+				return nil, propagated
+			}
+			if handled, propagated, ok := consumeContinue(err); ok {
+				if handled {
+					return nil, nil
+				}
+				return nil, propagated
 			}
 			return nil, err
 		}
@@ -462,9 +501,15 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 		_, err := i.eval(n.Expr)
 		return nil, err
 	case *ast.BreakStmt:
-		return nil, &breakSignal{}
+		if n.Level < 1 {
+			return nil, fmt.Errorf("break level must be a positive integer")
+		}
+		return nil, &breakSignal{Level: n.Level}
 	case *ast.ContinueStmt:
-		return nil, &continueSignal{}
+		if n.Level < 1 {
+			return nil, fmt.Errorf("continue level must be a positive integer")
+		}
+		return nil, &continueSignal{Level: n.Level}
 	default:
 		return nil, fmt.Errorf("unsupported statement %T", s)
 	}
@@ -1145,6 +1190,28 @@ func (i *Interpreter) execSwitch(n *ast.SwitchStmt) (*returnSignal, error) {
 		}
 	}
 	return nil, nil
+}
+
+func consumeBreak(err error) (bool, error, bool) {
+	sig, ok := err.(*breakSignal)
+	if !ok {
+		return false, err, false
+	}
+	if sig.Level <= 1 {
+		return true, nil, true
+	}
+	return false, &breakSignal{Level: sig.Level - 1}, true
+}
+
+func consumeContinue(err error) (bool, error, bool) {
+	sig, ok := err.(*continueSignal)
+	if !ok {
+		return false, err, false
+	}
+	if sig.Level <= 1 {
+		return true, nil, true
+	}
+	return false, &continueSignal{Level: sig.Level - 1}, true
 }
 
 func (i *Interpreter) evalIndex(n *ast.IndexExpr) (Value, error) {

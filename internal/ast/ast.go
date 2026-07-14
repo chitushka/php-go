@@ -96,11 +96,15 @@ type SwitchCase struct {
 	Default    bool
 }
 
-type BreakStmt struct{}
+type BreakStmt struct {
+	Level int
+}
 
 func (*BreakStmt) stmtNode() {}
 
-type ContinueStmt struct{}
+type ContinueStmt struct {
+	Level int
+}
 
 func (*ContinueStmt) stmtNode() {}
 

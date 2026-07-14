@@ -110,11 +110,9 @@ func (p *Parser) parseStatement() ast.Stmt {
 	case lexer.Switch:
 		return p.parseSwitch()
 	case lexer.Break:
-		p.consumeSemi()
-		return &ast.BreakStmt{}
+		return p.parseBreak()
 	case lexer.Continue:
-		p.consumeSemi()
-		return &ast.ContinueStmt{}
+		return p.parseContinue()
 	case lexer.Function:
 		return p.parseFunctionDecl()
 	case lexer.Return:
@@ -594,6 +592,36 @@ func (p *Parser) parseStaticLocal() ast.Stmt {
 	}
 	p.consumeSemi()
 	return stmt
+}
+
+func (p *Parser) parseBreak() ast.Stmt {
+	level := p.parseLoopControlLevel("break")
+	return &ast.BreakStmt{Level: level}
+}
+
+func (p *Parser) parseContinue() ast.Stmt {
+	level := p.parseLoopControlLevel("continue")
+	return &ast.ContinueStmt{Level: level}
+}
+
+func (p *Parser) parseLoopControlLevel(name string) int {
+	level := 1
+	if p.peek.Type == lexer.Semicolon {
+		p.consumeSemi()
+		return level
+	}
+	if !p.expectPeek(lexer.Int) {
+		p.consumeSemi()
+		return level
+	}
+	parsed, err := strconv.Atoi(p.cur.Literal)
+	if err != nil || parsed < 1 {
+		p.errors = append(p.errors, fmt.Sprintf("%s level must be a positive integer", name))
+	} else {
+		level = parsed
+	}
+	p.consumeSemi()
+	return level
 }
 
 func (p *Parser) parseInclude(require bool, once bool) ast.Stmt {
