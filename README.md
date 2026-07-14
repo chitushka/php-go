@@ -18,7 +18,7 @@
 - `isset` и `empty` выполняются как language constructs: аргументы проверяются без обычного предварительного вычисления, поддержаны несколько аргументов `isset`, nested array access, свойства и static-свойства.
 - Builtins вынесены в пакет `internal/runtime/builtins`; новые функции добавляются по функциональным файлам (`strings.go`, `arrays.go`, `filesystem.go`, `regex.go`, `json.go`, `hash.go`, `serialization.go`) и регистрируются в `registry.go`.
 - Ограниченные `include`, `require`, `include_once` и `require_once` для строковых путей, разрешаемых относительно текущего PHP-файла.
-- Базовые классы: `class`, `extends`, `new`, методы, `__construct`, `$this`, динамические свойства включая `$obj->$name`, `$obj->method()` и dynamic method calls (`$obj->$method()`), static methods/properties.
+- Базовые классы: `class`, `extends`, `new`, методы, `__construct`, `$this`, динамические свойства включая `$obj->$name`, `$obj->method()` и dynamic method calls (`$obj->$method()`), static methods/properties включая dynamic static member names (`Class::$$name`, `Class::$method()`).
 - Модификаторы `public`, `protected`, `private`, `static` для методов и свойств, включая runtime-проверку доступа.
 - `self::`, `parent::`, `static::`, late static binding для static members, а также базовые проверки `final` и `abstract`.
 - `interface`, `extends` для интерфейсов, `implements` и runtime-проверка обязательных методов.
@@ -41,5 +41,5 @@ go run ./cmd/php53test tests/phpt
 
 ## Следующие шаги переноса
 
-1. Следующий P0-шаг: начать dynamic static member names (`Class::$$name`, `Class::$method()`) как небольшой вертикальный срез с PHPT-контрактом.
-2. После этого продолжить edge-case parity для уже начатых P0-конструкций, включая complex interpolation, broader writable targets, dynamic object member edge cases и variable-function edge cases.
+1. Следующий P0-шаг: реализовать expression-value semantics для `++/--` (`$a++`, `++$a`) как небольшой вертикальный срез с PHPT-контрактом.
+2. После этого продолжить edge-case parity для уже начатых P0-конструкций, включая complex interpolation, broader writable targets, dynamic member edge cases и variable-function edge cases.

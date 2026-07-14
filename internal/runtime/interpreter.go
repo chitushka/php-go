@@ -685,14 +685,19 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 	case *ast.DynamicMethodCallExpr:
 		return i.callDynamicMethod(n)
 	case *ast.StaticPropertyFetchExpr:
-		if err := i.checkStaticPropertyAccess(n.ClassName, n.Property); err != nil {
+		return i.fetchStaticProperty(n.ClassName, n.Property)
+	case *ast.DynamicStaticPropertyFetchExpr:
+		property, err := i.dynamicMemberName(n.Property)
+		if err != nil {
 			return NullValue(), err
 		}
-		return i.getStaticProperty(n.ClassName, n.Property), nil
+		return i.fetchStaticProperty(n.ClassName, property)
 	case *ast.ClassConstFetchExpr:
 		return i.getClassConstant(n.ClassName, n.Name)
 	case *ast.StaticCallExpr:
 		return i.callStatic(n)
+	case *ast.DynamicStaticCallExpr:
+		return i.callDynamicStatic(n)
 	}
 	return NullValue(), fmt.Errorf("unsupported expression %T", e)
 }
@@ -812,6 +817,8 @@ func (i *Interpreter) lookupConstructValue(expr ast.Expr) (Value, bool, error) {
 		return i.lookupDynamicPropertyValue(n)
 	case *ast.StaticPropertyFetchExpr:
 		return i.lookupStaticPropertyValue(n)
+	case *ast.DynamicStaticPropertyFetchExpr:
+		return i.lookupDynamicStaticPropertyValue(n)
 	default:
 		value, err := i.eval(expr)
 		return value, true, err
@@ -896,11 +903,23 @@ func (i *Interpreter) fetchProperty(object ast.Expr, property string) (Value, er
 }
 
 func (i *Interpreter) lookupStaticPropertyValue(expr *ast.StaticPropertyFetchExpr) (Value, bool, error) {
-	resolved, err := i.resolveClassName(expr.ClassName)
+	return i.lookupStaticProperty(expr.ClassName, expr.Property)
+}
+
+func (i *Interpreter) lookupDynamicStaticPropertyValue(expr *ast.DynamicStaticPropertyFetchExpr) (Value, bool, error) {
+	property, err := i.dynamicMemberName(expr.Property)
+	if err != nil {
+		return NullValue(), false, err
+	}
+	return i.lookupStaticProperty(expr.ClassName, property)
+}
+
+func (i *Interpreter) lookupStaticProperty(className, property string) (Value, bool, error) {
+	resolved, err := i.resolveClassName(className)
 	if err != nil {
 		return NullValue(), false, nil
 	}
-	value, info, ok := i.findStaticProperty(resolved, expr.Property)
+	value, info, ok := i.findStaticProperty(resolved, property)
 	if !ok {
 		return NullValue(), false, nil
 	}
@@ -917,6 +936,13 @@ func (i *Interpreter) lookupStaticPropertyValue(expr *ast.StaticPropertyFetchExp
 		}
 	}
 	return NullValue(), false, nil
+}
+
+func (i *Interpreter) fetchStaticProperty(className, property string) (Value, error) {
+	if err := i.checkStaticPropertyAccess(className, property); err != nil {
+		return NullValue(), err
+	}
+	return i.getStaticProperty(className, property), nil
 }
 
 func (i *Interpreter) callPregMatchWithCaptures(c *ast.CallExpr) (Value, error) {
@@ -1316,7 +1342,19 @@ func (i *Interpreter) callMethodName(object ast.Expr, methodName string, args []
 }
 
 func (i *Interpreter) callStatic(n *ast.StaticCallExpr) (Value, error) {
-	className, err := i.resolveClassName(n.ClassName)
+	return i.callStaticName(n.ClassName, n.Method, n.Args)
+}
+
+func (i *Interpreter) callDynamicStatic(n *ast.DynamicStaticCallExpr) (Value, error) {
+	method, err := i.dynamicMemberName(n.Method)
+	if err != nil {
+		return NullValue(), err
+	}
+	return i.callStaticName(n.ClassName, method, n.Args)
+}
+
+func (i *Interpreter) callStaticName(staticClassName, methodName string, args []ast.Expr) (Value, error) {
+	className, err := i.resolveClassName(staticClassName)
 	if err != nil {
 		return NullValue(), err
 	}
@@ -1325,24 +1363,24 @@ func (i *Interpreter) callStatic(n *ast.StaticCallExpr) (Value, error) {
 		return NullValue(), fmt.Errorf("undefined class %s", className)
 	}
 	methods := i.methodsForClass(class)
-	method, ok := methods[n.Method]
+	method, ok := methods[methodName]
 	if !ok {
-		return NullValue(), fmt.Errorf("undefined static method %s::%s", className, n.Method)
+		return NullValue(), fmt.Errorf("undefined static method %s::%s", className, methodName)
 	}
 	if !method.Static {
 		thisObj := i.currentThis()
 		if thisObj == nil {
-			return NullValue(), fmt.Errorf("method %s::%s is not static", className, n.Method)
+			return NullValue(), fmt.Errorf("method %s::%s is not static", className, methodName)
 		}
 		if err := i.checkMethodAccess(className, method); err != nil {
 			return NullValue(), err
 		}
-		return i.callFunction(method, n.Args, thisObj, thisObj.ClassName)
+		return i.callFunction(method, args, thisObj, thisObj.ClassName)
 	}
 	if err := i.checkMethodAccess(className, method); err != nil {
 		return NullValue(), err
 	}
-	return i.callFunction(method, n.Args, nil, className)
+	return i.callFunction(method, args, nil, className)
 }
 
 func (i *Interpreter) execSwitch(n *ast.SwitchStmt) (*returnSignal, error) {
@@ -1573,11 +1611,13 @@ func (i *Interpreter) assignTarget(target ast.Expr, value Value) error {
 		}
 		return i.assignProperty(n.Object, property, value)
 	case *ast.StaticPropertyFetchExpr:
-		if err := i.checkStaticPropertyAccess(n.ClassName, n.Property); err != nil {
+		return i.assignStaticProperty(n.ClassName, n.Property, value)
+	case *ast.DynamicStaticPropertyFetchExpr:
+		property, err := i.dynamicMemberName(n.Property)
+		if err != nil {
 			return err
 		}
-		i.setStaticProperty(n.ClassName, n.Property, value)
-		return nil
+		return i.assignStaticProperty(n.ClassName, property, value)
 	case *ast.IndexExpr:
 		return i.assignIndex(n, value)
 	case *ast.ListExpr:
@@ -1585,6 +1625,14 @@ func (i *Interpreter) assignTarget(target ast.Expr, value Value) error {
 	default:
 		return fmt.Errorf("expression is not writable")
 	}
+}
+
+func (i *Interpreter) assignStaticProperty(className, property string, value Value) error {
+	if err := i.checkStaticPropertyAccess(className, property); err != nil {
+		return err
+	}
+	i.setStaticProperty(className, property, value)
+	return nil
 }
 
 func (i *Interpreter) assignProperty(object ast.Expr, property string, value Value) error {

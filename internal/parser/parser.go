@@ -484,6 +484,8 @@ func (p *Parser) parseForClauseStmt() ast.Stmt {
 			return &ast.ExprStmt{Expr: &ast.AssignExpr{Target: target, Op: "=", Value: value}}
 		case *ast.StaticPropertyFetchExpr:
 			return &ast.StaticPropertyAssignStmt{ClassName: target.ClassName, Property: target.Property, Value: value}
+		case *ast.DynamicStaticPropertyFetchExpr:
+			return &ast.ExprStmt{Expr: &ast.AssignExpr{Target: target, Op: "=", Value: value}}
 		case *ast.IndexExpr:
 			return &ast.IndexAssignStmt{Target: target, Value: value}
 		default:
@@ -994,6 +996,8 @@ func (p *Parser) parseExprOrPropertyAssign() ast.Stmt {
 			return &ast.ExprStmt{Expr: &ast.AssignExpr{Target: target, Op: "=", Value: value}}
 		case *ast.StaticPropertyFetchExpr:
 			return &ast.StaticPropertyAssignStmt{ClassName: target.ClassName, Property: target.Property, Value: value}
+		case *ast.DynamicStaticPropertyFetchExpr:
+			return &ast.ExprStmt{Expr: &ast.AssignExpr{Target: target, Op: "=", Value: value}}
 		case *ast.IndexExpr:
 			return &ast.IndexAssignStmt{Target: target, Value: value}
 		default:
@@ -1139,7 +1143,20 @@ func (p *Parser) parseStaticAccess() ast.Expr {
 	switch p.peek.Type {
 	case lexer.Var:
 		p.next()
+		name := &ast.Ident{Name: p.cur.Literal}
+		if p.peek.Type == lexer.LParen {
+			p.next()
+			return &ast.DynamicStaticCallExpr{ClassName: className, Method: name, Args: p.parseCallArgs()}
+		}
 		return &ast.StaticPropertyFetchExpr{ClassName: className, Property: p.cur.Literal}
+	case lexer.VarVar:
+		p.next()
+		name := p.dynamicMemberName()
+		if p.peek.Type == lexer.LParen {
+			p.next()
+			return &ast.DynamicStaticCallExpr{ClassName: className, Method: name, Args: p.parseCallArgs()}
+		}
+		return &ast.DynamicStaticPropertyFetchExpr{ClassName: className, Property: name}
 	case lexer.Ident:
 		p.next()
 		name := p.cur.Literal
@@ -1366,7 +1383,7 @@ func (p *Parser) parseInfix(left ast.Expr) ast.Expr {
 
 func isWritableExpr(expr ast.Expr) bool {
 	switch expr.(type) {
-	case *ast.Ident, *ast.VariableVariable, *ast.PropertyFetchExpr, *ast.DynamicPropertyFetchExpr, *ast.StaticPropertyFetchExpr, *ast.IndexExpr, *ast.ListExpr:
+	case *ast.Ident, *ast.VariableVariable, *ast.PropertyFetchExpr, *ast.DynamicPropertyFetchExpr, *ast.StaticPropertyFetchExpr, *ast.DynamicStaticPropertyFetchExpr, *ast.IndexExpr, *ast.ListExpr:
 		return true
 	default:
 		return false

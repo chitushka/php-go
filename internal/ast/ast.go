@@ -386,6 +386,13 @@ type StaticPropertyFetchExpr struct {
 
 func (*StaticPropertyFetchExpr) exprNode() {}
 
+type DynamicStaticPropertyFetchExpr struct {
+	ClassName string
+	Property  Expr
+}
+
+func (*DynamicStaticPropertyFetchExpr) exprNode() {}
+
 type ClassConstFetchExpr struct {
 	ClassName string
 	Name      string
@@ -400,6 +407,14 @@ type StaticCallExpr struct {
 }
 
 func (*StaticCallExpr) exprNode() {}
+
+type DynamicStaticCallExpr struct {
+	ClassName string
+	Method    Expr
+	Args      []Expr
+}
+
+func (*DynamicStaticCallExpr) exprNode() {}
 
 type InstanceOfExpr struct {
 	Left      Expr
