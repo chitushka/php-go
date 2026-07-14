@@ -594,6 +594,14 @@ func TestPassByReferenceRequiresVariable(t *testing.T) {
 	}
 }
 
+func TestArrayElementReferences(t *testing.T) {
+	src := "<?php $x = 1; $a = array(); $a[0] =& $x; $a[0] = 2; echo $x; $x = 3; echo $a[0]; $y =& $a[0]; $y = 4; echo $x; echo $a[0];"
+	got := run(t, src)
+	if got != "2344" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestBuiltinIssetAndEmpty(t *testing.T) {
 	src := "<?php $items = array('a' => 1, 'b' => null, 'c' => 'x'); if (isset($items['a'])) { echo 'a'; } if (!isset($items['b'])) { echo 'b'; } if (!isset($missing)) { echo 'c'; } if (empty($items['b'])) { echo 'd'; } if (empty(0)) { echo 'e'; } if (!empty($items['c'])) { echo 'f'; }"
 	got := run(t, src)

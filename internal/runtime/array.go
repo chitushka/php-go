@@ -28,6 +28,14 @@ func (k ArrayKey) identity() string {
 type ArrayEntry struct {
 	Key   ArrayKey
 	Value Value
+	Slot  *variableSlot
+}
+
+func (e ArrayEntry) RuntimeValue() Value {
+	if e.Slot != nil {
+		return e.Slot.value
+	}
+	return e.Value
 }
 
 type Array struct {
@@ -46,9 +54,19 @@ func (a *Array) Append(v Value) {
 	a.Set(key, v)
 }
 
+func (a *Array) AppendSlot(slot *variableSlot) {
+	key := IntKey(a.nextKey)
+	a.nextKey++
+	a.SetSlot(key, slot)
+}
+
 func (a *Array) Set(key ArrayKey, v Value) {
 	id := key.identity()
 	if pos, ok := a.index[id]; ok {
+		if a.Entries[pos].Slot != nil {
+			a.Entries[pos].Slot.value = v
+			return
+		}
 		a.Entries[pos].Value = v
 		return
 	}
@@ -59,9 +77,35 @@ func (a *Array) Set(key ArrayKey, v Value) {
 	}
 }
 
+func (a *Array) SetSlot(key ArrayKey, slot *variableSlot) {
+	id := key.identity()
+	if pos, ok := a.index[id]; ok {
+		a.Entries[pos].Value = slot.value
+		a.Entries[pos].Slot = slot
+		return
+	}
+	a.index[id] = len(a.Entries)
+	a.Entries = append(a.Entries, ArrayEntry{Key: key, Value: slot.value, Slot: slot})
+	if key.IsInt && key.Int >= a.nextKey {
+		a.nextKey = key.Int + 1
+	}
+}
+
+func (a *Array) EnsureSlot(key ArrayKey) *variableSlot {
+	if pos, ok := a.index[key.identity()]; ok {
+		if a.Entries[pos].Slot == nil {
+			a.Entries[pos].Slot = &variableSlot{value: a.Entries[pos].Value}
+		}
+		return a.Entries[pos].Slot
+	}
+	slot := &variableSlot{}
+	a.SetSlot(key, slot)
+	return slot
+}
+
 func (a *Array) Get(key ArrayKey) (Value, bool) {
 	if pos, ok := a.index[key.identity()]; ok {
-		return a.Entries[pos].Value, true
+		return a.Entries[pos].RuntimeValue(), true
 	}
 	return NullValue(), false
 }

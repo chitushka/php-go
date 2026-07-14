@@ -1419,7 +1419,7 @@ func isWritableExpr(expr ast.Expr) bool {
 
 func isReferenceWritableExpr(expr ast.Expr) bool {
 	switch expr.(type) {
-	case *ast.Ident, *ast.VariableVariable:
+	case *ast.Ident, *ast.VariableVariable, *ast.IndexExpr:
 		return true
 	default:
 		return false

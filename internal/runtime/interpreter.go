@@ -380,7 +380,7 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 			if n.KeyVar != "" {
 				i.setVar(n.KeyVar, entry.Key.Value())
 			}
-			i.setVar(n.ValueVar, entry.Value)
+			i.setVar(n.ValueVar, entry.RuntimeValue())
 			ret, err := i.exec(n.Body)
 			if handled, propagated, ok := consumeBreak(err); ok {
 				if handled {
@@ -1311,7 +1311,7 @@ func toBuiltinArray(arr *Array) *builtins.Array {
 		return out
 	}
 	for _, entry := range arr.Entries {
-		out.Set(toBuiltinArrayKey(entry.Key), toBuiltinValue(entry.Value))
+		out.Set(toBuiltinArrayKey(entry.Key), toBuiltinValue(entry.RuntimeValue()))
 	}
 	return out
 }
@@ -1718,6 +1718,8 @@ func (i *Interpreter) referenceSlot(expr ast.Expr) (*variableSlot, error) {
 		return i.ensureSlot(n.Name), nil
 	case *ast.VariableVariable:
 		return i.ensureSlot(i.variableVariableName(n.Name)), nil
+	case *ast.IndexExpr:
+		return i.arrayIndexSlot(n)
 	default:
 		return nil, fmt.Errorf("reference assignment value must be a variable")
 	}
@@ -1731,9 +1733,43 @@ func (i *Interpreter) bindReferenceTarget(target ast.Expr, slot *variableSlot) e
 	case *ast.VariableVariable:
 		i.bindSlot(i.variableVariableName(n.Name), slot)
 		return nil
+	case *ast.IndexExpr:
+		return i.bindIndexReference(n, slot)
 	default:
 		return fmt.Errorf("reference assignment target must be a variable")
 	}
+}
+
+func (i *Interpreter) arrayIndexSlot(target *ast.IndexExpr) (*variableSlot, error) {
+	if target.Index == nil {
+		return nil, fmt.Errorf("cannot use [] as reference assignment value")
+	}
+	arr, err := i.ensureWritableArray(target.Left)
+	if err != nil {
+		return nil, err
+	}
+	index, err := i.eval(target.Index)
+	if err != nil {
+		return nil, err
+	}
+	return arr.EnsureSlot(KeyFromValue(index)), nil
+}
+
+func (i *Interpreter) bindIndexReference(target *ast.IndexExpr, slot *variableSlot) error {
+	arr, err := i.ensureWritableArray(target.Left)
+	if err != nil {
+		return err
+	}
+	if target.Index == nil {
+		arr.AppendSlot(slot)
+		return nil
+	}
+	index, err := i.eval(target.Index)
+	if err != nil {
+		return err
+	}
+	arr.SetSlot(KeyFromValue(index), slot)
+	return nil
 }
 
 func (i *Interpreter) evalIncDec(target ast.Expr, op string, post bool) (Value, error) {
@@ -2421,7 +2457,7 @@ func (i *Interpreter) castValue(typ string, value Value) (Value, error) {
 		if value.Kind == ArrayKind && value.A != nil {
 			for _, entry := range value.A.Entries {
 				name := arrayKeyPropertyName(entry.Key)
-				props[name] = entry.Value
+				props[name] = entry.RuntimeValue()
 				meta[name] = PropertyMeta{Owner: "stdClass", Visibility: "public"}
 			}
 		} else if value.Kind != Null {
