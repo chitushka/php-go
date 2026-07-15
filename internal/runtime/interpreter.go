@@ -3594,6 +3594,9 @@ func (i *Interpreter) stringify(value Value) (string, error) {
 			if err != nil {
 				return "", err
 			}
+			if result.Kind != String {
+				return "", fmt.Errorf("__toString must return string")
+			}
 			return result.String(), nil
 		}
 	}

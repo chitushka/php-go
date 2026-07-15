@@ -937,6 +937,13 @@ func TestMagicToString(t *testing.T) {
 	}
 }
 
+func TestMagicToStringRequiresStringReturn(t *testing.T) {
+	err := runErr(t, "<?php class Label { public function __toString() { return 123; } } $label = new Label(); echo $label;")
+	if err == nil || err.Error() != "__toString must return string" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestConcatAndMagicToString(t *testing.T) {
 	src := "<?php class Label { public function __toString() { return 'B'; } } $label = new Label(); echo 'A' . $label . 3;"
 	got := run(t, src)
