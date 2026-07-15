@@ -600,6 +600,22 @@ func TestMagicGetAndSet(t *testing.T) {
 	}
 }
 
+func TestMagicIssetAndEmpty(t *testing.T) {
+	src := "<?php class Bag { private $items; public function __construct() { $this->items = array('yes' => 'value', 'zero' => '0'); } public function __isset($name) { return isset($this->items[$name]); } public function __get($name) { return $this->items[$name]; } } $b = new Bag(); if (isset($b->yes)) { echo 'y'; } if (!isset($b->missing)) { echo 'm'; } if (empty($b->zero)) { echo 'z'; } if (!empty($b->yes)) { echo 'v'; }"
+	got := run(t, src)
+	if got != "ymzv" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestMagicUnset(t *testing.T) {
+	src := "<?php class Bag { private $items; public function __construct() { $this->items = array('x' => 1); } public function __isset($name) { return isset($this->items[$name]); } public function __unset($name) { unset($this->items[$name]); echo 'u:' . $name; } } $b = new Bag(); unset($b->x); if (!isset($b->x)) { echo ':gone'; }"
+	got := run(t, src)
+	if got != "u:x:gone" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestMagicCall(t *testing.T) {
 	src := "<?php class Dynamic { public function __call($name, $args) { echo $name; foreach ($args as $arg) { echo ':'; echo $arg; } } } $d = new Dynamic(); $d->missing(1, 'x');"
 	got := run(t, src)

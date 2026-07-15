@@ -1066,6 +1066,12 @@ func (i *Interpreter) callEmpty(args []ast.Expr) (Value, bool, error) {
 	if len(args) != 1 {
 		return NullValue(), true, fmt.Errorf("empty expects 1 argument, got %d", len(args))
 	}
+	if value, handled, err := i.lookupEmptyValue(args[0]); handled {
+		if err != nil {
+			return NullValue(), true, err
+		}
+		return BoolValue(!value.Truthy()), true, nil
+	}
 	value, exists, err := i.lookupConstructValue(args[0])
 	if err != nil {
 		return NullValue(), true, err
@@ -1074,6 +1080,45 @@ func (i *Interpreter) callEmpty(args []ast.Expr) (Value, bool, error) {
 		return BoolValue(true), true, nil
 	}
 	return BoolValue(!value.Truthy()), true, nil
+}
+
+func (i *Interpreter) lookupEmptyValue(expr ast.Expr) (Value, bool, error) {
+	switch n := expr.(type) {
+	case *ast.PropertyFetchExpr:
+		return i.lookupEmptyObjectProperty(n.Object, n.Property)
+	case *ast.DynamicPropertyFetchExpr:
+		property, err := i.dynamicMemberName(n.Property)
+		if err != nil {
+			return NullValue(), true, err
+		}
+		return i.lookupEmptyObjectProperty(n.Object, property)
+	default:
+		return NullValue(), false, nil
+	}
+}
+
+func (i *Interpreter) lookupEmptyObjectProperty(object ast.Expr, property string) (Value, bool, error) {
+	obj, err := i.eval(object)
+	if err != nil || obj.Kind != ObjectKind || obj.O == nil {
+		return NullValue(), true, err
+	}
+	if value, ok, inaccessible := i.visibleObjectProperty(obj.O, property); ok {
+		return value, true, nil
+	} else if inaccessible && !i.shouldUseIsset(obj.O) {
+		return NullValue(), true, nil
+	}
+	if !i.shouldUseIsset(obj.O) {
+		return NullValue(), true, nil
+	}
+	isset, err := i.callMagicIsset(obj.O, property)
+	if err != nil || !isset.Truthy() {
+		return NullValue(), true, err
+	}
+	if i.hasPublicMethod(obj.O, "__get") {
+		value, err := i.callMagicGet(obj.O, property)
+		return value, true, err
+	}
+	return BoolValue(true), true, nil
 }
 
 func (i *Interpreter) lookupConstructValue(expr ast.Expr) (Value, bool, error) {
@@ -1147,11 +1192,19 @@ func (i *Interpreter) lookupObjectProperty(object ast.Expr, property string) (Va
 	if err != nil || obj.Kind != ObjectKind || obj.O == nil {
 		return NullValue(), false, err
 	}
-	if err := i.checkPropertyAccess(obj.O, property); err != nil {
+	if value, ok, inaccessible := i.visibleObjectProperty(obj.O, property); ok {
+		return value, true, nil
+	} else if inaccessible && !i.shouldUseIsset(obj.O) {
 		return NullValue(), false, nil
 	}
-	value, ok := obj.O.Props[property]
-	return value, ok, nil
+	if !i.shouldUseIsset(obj.O) {
+		return NullValue(), false, nil
+	}
+	value, err := i.callMagicIsset(obj.O, property)
+	if err != nil || !value.Truthy() {
+		return NullValue(), false, err
+	}
+	return BoolValue(true), true, nil
 }
 
 func (i *Interpreter) fetchProperty(object ast.Expr, property string) (Value, error) {
@@ -2364,8 +2417,15 @@ func (i *Interpreter) unsetProperty(object ast.Expr, property string) error {
 	if obj.Kind != ObjectKind || obj.O == nil {
 		return nil
 	}
-	if err := i.checkPropertyAccess(obj.O, property); err != nil {
-		return err
+	if _, ok, inaccessible := i.visibleObjectProperty(obj.O, property); inaccessible {
+		if i.shouldUseUnset(obj.O) {
+			_, callErr := i.callMagicUnset(obj.O, property)
+			return callErr
+		}
+		return i.checkPropertyAccess(obj.O, property)
+	} else if !ok && i.shouldUseUnset(obj.O) {
+		_, callErr := i.callMagicUnset(obj.O, property)
+		return callErr
 	}
 	delete(obj.O.Props, property)
 	delete(obj.O.PropMeta, property)
@@ -2833,12 +2893,36 @@ func (i *Interpreter) shouldUseSet(obj *Object) bool {
 	return i.hasPublicMethod(obj, "__set") && i.currentClass() != obj.ClassName
 }
 
+func (i *Interpreter) shouldUseIsset(obj *Object) bool {
+	return i.hasPublicMethod(obj, "__isset") && i.currentClass() != obj.ClassName
+}
+
+func (i *Interpreter) shouldUseUnset(obj *Object) bool {
+	return i.hasPublicMethod(obj, "__unset") && i.currentClass() != obj.ClassName
+}
+
+func (i *Interpreter) visibleObjectProperty(obj *Object, property string) (Value, bool, bool) {
+	if err := i.checkPropertyAccess(obj, property); err != nil {
+		return NullValue(), false, true
+	}
+	value, ok := obj.Props[property]
+	return value, ok, false
+}
+
 func (i *Interpreter) callMagicGet(obj *Object, property string) (Value, error) {
 	return i.callFunctionValues(obj.Methods["__get"], []Value{StringValue(property)}, obj, obj.ClassName)
 }
 
 func (i *Interpreter) callMagicSet(obj *Object, property string, value Value) (Value, error) {
 	return i.callFunctionValues(obj.Methods["__set"], []Value{StringValue(property), value}, obj, obj.ClassName)
+}
+
+func (i *Interpreter) callMagicIsset(obj *Object, property string) (Value, error) {
+	return i.callFunctionValues(obj.Methods["__isset"], []Value{StringValue(property)}, obj, obj.ClassName)
+}
+
+func (i *Interpreter) callMagicUnset(obj *Object, property string) (Value, error) {
+	return i.callFunctionValues(obj.Methods["__unset"], []Value{StringValue(property)}, obj, obj.ClassName)
 }
 
 func (i *Interpreter) callMagicCall(obj *Object, methodName string, args []ast.Expr) (Value, error) {
