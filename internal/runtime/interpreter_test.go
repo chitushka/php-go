@@ -407,6 +407,14 @@ func TestOOPListingIntrospectionFunctions(t *testing.T) {
 	}
 }
 
+func TestOOPDeclaredClassInterfaceIntrospectionFunctions(t *testing.T) {
+	src := "<?php interface DeclaredContract {} interface DeclaredChild extends DeclaredContract {} class DeclaredBase {} class DeclaredUser extends DeclaredBase implements DeclaredChild {} $classes = get_declared_classes(); $interfaces = get_declared_interfaces(); echo in_array('Exception', $classes) ? 'exception' : 'no'; echo ':'; echo in_array('DeclaredBase', $classes) ? 'base' : 'no'; echo ':'; echo in_array('DeclaredUser', $classes) ? 'user' : 'no'; echo ':'; echo in_array('DeclaredContract', $interfaces) ? 'contract' : 'no'; echo ':'; echo in_array('DeclaredChild', $interfaces) ? 'child' : 'no';"
+	got := run(t, src)
+	if got != "exception:base:user:contract:child" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestThrowAndCatchException(t *testing.T) {
 	src := "<?php try { throw new Exception('boom'); } catch (Exception $e) { echo $e->getMessage(); } echo ' done';"
 	got := run(t, src)

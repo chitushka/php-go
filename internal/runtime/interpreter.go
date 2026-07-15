@@ -975,6 +975,10 @@ func (i *Interpreter) callBuiltin(c *ast.CallExpr) (Value, bool, error) {
 		return i.callGetClassMethods(c.Args)
 	case "get_class_vars":
 		return i.callGetClassVars(c.Args)
+	case "get_declared_classes":
+		return i.callGetDeclaredClasses(c.Args)
+	case "get_declared_interfaces":
+		return i.callGetDeclaredInterfaces(c.Args)
 	case "method_exists":
 		return i.callMethodExists(c.Args)
 	case "property_exists":
@@ -1243,6 +1247,38 @@ func (i *Interpreter) callGetClassVars(args []ast.Expr) (Value, bool, error) {
 	result := NewArray()
 	for _, name := range names {
 		result.Set(StringKey(name), props[name])
+	}
+	return ArrayValue(result), true, nil
+}
+
+func (i *Interpreter) callGetDeclaredClasses(args []ast.Expr) (Value, bool, error) {
+	if len(args) != 0 {
+		return NullValue(), true, fmt.Errorf("get_declared_classes expects 0 arguments, got %d", len(args))
+	}
+	names := make([]string, 0, len(i.classes))
+	for _, class := range i.classes {
+		names = append(names, class.Name)
+	}
+	sort.Strings(names)
+	result := NewArray()
+	for _, name := range names {
+		result.Append(StringValue(name))
+	}
+	return ArrayValue(result), true, nil
+}
+
+func (i *Interpreter) callGetDeclaredInterfaces(args []ast.Expr) (Value, bool, error) {
+	if len(args) != 0 {
+		return NullValue(), true, fmt.Errorf("get_declared_interfaces expects 0 arguments, got %d", len(args))
+	}
+	names := make([]string, 0, len(i.interfaces))
+	for _, iface := range i.interfaces {
+		names = append(names, iface.Name)
+	}
+	sort.Strings(names)
+	result := NewArray()
+	for _, name := range names {
+		result.Append(StringValue(name))
 	}
 	return ArrayValue(result), true, nil
 }
