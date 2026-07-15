@@ -393,6 +393,7 @@ func (*ClosureExpr) exprNode() {}
 
 type NewExpr struct {
 	ClassName string
+	ClassExpr Expr
 	Args      []Expr
 }
 

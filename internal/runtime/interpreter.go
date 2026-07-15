@@ -2005,12 +2005,12 @@ func functionKey(fn *ast.FunctionDeclStmt) string {
 }
 
 func (i *Interpreter) newObject(n *ast.NewExpr) (Value, error) {
-	if n.ClassName == "Exception" {
-		return i.newException(n.Args)
-	}
-	className, err := i.resolveClassName(n.ClassName)
+	className, err := i.newClassName(n)
 	if err != nil {
 		return NullValue(), err
+	}
+	if className == "Exception" {
+		return i.newException(n.Args)
 	}
 	class, ok := i.classes[className]
 	if !ok {
@@ -2034,9 +2034,24 @@ func (i *Interpreter) newObject(n *ast.NewExpr) (Value, error) {
 			return NullValue(), err
 		}
 	} else if len(n.Args) != 0 {
-		return NullValue(), fmt.Errorf("class %s has no constructor", n.ClassName)
+		return NullValue(), fmt.Errorf("class %s has no constructor", className)
 	}
 	return ObjectValue(obj), nil
+}
+
+func (i *Interpreter) newClassName(n *ast.NewExpr) (string, error) {
+	if n.ClassExpr != nil {
+		value, err := i.eval(n.ClassExpr)
+		if err != nil {
+			return "", err
+		}
+		name := value.String()
+		if name == "" {
+			return "", fmt.Errorf("class name must not be empty")
+		}
+		return i.resolveClassName(name)
+	}
+	return i.resolveClassName(n.ClassName)
 }
 
 func (i *Interpreter) trackObject(obj *Object) {

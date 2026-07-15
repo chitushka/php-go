@@ -272,6 +272,22 @@ func TestClassCanBeUsedBeforeDeclaration(t *testing.T) {
 	}
 }
 
+func TestDynamicClassNameInNew(t *testing.T) {
+	src := "<?php class Box { function __construct($value) { $this->value = $value; } function get() { return $this->value; } } $class = 'Box'; $box = new $class(8); echo $box->get();"
+	got := run(t, src)
+	if got != "8" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestVariableVariableClassNameInNew(t *testing.T) {
+	src := "<?php class Box { function get() { return 'box'; } } $name = 'class'; $class = 'Box'; $box = new $$name(); echo $box->get();"
+	got := run(t, src)
+	if got != "box" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestIncludedClass(t *testing.T) {
 	dir := t.TempDir()
 	src := "<?php class Doubler { function run($value) { return $value * 2; } }"

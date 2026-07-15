@@ -1331,10 +1331,20 @@ func (p *Parser) parseStaticAccess() ast.Expr {
 
 func (p *Parser) parseNew() ast.Expr {
 	expr := &ast.NewExpr{}
-	if !p.expectPeek(lexer.Ident) {
+	switch p.peek.Type {
+	case lexer.Ident:
+		p.next()
+		expr.ClassName = p.resolveClassName(p.cur.Literal)
+	case lexer.Var:
+		p.next()
+		expr.ClassExpr = &ast.Ident{Name: p.cur.Literal}
+	case lexer.VarVar:
+		p.next()
+		expr.ClassExpr = &ast.VariableVariable{Name: p.cur.Literal}
+	default:
+		p.errors = append(p.errors, fmt.Sprintf("expected class name after new, got %s", p.peek.Type))
 		return expr
 	}
-	expr.ClassName = p.resolveClassName(p.cur.Literal)
 	if p.peek.Type != lexer.LParen {
 		return expr
 	}
