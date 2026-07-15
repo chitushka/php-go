@@ -765,6 +765,21 @@ func TestInterfaceImplementationCanAddOptionalParameter(t *testing.T) {
 	}
 }
 
+func TestInterfaceExtendsMethodSignatureCompatibility(t *testing.T) {
+	src := "<?php interface Named { public function name($first); } interface DetailedNamed extends Named { public function name($first, $last = ''); } class User implements DetailedNamed { public function name($first, $last = '') { return $first . $last; } } $u = new User(); echo $u->name('Ada'); echo ':'; echo $u->name('Ada', ' Lovelace');"
+	got := run(t, src)
+	if got != "Ada:Ada Lovelace" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestInterfaceExtendsCannotAddRequiredMethodParameter(t *testing.T) {
+	err := runErr(t, "<?php interface Named { public function name($first); } interface DetailedNamed extends Named { public function name($first, $last); }")
+	if err == nil || err.Error() != "method DetailedNamed::name cannot require 2 parameters to match Named::name requiring 1" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestInterfaceExtendsInterface(t *testing.T) {
 	src := "<?php interface A { public function a(); } interface B extends A { public function b(); } class C implements B { public function a() { return 'a'; } public function b() { return 'b'; } } $c = new C(); echo $c->a(); echo $c->b();"
 	got := run(t, src)

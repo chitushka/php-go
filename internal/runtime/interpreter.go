@@ -5040,6 +5040,7 @@ func (i *Interpreter) defineInterface(iface *ast.InterfaceDeclStmt) error {
 	if _, exists := i.classByName(iface.Name); exists {
 		return fmt.Errorf("cannot redeclare interface %s", iface.Name)
 	}
+	parentMethods := map[string]*ast.FunctionDeclStmt{}
 	for idx, parentName := range iface.Parents {
 		if err := i.autoloadClass(parentName); err != nil {
 			return err
@@ -5049,6 +5050,21 @@ func (i *Interpreter) defineInterface(iface *ast.InterfaceDeclStmt) error {
 			return fmt.Errorf("undefined parent interface %s", parentName)
 		}
 		iface.Parents[idx] = parent.Name
+		methods, err := i.interfaceMethods(parent.Name)
+		if err != nil {
+			return err
+		}
+		for name, method := range methods {
+			if existing, ok := parentMethods[name]; ok {
+				merged, err := compatibleInterfacePrototype(iface.Name, existing, method)
+				if err != nil {
+					return err
+				}
+				parentMethods[name] = merged
+				continue
+			}
+			parentMethods[name] = method
+		}
 	}
 	for _, method := range iface.Methods {
 		method.Owner = iface.Name
@@ -5056,6 +5072,11 @@ func (i *Interpreter) defineInterface(iface *ast.InterfaceDeclStmt) error {
 		method.Abstract = true
 		if err := validateFunctionCompatibility(method, "method "+iface.Name+"::"+method.Name); err != nil {
 			return err
+		}
+		if parentMethod, ok := parentMethods[methodNameKey(method.Name)]; ok {
+			if err := validateMethodSignatureCompatibility(iface.Name, method, parentMethod); err != nil {
+				return err
+			}
 		}
 	}
 	i.interfaces[classNameKey(iface.Name)] = iface
@@ -5071,6 +5092,20 @@ func (i *Interpreter) defineInterface(iface *ast.InterfaceDeclStmt) error {
 		i.constants[iface.Name][constant.Name] = value
 	}
 	return nil
+}
+
+func compatibleInterfacePrototype(interfaceName string, existing, candidate *ast.FunctionDeclStmt) (*ast.FunctionDeclStmt, error) {
+	candidateErr := validateMethodSignatureCompatibility(interfaceName, candidate, existing)
+	if candidateErr == nil {
+		if validateMethodSignatureCompatibility(interfaceName, existing, candidate) == nil {
+			return existing, nil
+		}
+		return candidate, nil
+	}
+	if validateMethodSignatureCompatibility(interfaceName, existing, candidate) == nil {
+		return existing, nil
+	}
+	return nil, candidateErr
 }
 
 func (i *Interpreter) checkInterfaceImplementations(class *ast.ClassDeclStmt) error {
