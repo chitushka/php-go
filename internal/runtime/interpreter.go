@@ -960,6 +960,16 @@ func (i *Interpreter) callBuiltin(c *ast.CallExpr) (Value, bool, error) {
 		return i.callSerialize(c.Args)
 	case "unserialize":
 		return i.callUnserialize(c.Args)
+	case "class_exists":
+		return i.callClassExists(c.Args)
+	case "interface_exists":
+		return i.callInterfaceExists(c.Args)
+	case "get_class":
+		return i.callGetClass(c.Args)
+	case "method_exists":
+		return i.callMethodExists(c.Args)
+	case "property_exists":
+		return i.callPropertyExists(c.Args)
 	}
 
 	if strings.EqualFold(c.Name, "preg_match") && len(c.Args) >= 3 {
@@ -1030,6 +1040,167 @@ func (i *Interpreter) callDefine(args []ast.Expr) (Value, bool, error) {
 	}
 	i.runtimeConstants[name] = value
 	return BoolValue(true), true, nil
+}
+
+func (i *Interpreter) callClassExists(args []ast.Expr) (Value, bool, error) {
+	if len(args) < 1 || len(args) > 2 {
+		return NullValue(), true, fmt.Errorf("class_exists expects 1 or 2 arguments, got %d", len(args))
+	}
+	nameValue, err := i.eval(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	name := nameValue.String()
+	autoload := true
+	if len(args) == 2 {
+		autoloadValue, err := i.eval(args[1])
+		if err != nil {
+			return NullValue(), true, err
+		}
+		autoload = autoloadValue.Truthy()
+	}
+	if autoload {
+		if err := i.autoloadClass(name); err != nil {
+			return NullValue(), true, err
+		}
+	}
+	_, ok := i.classByName(name)
+	return BoolValue(ok), true, nil
+}
+
+func (i *Interpreter) callInterfaceExists(args []ast.Expr) (Value, bool, error) {
+	if len(args) < 1 || len(args) > 2 {
+		return NullValue(), true, fmt.Errorf("interface_exists expects 1 or 2 arguments, got %d", len(args))
+	}
+	nameValue, err := i.eval(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	name := nameValue.String()
+	autoload := true
+	if len(args) == 2 {
+		autoloadValue, err := i.eval(args[1])
+		if err != nil {
+			return NullValue(), true, err
+		}
+		autoload = autoloadValue.Truthy()
+	}
+	if autoload {
+		if err := i.autoloadClass(name); err != nil {
+			return NullValue(), true, err
+		}
+	}
+	_, ok := i.interfaceByName(name)
+	return BoolValue(ok), true, nil
+}
+
+func (i *Interpreter) callGetClass(args []ast.Expr) (Value, bool, error) {
+	if len(args) > 1 {
+		return NullValue(), true, fmt.Errorf("get_class expects 0 or 1 arguments, got %d", len(args))
+	}
+	if len(args) == 0 {
+		if thisObj := i.currentThis(); thisObj != nil {
+			return StringValue(thisObj.ClassName), true, nil
+		}
+		return NullValue(), true, fmt.Errorf("get_class expects object")
+	}
+	value, err := i.eval(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	if value.Kind != ObjectKind || value.O == nil {
+		return NullValue(), true, fmt.Errorf("get_class expects object")
+	}
+	return StringValue(value.O.ClassName), true, nil
+}
+
+func (i *Interpreter) callMethodExists(args []ast.Expr) (Value, bool, error) {
+	if len(args) != 2 {
+		return NullValue(), true, fmt.Errorf("method_exists expects 2 arguments, got %d", len(args))
+	}
+	target, err := i.eval(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	methodValue, err := i.eval(args[1])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	methods, ok := i.methodsForTarget(target)
+	if !ok {
+		return BoolValue(false), true, nil
+	}
+	_, exists := methods[methodNameKey(methodValue.String())]
+	return BoolValue(exists), true, nil
+}
+
+func (i *Interpreter) callPropertyExists(args []ast.Expr) (Value, bool, error) {
+	if len(args) != 2 {
+		return NullValue(), true, fmt.Errorf("property_exists expects 2 arguments, got %d", len(args))
+	}
+	target, err := i.eval(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	propertyValue, err := i.eval(args[1])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	property := propertyValue.String()
+	if target.Kind == ObjectKind && target.O != nil {
+		if _, ok := target.O.Props[property]; ok {
+			return BoolValue(true), true, nil
+		}
+		class, ok := i.classByName(target.O.ClassName)
+		if !ok {
+			return BoolValue(false), true, nil
+		}
+		return BoolValue(i.classDeclaresProperty(class, property)), true, nil
+	}
+	if target.Kind != String {
+		return BoolValue(false), true, nil
+	}
+	class, ok := i.classByName(target.String())
+	if !ok {
+		return BoolValue(false), true, nil
+	}
+	return BoolValue(i.classDeclaresProperty(class, property)), true, nil
+}
+
+func (i *Interpreter) methodsForTarget(target Value) (map[string]*ast.FunctionDeclStmt, bool) {
+	if target.Kind == ObjectKind && target.O != nil {
+		return target.O.Methods, true
+	}
+	if target.Kind != String {
+		return nil, false
+	}
+	if class, ok := i.classByName(target.String()); ok {
+		return i.methodsForClass(class), true
+	}
+	if iface, ok := i.interfaceByName(target.String()); ok {
+		methods, err := i.interfaceMethods(iface.Name)
+		return methods, err == nil
+	}
+	return nil, false
+}
+
+func (i *Interpreter) classDeclaresProperty(class *ast.ClassDeclStmt, property string) bool {
+	for class != nil {
+		for _, prop := range class.Properties {
+			if prop.Name == property {
+				return true
+			}
+		}
+		if class.Parent == "" {
+			return false
+		}
+		parent, ok := i.classByName(class.Parent)
+		if !ok {
+			return false
+		}
+		class = parent
+	}
+	return false
 }
 
 func (i *Interpreter) callDefined(args []ast.Expr) (Value, bool, error) {

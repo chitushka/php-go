@@ -363,6 +363,18 @@ func TestAutoloadLoadsParentClassDuringDeclaration(t *testing.T) {
 	}
 }
 
+func TestOOPIntrospectionFunctions(t *testing.T) {
+	dir := t.TempDir()
+	src := "<?php interface InspectContract { public function run(); } class InspectBase { private $hidden = 1; protected function hiddenMethod() {} } class InspectTarget extends InspectBase implements InspectContract { public $name = 'Ada'; private function secret() {} public function run() { return get_class(); } }"
+	if err := os.WriteFile(filepath.Join(dir, "introspection.php"), []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got := runFile(t, dir, "<?php function __autoload($class) { include 'introspection.php'; } echo class_exists('InspectTarget', false) ? 'y' : 'n'; echo ':'; echo interface_exists('InspectContract') ? 'y' : 'n'; echo ':'; echo class_exists('inspecttarget') ? 'y' : 'n'; $obj = new inspecttarget(); $obj->dynamic = 1; echo ':'; echo get_class($obj); echo ':'; echo $obj->run(); echo ':'; echo method_exists($obj, 'secret') ? 'y' : 'n'; echo ':'; echo method_exists('InspectBase', 'hiddenMethod') ? 'y' : 'n'; echo ':'; echo property_exists($obj, 'hidden') ? 'y' : 'n'; echo ':'; echo property_exists($obj, 'dynamic') ? 'y' : 'n'; echo ':'; echo property_exists('InspectTarget', 'missing') ? 'y' : 'n';")
+	if got != "n:y:y:InspectTarget:InspectTarget:y:y:y:y:n" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestThrowAndCatchException(t *testing.T) {
 	src := "<?php try { throw new Exception('boom'); } catch (Exception $e) { echo $e->getMessage(); } echo ' done';"
 	got := run(t, src)
