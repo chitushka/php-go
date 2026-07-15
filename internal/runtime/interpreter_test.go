@@ -387,6 +387,14 @@ func TestExceptionPreviousAndTraceAsString(t *testing.T) {
 	}
 }
 
+func TestExceptionTraceArray(t *testing.T) {
+	src := "<?php class Runner { public function wrap() { fail(); } } function fail() { throw new Exception('outer'); } try { $runner = new Runner(); $runner->wrap(); } catch (Exception $e) { $trace = $e->getTrace(); echo $trace[0]['function']; echo ':'; echo $trace[1]['class']; echo ':'; echo $trace[1]['type']; echo ':'; echo $trace[1]['function']; }"
+	got := run(t, src)
+	if got != "fail:Runner::::wrap" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestMultipleCatchChoosesFirstMatchingHandler(t *testing.T) {
 	src := "<?php class First extends Exception {} class Second extends Exception {} try { throw new Second('two'); } catch (First $e) { echo 'first'; } catch (Second $e) { echo $e->getMessage(); } catch (Exception $e) { echo 'base'; }"
 	got := run(t, src)

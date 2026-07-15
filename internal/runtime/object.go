@@ -7,7 +7,13 @@ type Object struct {
 	Methods        map[string]*ast.FunctionDeclStmt
 	Props          map[string]Value
 	PropMeta       map[string]PropertyMeta
-	ExceptionTrace []string
+	ExceptionTrace []ExceptionTraceFrame
+}
+
+type ExceptionTraceFrame struct {
+	Function string
+	Class    string
+	Type     string
 }
 
 type PropertyMeta struct {

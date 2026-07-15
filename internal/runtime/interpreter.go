@@ -2097,7 +2097,7 @@ func (i *Interpreter) cloneObject(obj *Object) *Object {
 		meta[name] = info
 	}
 	clone := NewObject(obj.ClassName, obj.Methods, props, meta)
-	clone.ExceptionTrace = append([]string(nil), obj.ExceptionTrace...)
+	clone.ExceptionTrace = append([]ExceptionTraceFrame(nil), obj.ExceptionTrace...)
 	return clone
 }
 
@@ -3437,7 +3437,7 @@ func (i *Interpreter) initExceptionObject(obj *Object, args []ast.Expr, file str
 func (i *Interpreter) callExceptionMethod(obj *Object, methodName string, args []ast.Expr) (Value, bool, error) {
 	if len(args) != 0 {
 		switch strings.ToLower(methodName) {
-		case "getmessage", "getcode", "getfile", "getline", "getprevious", "gettraceasstring", "__tostring":
+		case "getmessage", "getcode", "getfile", "getline", "getprevious", "gettrace", "gettraceasstring", "__tostring":
 			return NullValue(), true, fmt.Errorf("Exception::%s expects 0 arguments, got %d", methodName, len(args))
 		}
 	}
@@ -3452,8 +3452,10 @@ func (i *Interpreter) callExceptionMethod(obj *Object, methodName string, args [
 		return exceptionProperty(obj, "line", IntValue(0)), true, nil
 	case "getprevious":
 		return exceptionProperty(obj, "previous", NullValue()), true, nil
+	case "gettrace":
+		return ArrayValue(exceptionTraceArray(obj.ExceptionTrace)), true, nil
 	case "gettraceasstring":
-		return StringValue(strings.Join(obj.ExceptionTrace, "\n")), true, nil
+		return StringValue(exceptionTraceString(obj.ExceptionTrace)), true, nil
 	case "__tostring":
 		return StringValue(i.exceptionString(obj)), true, nil
 	default:
@@ -3461,22 +3463,47 @@ func (i *Interpreter) callExceptionMethod(obj *Object, methodName string, args [
 	}
 }
 
-func (i *Interpreter) captureExceptionTrace() []string {
-	trace := make([]string, 0, len(i.frames))
-	frameNo := 0
+func (i *Interpreter) captureExceptionTrace() []ExceptionTraceFrame {
+	trace := make([]ExceptionTraceFrame, 0, len(i.frames))
 	for idx := len(i.frames) - 1; idx >= 0; idx-- {
 		frame := i.frames[idx]
-		name := frame.function
-		if frame.className != "" && frame.function != "" {
-			name = frame.className + "::" + frame.function
-		}
-		if name == "" {
+		if frame.function == "" {
 			continue
 		}
-		trace = append(trace, fmt.Sprintf("#%d %s()", frameNo, name))
-		frameNo++
+		traceFrame := ExceptionTraceFrame{Function: frame.function}
+		if frame.className != "" {
+			traceFrame.Class = frame.className
+			traceFrame.Type = "::"
+		}
+		trace = append(trace, traceFrame)
 	}
 	return trace
+}
+
+func exceptionTraceArray(trace []ExceptionTraceFrame) *Array {
+	result := NewArray()
+	for _, frame := range trace {
+		entry := NewArray()
+		entry.Set(StringKey("function"), StringValue(frame.Function))
+		if frame.Class != "" {
+			entry.Set(StringKey("class"), StringValue(frame.Class))
+			entry.Set(StringKey("type"), StringValue(frame.Type))
+		}
+		result.Append(ArrayValue(entry))
+	}
+	return result
+}
+
+func exceptionTraceString(trace []ExceptionTraceFrame) string {
+	lines := make([]string, 0, len(trace))
+	for idx, frame := range trace {
+		name := frame.Function
+		if frame.Class != "" {
+			name = frame.Class + frame.Type + frame.Function
+		}
+		lines = append(lines, fmt.Sprintf("#%d %s()", idx, name))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func exceptionProperty(obj *Object, name string, fallback Value) Value {
