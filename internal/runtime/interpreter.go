@@ -54,7 +54,7 @@ func NewInterpreterWithBaseDir(baseDir string) *Interpreter {
 		Vars:                        map[string]Value{},
 		globals:                     map[string]*variableSlot{},
 		functions:                   map[string]*ast.FunctionDeclStmt{},
-		classes:                     map[string]*ast.ClassDeclStmt{"Exception": builtinExceptionClass()},
+		classes:                     map[string]*ast.ClassDeclStmt{classNameKey("Exception"): builtinExceptionClass()},
 		interfaces:                  map[string]*ast.InterfaceDeclStmt{},
 		constants:                   map[string]map[string]Value{},
 		runtimeConstants:            map[string]Value{},
@@ -1176,7 +1176,7 @@ type serializedObjectProperty struct {
 
 func (i *Interpreter) serializableObjectProperties(obj *Object) ([]serializedObjectProperty, error) {
 	if i.hasPublicMethod(obj, "__sleep") {
-		names, err := i.callFunctionValues(obj.Methods["__sleep"], nil, obj, obj.ClassName)
+		names, err := i.callFunctionValues(obj.Methods[methodNameKey("__sleep")], nil, obj, obj.ClassName)
 		if err != nil {
 			return nil, err
 		}
@@ -1360,13 +1360,14 @@ func (p *runtimeSerializedParser) parseObject() (Value, error) {
 		return NullValue(), err
 	}
 	methods := map[string]*ast.FunctionDeclStmt{}
-	if class, ok := p.interp.classes[className]; ok {
+	if class, ok := p.interp.classByName(className); ok {
+		className = class.Name
 		methods = p.interp.methodsForClass(class)
 	}
 	obj := NewObject(className, methods, props, meta)
 	p.interp.trackObject(obj)
 	if p.interp.hasPublicMethod(obj, "__wakeup") {
-		if _, err := p.interp.callFunctionValues(obj.Methods["__wakeup"], nil, obj, obj.ClassName); err != nil {
+		if _, err := p.interp.callFunctionValues(obj.Methods[methodNameKey("__wakeup")], nil, obj, obj.ClassName); err != nil {
 			return NullValue(), err
 		}
 	}
@@ -2012,7 +2013,7 @@ func (i *Interpreter) newObject(n *ast.NewExpr) (Value, error) {
 	if className == "Exception" {
 		return i.newException(n.Args)
 	}
-	class, ok := i.classes[className]
+	class, ok := i.classByName(className)
 	if !ok {
 		return NullValue(), fmt.Errorf("undefined class %s", className)
 	}
@@ -2071,7 +2072,7 @@ func (i *Interpreter) evalClone(expr ast.Expr) (Value, error) {
 	}
 	clone := i.cloneObject(value.O)
 	i.trackObject(clone)
-	if method, ok := clone.Methods["__clone"]; ok {
+	if method, ok := clone.Methods[methodNameKey("__clone")]; ok {
 		if _, err := i.callFunction(method, nil, clone, clone.ClassName); err != nil {
 			return NullValue(), err
 		}
@@ -2098,7 +2099,7 @@ func (i *Interpreter) runDestructors() error {
 			return nil
 		}
 		i.destructed[obj] = true
-		destructor, ok := obj.Methods["__destruct"]
+		destructor, ok := obj.Methods[methodNameKey("__destruct")]
 		if !ok {
 			continue
 		}
@@ -2133,7 +2134,7 @@ func (i *Interpreter) constructorForClass(class *ast.ClassDeclStmt) (*ast.Functi
 	if class.Parent == "" {
 		return nil, false
 	}
-	parent, ok := i.classes[class.Parent]
+	parent, ok := i.classByName(class.Parent)
 	if !ok {
 		return nil, false
 	}
@@ -2178,7 +2179,7 @@ func (i *Interpreter) callMethodName(object ast.Expr, methodName string, args []
 		}
 		return StringValue(""), nil
 	}
-	method, ok := obj.O.Methods[methodName]
+	method, ok := obj.O.Methods[methodNameKey(methodName)]
 	if !ok {
 		if methodName != "__call" && i.hasPublicMethod(obj.O, "__call") {
 			return i.callMagicCall(obj.O, methodName, args)
@@ -2211,15 +2212,15 @@ func (i *Interpreter) callStaticName(staticClassName, methodName string, args []
 	if err != nil {
 		return NullValue(), err
 	}
-	class, ok := i.classes[className]
+	class, ok := i.classByName(className)
 	if !ok {
 		return NullValue(), fmt.Errorf("undefined class %s", className)
 	}
 	methods := i.methodsForClass(class)
-	method, ok := methods[methodName]
+	method, ok := methods[methodNameKey(methodName)]
 	if !ok {
 		if i.hasPublicStaticMethod(methods, "__callStatic") {
-			return i.callMagicCallStatic(className, methods["__callStatic"], methodName, args)
+			return i.callMagicCallStatic(className, methods[methodNameKey("__callStatic")], methodName, args)
 		}
 		return NullValue(), fmt.Errorf("undefined static method %s::%s", className, methodName)
 	}
@@ -2235,7 +2236,7 @@ func (i *Interpreter) callStaticName(staticClassName, methodName string, args []
 	}
 	if err := i.checkMethodAccess(className, method); err != nil {
 		if methodName != "__callStatic" && i.hasPublicStaticMethod(methods, "__callStatic") {
-			return i.callMagicCallStatic(className, methods["__callStatic"], methodName, args)
+			return i.callMagicCallStatic(className, methods[methodNameKey("__callStatic")], methodName, args)
 		}
 		return NullValue(), err
 	}
@@ -2867,7 +2868,7 @@ func indexOffset(value Value) (int, bool) {
 func (i *Interpreter) stringify(value Value) (string, error) {
 	if value.Kind == ObjectKind && value.O != nil {
 		if i.hasPublicMethod(value.O, "__toString") {
-			result, err := i.callFunctionValues(value.O.Methods["__toString"], nil, value.O, value.O.ClassName)
+			result, err := i.callFunctionValues(value.O.Methods[methodNameKey("__toString")], nil, value.O, value.O.ClassName)
 			if err != nil {
 				return "", err
 			}
@@ -3290,7 +3291,7 @@ func parseNumericPrefix(text string) float64 {
 }
 
 func (i *Interpreter) hasPublicMethod(obj *Object, name string) bool {
-	method, ok := obj.Methods[name]
+	method, ok := obj.Methods[methodNameKey(name)]
 	if !ok {
 		return false
 	}
@@ -3298,7 +3299,7 @@ func (i *Interpreter) hasPublicMethod(obj *Object, name string) bool {
 }
 
 func (i *Interpreter) hasPublicStaticMethod(methods map[string]*ast.FunctionDeclStmt, name string) bool {
-	method, ok := methods[name]
+	method, ok := methods[methodNameKey(name)]
 	if !ok {
 		return false
 	}
@@ -3330,19 +3331,19 @@ func (i *Interpreter) visibleObjectProperty(obj *Object, property string) (Value
 }
 
 func (i *Interpreter) callMagicGet(obj *Object, property string) (Value, error) {
-	return i.callFunctionValues(obj.Methods["__get"], []Value{StringValue(property)}, obj, obj.ClassName)
+	return i.callFunctionValues(obj.Methods[methodNameKey("__get")], []Value{StringValue(property)}, obj, obj.ClassName)
 }
 
 func (i *Interpreter) callMagicSet(obj *Object, property string, value Value) (Value, error) {
-	return i.callFunctionValues(obj.Methods["__set"], []Value{StringValue(property), value}, obj, obj.ClassName)
+	return i.callFunctionValues(obj.Methods[methodNameKey("__set")], []Value{StringValue(property), value}, obj, obj.ClassName)
 }
 
 func (i *Interpreter) callMagicIsset(obj *Object, property string) (Value, error) {
-	return i.callFunctionValues(obj.Methods["__isset"], []Value{StringValue(property)}, obj, obj.ClassName)
+	return i.callFunctionValues(obj.Methods[methodNameKey("__isset")], []Value{StringValue(property)}, obj, obj.ClassName)
 }
 
 func (i *Interpreter) callMagicUnset(obj *Object, property string) (Value, error) {
-	return i.callFunctionValues(obj.Methods["__unset"], []Value{StringValue(property)}, obj, obj.ClassName)
+	return i.callFunctionValues(obj.Methods[methodNameKey("__unset")], []Value{StringValue(property)}, obj, obj.ClassName)
 }
 
 func (i *Interpreter) callMagicCall(obj *Object, methodName string, args []ast.Expr) (Value, error) {
@@ -3354,7 +3355,7 @@ func (i *Interpreter) callMagicCall(obj *Object, methodName string, args []ast.E
 		}
 		values.Append(value)
 	}
-	return i.callFunctionValues(obj.Methods["__call"], []Value{StringValue(methodName), ArrayValue(values)}, obj, obj.ClassName)
+	return i.callFunctionValues(obj.Methods[methodNameKey("__call")], []Value{StringValue(methodName), ArrayValue(values)}, obj, obj.ClassName)
 }
 
 func (i *Interpreter) callMagicCallStatic(className string, method *ast.FunctionDeclStmt, methodName string, args []ast.Expr) (Value, error) {
@@ -3370,7 +3371,8 @@ func (i *Interpreter) callMagicCallStatic(className string, method *ast.Function
 }
 
 func (i *Interpreter) newException(args []ast.Expr) (Value, error) {
-	obj := NewObject("Exception", i.methodsForClass(i.classes["Exception"]), nil, nil)
+	exceptionClass, _ := i.classByName("Exception")
+	obj := NewObject("Exception", i.methodsForClass(exceptionClass), nil, nil)
 	if err := i.initExceptionObject(obj, args); err != nil {
 		return NullValue(), err
 	}
@@ -3419,6 +3421,34 @@ func (i *Interpreter) defineFunction(fn *ast.FunctionDeclStmt) error {
 
 func functionNameKey(name string) string {
 	return strings.ToLower(name)
+}
+
+func methodNameKey(name string) string {
+	return strings.ToLower(name)
+}
+
+func classNameKey(name string) string {
+	return strings.ToLower(strings.TrimPrefix(name, "\\"))
+}
+
+func (i *Interpreter) classByName(name string) (*ast.ClassDeclStmt, bool) {
+	class, ok := i.classes[classNameKey(name)]
+	return class, ok
+}
+
+func (i *Interpreter) interfaceByName(name string) (*ast.InterfaceDeclStmt, bool) {
+	iface, ok := i.interfaces[classNameKey(name)]
+	return iface, ok
+}
+
+func (i *Interpreter) classLikeName(name string) (string, bool) {
+	if class, ok := i.classByName(name); ok {
+		return class.Name, true
+	}
+	if iface, ok := i.interfaceByName(name); ok {
+		return iface.Name, true
+	}
+	return "", false
 }
 
 func namespaceBaseName(name string) string {
@@ -3480,7 +3510,10 @@ func validateDefaultExpression(expr ast.Expr) error {
 }
 
 func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
-	if _, exists := i.classes[class.Name]; exists {
+	if _, exists := i.classByName(class.Name); exists {
+		return fmt.Errorf("cannot redeclare class %s", class.Name)
+	}
+	if _, exists := i.interfaceByName(class.Name); exists {
 		return fmt.Errorf("cannot redeclare class %s", class.Name)
 	}
 	if class.Final && class.Abstract {
@@ -3505,16 +3538,17 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 		}
 	}
 	if class.Parent != "" {
-		parent, ok := i.classes[class.Parent]
+		parent, ok := i.classByName(class.Parent)
 		if !ok {
 			return fmt.Errorf("undefined parent class %s", class.Parent)
 		}
+		class.Parent = parent.Name
 		if parent.Final {
 			return fmt.Errorf("class %s cannot extend final class %s", class.Name, parent.Name)
 		}
 		parentMethods := i.methodsForClass(parent)
 		for _, method := range class.Methods {
-			if parentMethod, ok := parentMethods[method.Name]; ok {
+			if parentMethod, ok := parentMethods[methodNameKey(method.Name)]; ok {
 				if err := validateMethodOverrideCompatibility(class.Name, method, parentMethod); err != nil {
 					return err
 				}
@@ -3529,7 +3563,14 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 			}
 		}
 	}
-	i.classes[class.Name] = class
+	for idx, ifaceName := range class.Implements {
+		iface, ok := i.interfaceByName(ifaceName)
+		if !ok {
+			return fmt.Errorf("undefined interface %s", ifaceName)
+		}
+		class.Implements[idx] = iface.Name
+	}
+	i.classes[classNameKey(class.Name)] = class
 	if _, ok := i.constants[class.Name]; !ok {
 		i.constants[class.Name] = map[string]Value{}
 	}
@@ -3655,7 +3696,7 @@ func visibilityRank(visibility string) int {
 func (i *Interpreter) inheritedPropertiesForClass(class *ast.ClassDeclStmt) map[string]*ast.ClassProperty {
 	properties := map[string]*ast.ClassProperty{}
 	if class.Parent != "" {
-		if parent, ok := i.classes[class.Parent]; ok {
+		if parent, ok := i.classByName(class.Parent); ok {
 			for name, prop := range i.inheritedPropertiesForClass(parent) {
 				properties[name] = prop
 			}
@@ -3671,13 +3712,18 @@ func (i *Interpreter) inheritedPropertiesForClass(class *ast.ClassDeclStmt) map[
 }
 
 func (i *Interpreter) defineInterface(iface *ast.InterfaceDeclStmt) error {
-	if _, exists := i.interfaces[iface.Name]; exists {
+	if _, exists := i.interfaceByName(iface.Name); exists {
 		return fmt.Errorf("cannot redeclare interface %s", iface.Name)
 	}
-	for _, parentName := range iface.Parents {
-		if _, ok := i.interfaces[parentName]; !ok {
+	if _, exists := i.classByName(iface.Name); exists {
+		return fmt.Errorf("cannot redeclare interface %s", iface.Name)
+	}
+	for idx, parentName := range iface.Parents {
+		parent, ok := i.interfaceByName(parentName)
+		if !ok {
 			return fmt.Errorf("undefined parent interface %s", parentName)
 		}
+		iface.Parents[idx] = parent.Name
 	}
 	for _, method := range iface.Methods {
 		method.Owner = iface.Name
@@ -3687,7 +3733,7 @@ func (i *Interpreter) defineInterface(iface *ast.InterfaceDeclStmt) error {
 			return err
 		}
 	}
-	i.interfaces[iface.Name] = iface
+	i.interfaces[classNameKey(iface.Name)] = iface
 	if _, ok := i.constants[iface.Name]; !ok {
 		i.constants[iface.Name] = map[string]Value{}
 	}
@@ -3712,7 +3758,7 @@ func (i *Interpreter) checkInterfaceImplementations(class *ast.ClassDeclStmt) er
 		for name, ifaceMethod := range required {
 			method, ok := methods[name]
 			if !ok || method.Abstract {
-				return fmt.Errorf("class %s must implement interface method %s::%s", class.Name, ifaceName, name)
+				return fmt.Errorf("class %s must implement interface method %s::%s", class.Name, ifaceName, ifaceMethod.Name)
 			}
 			if method.Visibility != "" && method.Visibility != "public" {
 				return fmt.Errorf("class %s interface method %s must be public", class.Name, name)
@@ -3726,7 +3772,7 @@ func (i *Interpreter) checkInterfaceImplementations(class *ast.ClassDeclStmt) er
 }
 
 func (i *Interpreter) interfaceMethods(name string) (map[string]*ast.FunctionDeclStmt, error) {
-	iface, ok := i.interfaces[name]
+	iface, ok := i.interfaceByName(name)
 	if !ok {
 		return nil, fmt.Errorf("undefined interface %s", name)
 	}
@@ -3741,7 +3787,7 @@ func (i *Interpreter) interfaceMethods(name string) (map[string]*ast.FunctionDec
 		}
 	}
 	for _, method := range iface.Methods {
-		methods[method.Name] = method
+		methods[methodNameKey(method.Name)] = method
 	}
 	return methods, nil
 }
@@ -3749,14 +3795,14 @@ func (i *Interpreter) interfaceMethods(name string) (map[string]*ast.FunctionDec
 func (i *Interpreter) methodsForClass(class *ast.ClassDeclStmt) map[string]*ast.FunctionDeclStmt {
 	methods := map[string]*ast.FunctionDeclStmt{}
 	if class.Parent != "" {
-		if parent, ok := i.classes[class.Parent]; ok {
+		if parent, ok := i.classByName(class.Parent); ok {
 			for name, method := range i.methodsForClass(parent) {
 				methods[name] = method
 			}
 		}
 	}
 	for _, method := range class.Methods {
-		methods[method.Name] = method
+		methods[methodNameKey(method.Name)] = method
 	}
 	return methods
 }
@@ -3765,7 +3811,7 @@ func (i *Interpreter) instanceDefaults(class *ast.ClassDeclStmt) (map[string]Val
 	props := map[string]Value{}
 	meta := map[string]PropertyMeta{}
 	if class.Parent != "" {
-		parent, ok := i.classes[class.Parent]
+		parent, ok := i.classByName(class.Parent)
 		if !ok {
 			return nil, nil, fmt.Errorf("undefined parent class %s", class.Parent)
 		}
@@ -3894,7 +3940,7 @@ func (i *Interpreter) findStaticProperty(className, property string) (Value, Pro
 			return value, PropertyMeta{Owner: className, Visibility: "public", Static: true}, true
 		}
 	}
-	if class, ok := i.classes[className]; ok && class.Parent != "" {
+	if class, ok := i.classByName(className); ok && class.Parent != "" {
 		return i.findStaticProperty(class.Parent, property)
 	}
 	return NullValue(), PropertyMeta{}, false
@@ -3918,7 +3964,7 @@ func (i *Interpreter) findClassConstant(className, name string) (Value, bool) {
 			return value, true
 		}
 	}
-	if class, ok := i.classes[className]; ok {
+	if class, ok := i.classByName(className); ok {
 		if class.Parent != "" {
 			if value, ok := i.findClassConstant(class.Parent, name); ok {
 				return value, true
@@ -3930,7 +3976,7 @@ func (i *Interpreter) findClassConstant(className, name string) (Value, bool) {
 			}
 		}
 	}
-	if _, ok := i.interfaces[className]; ok {
+	if _, ok := i.interfaceByName(className); ok {
 		return i.findInterfaceConstant(className, name)
 	}
 	return NullValue(), false
@@ -3942,7 +3988,7 @@ func (i *Interpreter) findInterfaceConstant(interfaceName, name string) (Value, 
 			return value, true
 		}
 	}
-	if iface, ok := i.interfaces[interfaceName]; ok {
+	if iface, ok := i.interfaceByName(interfaceName); ok {
 		for _, parentName := range iface.Parents {
 			if value, ok := i.findInterfaceConstant(parentName, name); ok {
 				return value, true
@@ -4011,7 +4057,7 @@ func (i *Interpreter) resolveClassName(name string) (string, error) {
 		if current == "" {
 			return "", fmt.Errorf("parent used outside class context")
 		}
-		class, ok := i.classes[current]
+		class, ok := i.classByName(current)
 		if !ok || class.Parent == "" {
 			return "", fmt.Errorf("class %s has no parent", current)
 		}
@@ -4025,6 +4071,9 @@ func (i *Interpreter) resolveClassName(name string) (string, error) {
 		}
 		return "", fmt.Errorf("static used outside class context")
 	default:
+		if canonical, ok := i.classLikeName(name); ok {
+			return canonical, nil
+		}
 		return name, nil
 	}
 }
@@ -4040,13 +4089,13 @@ func (i *Interpreter) valueInstanceOf(value Value, className string) bool {
 	if value.Kind != ObjectKind || value.O == nil {
 		return false
 	}
-	if className == "Exception" && value.O.ClassName == "Exception" {
+	if strings.EqualFold(className, "Exception") && strings.EqualFold(value.O.ClassName, "Exception") {
 		return true
 	}
-	if _, ok := i.classes[className]; ok {
+	if _, ok := i.classByName(className); ok {
 		return i.isSameOrSubclass(value.O.ClassName, className)
 	}
-	if _, ok := i.interfaces[className]; ok {
+	if _, ok := i.interfaceByName(className); ok {
 		return i.classImplementsInterface(value.O.ClassName, className)
 	}
 	return false
@@ -4054,10 +4103,10 @@ func (i *Interpreter) valueInstanceOf(value Value, className string) bool {
 
 func (i *Interpreter) isSameOrSubclass(className, ancestor string) bool {
 	for className != "" {
-		if className == ancestor {
+		if strings.EqualFold(className, ancestor) {
 			return true
 		}
-		class, ok := i.classes[className]
+		class, ok := i.classByName(className)
 		if !ok {
 			return false
 		}
@@ -4068,12 +4117,12 @@ func (i *Interpreter) isSameOrSubclass(className, ancestor string) bool {
 
 func (i *Interpreter) classImplementsInterface(className, interfaceName string) bool {
 	for className != "" {
-		class, ok := i.classes[className]
+		class, ok := i.classByName(className)
 		if !ok {
 			return false
 		}
 		for _, implemented := range class.Implements {
-			if implemented == interfaceName || i.interfaceExtendsInterface(implemented, interfaceName) {
+			if strings.EqualFold(implemented, interfaceName) || i.interfaceExtendsInterface(implemented, interfaceName) {
 				return true
 			}
 		}
@@ -4083,10 +4132,10 @@ func (i *Interpreter) classImplementsInterface(className, interfaceName string) 
 }
 
 func (i *Interpreter) interfaceExtendsInterface(name, ancestor string) bool {
-	if name == ancestor {
+	if strings.EqualFold(name, ancestor) {
 		return true
 	}
-	iface, ok := i.interfaces[name]
+	iface, ok := i.interfaceByName(name)
 	if !ok {
 		return false
 	}

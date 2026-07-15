@@ -288,6 +288,33 @@ func TestVariableVariableClassNameInNew(t *testing.T) {
 	}
 }
 
+func TestClassNamesAreCaseInsensitive(t *testing.T) {
+	src := "<?php class BaseCase { const KIND = 'base'; public static $count = 1; public function value() { return 'v'; } public static function bump() { self::$count = self::$count + 1; return self::$count; } } class ChildCase extends basecase {} $name = 'childcase'; $child = new $name(); echo $child instanceof CHILDCASE; echo ':'; echo childcase::KIND; echo ':'; echo CHILDCASE::BUMP(); echo ':'; echo $child instanceof BASECASE; echo ':'; echo $child->VALUE();"
+	got := run(t, src)
+	if got != "1:base:2:1:v" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestInterfaceNamesAreCaseInsensitive(t *testing.T) {
+	src := "<?php interface NamedCase { const LABEL = 'named'; public function name(); } interface LabeledCase extends namedcase {} class UserCase implements labeledcase { public function NAME() { return 'Ada'; } } $user = new USERCASE(); echo $user instanceof NAMEDCASE; echo ':'; echo labeledcase::LABEL; echo ':'; echo USERCASE::LABEL; echo ':'; echo $user->nAmE();"
+	got := run(t, src)
+	if got != "1:named:named:Ada" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestClassLikeRedeclareIsCaseInsensitive(t *testing.T) {
+	err := runErr(t, "<?php class Box {} class box {}")
+	if err == nil || err.Error() != "cannot redeclare class box" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	err = runErr(t, "<?php interface Named {} interface named {}")
+	if err == nil || err.Error() != "cannot redeclare interface named" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestIncludedClass(t *testing.T) {
 	dir := t.TempDir()
 	src := "<?php class Doubler { function run($value) { return $value * 2; } }"
