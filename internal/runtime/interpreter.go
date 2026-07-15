@@ -3688,6 +3688,17 @@ func (i *Interpreter) defineInterface(iface *ast.InterfaceDeclStmt) error {
 		}
 	}
 	i.interfaces[iface.Name] = iface
+	if _, ok := i.constants[iface.Name]; !ok {
+		i.constants[iface.Name] = map[string]Value{}
+	}
+	for _, constant := range iface.Constants {
+		constant.Owner = iface.Name
+		value, err := i.eval(constant.Value)
+		if err != nil {
+			return err
+		}
+		i.constants[iface.Name][constant.Name] = value
+	}
 	return nil
 }
 
@@ -3907,8 +3918,36 @@ func (i *Interpreter) findClassConstant(className, name string) (Value, bool) {
 			return value, true
 		}
 	}
-	if class, ok := i.classes[className]; ok && class.Parent != "" {
-		return i.findClassConstant(class.Parent, name)
+	if class, ok := i.classes[className]; ok {
+		if class.Parent != "" {
+			if value, ok := i.findClassConstant(class.Parent, name); ok {
+				return value, true
+			}
+		}
+		for _, ifaceName := range class.Implements {
+			if value, ok := i.findInterfaceConstant(ifaceName, name); ok {
+				return value, true
+			}
+		}
+	}
+	if _, ok := i.interfaces[className]; ok {
+		return i.findInterfaceConstant(className, name)
+	}
+	return NullValue(), false
+}
+
+func (i *Interpreter) findInterfaceConstant(interfaceName, name string) (Value, bool) {
+	if constants, ok := i.constants[interfaceName]; ok {
+		if value, exists := constants[name]; exists {
+			return value, true
+		}
+	}
+	if iface, ok := i.interfaces[interfaceName]; ok {
+		for _, parentName := range iface.Parents {
+			if value, ok := i.findInterfaceConstant(parentName, name); ok {
+				return value, true
+			}
+		}
 	}
 	return NullValue(), false
 }

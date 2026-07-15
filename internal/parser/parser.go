@@ -984,13 +984,17 @@ func (p *Parser) parseInterfaceDecl() ast.Stmt {
 	p.next()
 	for p.cur.Type != lexer.RBrace && p.cur.Type != lexer.EOF {
 		visibility, static, _, _ := p.parseMemberModifiers()
-		if p.cur.Type != lexer.Function {
-			p.errors = append(p.errors, fmt.Sprintf("expected interface method in %s, got %s", name, p.cur.Type))
+		switch p.cur.Type {
+		case lexer.Const:
+			iface.Constants = append(iface.Constants, p.parseClassConstants()...)
+		case lexer.Function:
+			method, ok := p.parseFunctionDeclFull(visibility, static, false, true, false).(*ast.FunctionDeclStmt)
+			if ok && method != nil {
+				iface.Methods = append(iface.Methods, method)
+			}
+		default:
+			p.errors = append(p.errors, fmt.Sprintf("expected interface member in %s, got %s", name, p.cur.Type))
 			return iface
-		}
-		method, ok := p.parseFunctionDeclFull(visibility, static, false, true, false).(*ast.FunctionDeclStmt)
-		if ok && method != nil {
-			iface.Methods = append(iface.Methods, method)
 		}
 		p.next()
 	}

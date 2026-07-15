@@ -179,9 +179,10 @@ type ClassDeclStmt struct {
 func (*ClassDeclStmt) stmtNode() {}
 
 type InterfaceDeclStmt struct {
-	Name    string
-	Parents []string
-	Methods []*FunctionDeclStmt
+	Name      string
+	Parents   []string
+	Constants []*ClassConstant
+	Methods   []*FunctionDeclStmt
 }
 
 func (*InterfaceDeclStmt) stmtNode() {}

@@ -592,6 +592,22 @@ func TestInheritedClassConstantsAndParentAccess(t *testing.T) {
 	}
 }
 
+func TestInterfaceConstants(t *testing.T) {
+	src := "<?php interface Named { const KIND = 'iface'; } echo Named::KIND;"
+	got := run(t, src)
+	if got != "iface" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestInheritedInterfaceConstants(t *testing.T) {
+	src := "<?php interface A { const VALUE = 4; } interface B extends A { const LOCAL = 2; } class C implements B {} echo B::VALUE; echo ':'; echo C::LOCAL; echo ':'; echo C::VALUE;"
+	got := run(t, src)
+	if got != "4:2:4" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestInstanceOfClassAndParent(t *testing.T) {
 	src := "<?php class Base {} class Child extends Base {} $c = new Child(); echo $c instanceof Child; echo $c instanceof Base; echo $c instanceof Missing;"
 	got := run(t, src)
