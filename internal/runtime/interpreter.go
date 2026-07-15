@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	goruntime "runtime"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -968,6 +969,12 @@ func (i *Interpreter) callBuiltin(c *ast.CallExpr) (Value, bool, error) {
 		return i.callGetClass(c.Args)
 	case "get_called_class":
 		return i.callGetCalledClass(c.Args)
+	case "get_object_vars":
+		return i.callGetObjectVars(c.Args)
+	case "get_class_methods":
+		return i.callGetClassMethods(c.Args)
+	case "get_class_vars":
+		return i.callGetClassVars(c.Args)
 	case "method_exists":
 		return i.callMethodExists(c.Args)
 	case "property_exists":
@@ -1134,6 +1141,110 @@ func (i *Interpreter) callGetCalledClass(args []ast.Expr) (Value, bool, error) {
 		return StringValue(called), true, nil
 	}
 	return NullValue(), true, fmt.Errorf("get_called_class used outside class context")
+}
+
+func (i *Interpreter) callGetObjectVars(args []ast.Expr) (Value, bool, error) {
+	if len(args) != 1 {
+		return NullValue(), true, fmt.Errorf("get_object_vars expects 1 argument, got %d", len(args))
+	}
+	value, err := i.eval(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	if value.Kind != ObjectKind || value.O == nil {
+		return NullValue(), true, fmt.Errorf("get_object_vars expects object")
+	}
+	result := NewArray()
+	names := make([]string, 0, len(value.O.Props))
+	for name := range value.O.Props {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		info, hasMeta := value.O.PropMeta[name]
+		if hasMeta && !i.propertyAccessible(info) {
+			continue
+		}
+		result.Set(StringKey(name), value.O.Props[name])
+	}
+	return ArrayValue(result), true, nil
+}
+
+func (i *Interpreter) callGetClassMethods(args []ast.Expr) (Value, bool, error) {
+	if len(args) != 1 {
+		return NullValue(), true, fmt.Errorf("get_class_methods expects 1 argument, got %d", len(args))
+	}
+	target, err := i.eval(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	if target.Kind == String {
+		if err := i.autoloadClass(target.String()); err != nil {
+			return NullValue(), true, err
+		}
+	}
+	methods, ok := i.methodsForTarget(target)
+	if !ok {
+		return BoolValue(false), true, nil
+	}
+	names := make([]string, 0, len(methods))
+	for _, method := range methods {
+		if i.methodAccessible(method) {
+			names = append(names, method.Name)
+		}
+	}
+	sort.Strings(names)
+	result := NewArray()
+	for _, name := range names {
+		result.Append(StringValue(name))
+	}
+	return ArrayValue(result), true, nil
+}
+
+func (i *Interpreter) callGetClassVars(args []ast.Expr) (Value, bool, error) {
+	if len(args) != 1 {
+		return NullValue(), true, fmt.Errorf("get_class_vars expects 1 argument, got %d", len(args))
+	}
+	target, err := i.eval(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	if target.Kind != String {
+		return BoolValue(false), true, nil
+	}
+	if err := i.autoloadClass(target.String()); err != nil {
+		return NullValue(), true, err
+	}
+	class, ok := i.classByName(target.String())
+	if !ok {
+		return BoolValue(false), true, nil
+	}
+	props, meta, err := i.instanceDefaults(class)
+	if err != nil {
+		return NullValue(), true, err
+	}
+	for _, current := range i.classLineage(class) {
+		for name, value := range i.statics[current.Name] {
+			props[name] = value
+			if info, ok := i.staticMeta[current.Name][name]; ok {
+				meta[name] = info
+			} else {
+				meta[name] = PropertyMeta{Owner: current.Name, Visibility: "public", Static: true}
+			}
+		}
+	}
+	names := make([]string, 0, len(props))
+	for name, info := range meta {
+		if i.propertyAccessible(info) {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	result := NewArray()
+	for _, name := range names {
+		result.Set(StringKey(name), props[name])
+	}
+	return ArrayValue(result), true, nil
 }
 
 func (i *Interpreter) callMethodExists(args []ast.Expr) (Value, bool, error) {
@@ -1480,6 +1591,19 @@ func (i *Interpreter) methodsForTarget(target Value) (map[string]*ast.FunctionDe
 		return methods, err == nil
 	}
 	return nil, false
+}
+
+func (i *Interpreter) classLineage(class *ast.ClassDeclStmt) []*ast.ClassDeclStmt {
+	if class == nil {
+		return nil
+	}
+	lineage := []*ast.ClassDeclStmt{}
+	if class.Parent != "" {
+		if parent, ok := i.classByName(class.Parent); ok {
+			lineage = append(lineage, i.classLineage(parent)...)
+		}
+	}
+	return append(lineage, class)
 }
 
 func (i *Interpreter) classDeclaresProperty(class *ast.ClassDeclStmt, property string) bool {
@@ -4501,17 +4625,8 @@ func (i *Interpreter) setStaticProperty(className, property string, value Value)
 }
 
 func (i *Interpreter) checkMethodAccess(_ string, method *ast.FunctionDeclStmt) error {
-	switch method.Visibility {
-	case "", "public":
+	if i.methodAccessible(method) {
 		return nil
-	case "private":
-		if i.currentClass() == method.Owner {
-			return nil
-		}
-	case "protected":
-		if i.classesRelated(i.currentClass(), method.Owner) {
-			return nil
-		}
 	}
 	return fmt.Errorf("cannot access %s method %s::%s", method.Visibility, method.Owner, method.Name)
 }
@@ -4521,17 +4636,8 @@ func (i *Interpreter) checkPropertyAccess(obj *Object, property string) error {
 	if !ok {
 		return nil
 	}
-	switch info.Visibility {
-	case "", "public":
+	if i.propertyAccessible(info) {
 		return nil
-	case "private":
-		if i.currentClass() == info.Owner {
-			return nil
-		}
-	case "protected":
-		if i.classesRelated(i.currentClass(), info.Owner) {
-			return nil
-		}
 	}
 	return fmt.Errorf("cannot access %s property %s::$%s", info.Visibility, info.Owner, property)
 }
@@ -4546,19 +4652,34 @@ func (i *Interpreter) checkStaticPropertyAccess(className, property string) erro
 	if !ok {
 		return fmt.Errorf("undefined static property %s::$%s", className, property)
 	}
-	switch info.Visibility {
-	case "", "public":
+	if i.propertyAccessible(info) {
 		return nil
-	case "private":
-		if i.currentClass() == info.Owner {
-			return nil
-		}
-	case "protected":
-		if i.classesRelated(i.currentClass(), info.Owner) {
-			return nil
-		}
 	}
 	return fmt.Errorf("cannot access %s static property %s::$%s", info.Visibility, info.Owner, property)
+}
+
+func (i *Interpreter) methodAccessible(method *ast.FunctionDeclStmt) bool {
+	switch method.Visibility {
+	case "", "public":
+		return true
+	case "private":
+		return strings.EqualFold(i.currentClass(), method.Owner)
+	case "protected":
+		return i.classesRelated(i.currentClass(), method.Owner)
+	}
+	return false
+}
+
+func (i *Interpreter) propertyAccessible(info PropertyMeta) bool {
+	switch info.Visibility {
+	case "", "public":
+		return true
+	case "private":
+		return strings.EqualFold(i.currentClass(), info.Owner)
+	case "protected":
+		return i.classesRelated(i.currentClass(), info.Owner)
+	}
+	return false
 }
 
 func (i *Interpreter) findStaticProperty(className, property string) (Value, PropertyMeta, bool) {
