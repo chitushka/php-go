@@ -344,6 +344,28 @@ func TestCannotOverrideFinalMethod(t *testing.T) {
 	}
 }
 
+func TestCannotReduceInheritedMethodVisibility(t *testing.T) {
+	err := runErr(t, "<?php class Base { public function value() { return 1; } } class Child extends Base { protected function value() { return 2; } }")
+	if err == nil || err.Error() != "cannot reduce visibility of inherited method Base::value in Child" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCanWidenInheritedMethodVisibility(t *testing.T) {
+	src := "<?php class Base { protected function value() { return 1; } } class Child extends Base { public function value() { return 2; } } $c = new Child(); echo $c->value();"
+	got := run(t, src)
+	if got != "2" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestCannotChangeInheritedMethodStaticModifier(t *testing.T) {
+	err := runErr(t, "<?php class Base { public static function value() { return 1; } } class Child extends Base { public function value() { return 2; } }")
+	if err == nil || err.Error() != "cannot change static modifier of inherited method Base::value in Child" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestAbstractClassCannotBeInstantiated(t *testing.T) {
 	err := runErr(t, "<?php abstract class Base { abstract public function value(); } $b = new Base();")
 	if err == nil || err.Error() != "cannot instantiate abstract class Base" {

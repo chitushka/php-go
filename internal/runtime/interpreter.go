@@ -2895,22 +2895,6 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 	if class.Final && class.Abstract {
 		return fmt.Errorf("class %s cannot be both final and abstract", class.Name)
 	}
-	if class.Parent != "" {
-		parent, ok := i.classes[class.Parent]
-		if !ok {
-			return fmt.Errorf("undefined parent class %s", class.Parent)
-		}
-		if parent.Final {
-			return fmt.Errorf("class %s cannot extend final class %s", class.Name, parent.Name)
-		}
-		parentMethods := i.methodsForClass(parent)
-		for _, method := range class.Methods {
-			if parentMethod, ok := parentMethods[method.Name]; ok && parentMethod.Final {
-				return fmt.Errorf("cannot override final method %s::%s", parentMethod.Owner, parentMethod.Name)
-			}
-		}
-	}
-	i.classes[class.Name] = class
 	for _, method := range class.Methods {
 		method.Owner = class.Name
 		if method.Visibility == "" {
@@ -2923,6 +2907,24 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 			return fmt.Errorf("method %s::%s cannot be both final and abstract", class.Name, method.Name)
 		}
 	}
+	if class.Parent != "" {
+		parent, ok := i.classes[class.Parent]
+		if !ok {
+			return fmt.Errorf("undefined parent class %s", class.Parent)
+		}
+		if parent.Final {
+			return fmt.Errorf("class %s cannot extend final class %s", class.Name, parent.Name)
+		}
+		parentMethods := i.methodsForClass(parent)
+		for _, method := range class.Methods {
+			if parentMethod, ok := parentMethods[method.Name]; ok {
+				if err := validateMethodOverrideCompatibility(class.Name, method, parentMethod); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	i.classes[class.Name] = class
 	for _, prop := range class.Properties {
 		prop.Owner = class.Name
 		if prop.Visibility == "" {
@@ -2972,6 +2974,35 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 		}
 	}
 	return nil
+}
+
+func validateMethodOverrideCompatibility(className string, method, parentMethod *ast.FunctionDeclStmt) error {
+	if parentMethod.Visibility == "private" {
+		return nil
+	}
+	if parentMethod.Final {
+		return fmt.Errorf("cannot override final method %s::%s", parentMethod.Owner, parentMethod.Name)
+	}
+	if method.Static != parentMethod.Static {
+		return fmt.Errorf("cannot change static modifier of inherited method %s::%s in %s", parentMethod.Owner, parentMethod.Name, className)
+	}
+	if visibilityRank(method.Visibility) < visibilityRank(parentMethod.Visibility) {
+		return fmt.Errorf("cannot reduce visibility of inherited method %s::%s in %s", parentMethod.Owner, parentMethod.Name, className)
+	}
+	return nil
+}
+
+func visibilityRank(visibility string) int {
+	switch visibility {
+	case "public", "":
+		return 3
+	case "protected":
+		return 2
+	case "private":
+		return 1
+	default:
+		return 0
+	}
 }
 
 func (i *Interpreter) defineInterface(iface *ast.InterfaceDeclStmt) error {
