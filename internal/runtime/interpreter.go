@@ -2869,6 +2869,9 @@ func (i *Interpreter) callMethodName(object ast.Expr, methodName string, args []
 			return value, err
 		}
 	}
+	if strings.EqualFold(methodName, "__clone") {
+		return NullValue(), fmt.Errorf("cannot call __clone directly; use clone")
+	}
 	method, ok := obj.O.Methods[methodNameKey(methodName)]
 	if !ok {
 		if methodName != "__call" && i.hasPublicMethod(obj.O, "__call") {

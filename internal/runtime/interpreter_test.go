@@ -906,6 +906,17 @@ func TestPrivateCloneAllowedInsideClass(t *testing.T) {
 	}
 }
 
+func TestCloneCannotBeCalledAsMethod(t *testing.T) {
+	err := runErr(t, "<?php class Box { public function __clone() {} } $a = new Box(); $a->__clone();")
+	if err == nil || err.Error() != "cannot call __clone directly; use clone" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	err = runErr(t, "<?php class Box { public function __call($name, $args) { echo 'call'; } } $a = new Box(); $method = '__clone'; $a->$method();")
+	if err == nil || err.Error() != "cannot call __clone directly; use clone" {
+		t.Fatalf("unexpected dynamic error: %v", err)
+	}
+}
+
 func TestCloneRequiresObject(t *testing.T) {
 	err := runErr(t, "<?php $x = clone 1;")
 	if err == nil || err.Error() != "clone expects object" {
