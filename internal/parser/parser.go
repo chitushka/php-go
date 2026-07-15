@@ -1334,7 +1334,7 @@ func (p *Parser) parseStaticAccess() ast.Expr {
 }
 
 func (p *Parser) parseNew() ast.Expr {
-	expr := &ast.NewExpr{}
+	expr := &ast.NewExpr{Line: p.cur.Line}
 	switch p.peek.Type {
 	case lexer.Ident:
 		p.next()

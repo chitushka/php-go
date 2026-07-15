@@ -396,6 +396,7 @@ type NewExpr struct {
 	ClassName string
 	ClassExpr Expr
 	Args      []Expr
+	Line      int
 }
 
 func (*NewExpr) exprNode() {}

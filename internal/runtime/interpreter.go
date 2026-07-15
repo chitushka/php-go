@@ -78,6 +78,9 @@ func builtinExceptionClass() *ast.ClassDeclStmt {
 		Name: "Exception",
 		Properties: []*ast.ClassProperty{
 			{Name: "message", Visibility: "private", Default: &ast.StringLit{Value: ""}, Owner: "Exception"},
+			{Name: "code", Visibility: "private", Default: &ast.IntLit{Value: 0}, Owner: "Exception"},
+			{Name: "file", Visibility: "private", Default: &ast.StringLit{Value: ""}, Owner: "Exception"},
+			{Name: "line", Visibility: "private", Default: &ast.IntLit{Value: 0}, Owner: "Exception"},
 		},
 	}
 }
@@ -2014,7 +2017,7 @@ func (i *Interpreter) newObject(n *ast.NewExpr) (Value, error) {
 		return NullValue(), err
 	}
 	if className == "Exception" {
-		return i.newException(n.Args)
+		return i.newException(n)
 	}
 	class, ok := i.classByName(className)
 	if !ok {
@@ -2034,7 +2037,7 @@ func (i *Interpreter) newObject(n *ast.NewExpr) (Value, error) {
 			return NullValue(), err
 		}
 	} else if i.isExceptionObject(obj) {
-		if err := i.initExceptionObject(obj, n.Args); err != nil {
+		if err := i.initExceptionObject(obj, n.Args, i.currentFile(), n.Line); err != nil {
 			return NullValue(), err
 		}
 	} else if len(n.Args) != 0 {
@@ -2173,14 +2176,10 @@ func (i *Interpreter) callMethodName(object ast.Expr, methodName string, args []
 	if obj.Kind != ObjectKind || obj.O == nil {
 		return NullValue(), fmt.Errorf("cannot call method %s on non-object", methodName)
 	}
-	if methodName == "getMessage" && i.isExceptionObject(obj.O) {
-		if len(args) != 0 {
-			return NullValue(), fmt.Errorf("Exception::getMessage expects 0 arguments, got %d", len(args))
+	if i.isExceptionObject(obj.O) {
+		if value, ok, err := i.callExceptionMethod(obj.O, methodName, args); ok || err != nil {
+			return value, err
 		}
-		if message, ok := obj.O.Props["message"]; ok {
-			return message, nil
-		}
-		return StringValue(""), nil
 	}
 	method, ok := obj.O.Methods[methodNameKey(methodName)]
 	if !ok {
@@ -2870,6 +2869,9 @@ func indexOffset(value Value) (int, bool) {
 
 func (i *Interpreter) stringify(value Value) (string, error) {
 	if value.Kind == ObjectKind && value.O != nil {
+		if i.isExceptionObject(value.O) {
+			return i.exceptionString(value.O), nil
+		}
 		if i.hasPublicMethod(value.O, "__toString") {
 			result, err := i.callFunctionValues(value.O.Methods[methodNameKey("__toString")], nil, value.O, value.O.ClassName)
 			if err != nil {
@@ -3373,30 +3375,91 @@ func (i *Interpreter) callMagicCallStatic(className string, method *ast.Function
 	return i.callFunctionValues(method, []Value{StringValue(methodName), ArrayValue(values)}, nil, className)
 }
 
-func (i *Interpreter) newException(args []ast.Expr) (Value, error) {
+func (i *Interpreter) newException(n *ast.NewExpr) (Value, error) {
 	exceptionClass, _ := i.classByName("Exception")
 	obj := NewObject("Exception", i.methodsForClass(exceptionClass), nil, nil)
-	if err := i.initExceptionObject(obj, args); err != nil {
+	if err := i.initExceptionObject(obj, n.Args, i.currentFile(), n.Line); err != nil {
 		return NullValue(), err
 	}
 	return ObjectValue(obj), nil
 }
 
-func (i *Interpreter) initExceptionObject(obj *Object, args []ast.Expr) error {
-	if len(args) > 1 {
-		return fmt.Errorf("Exception expects at most 1 argument, got %d", len(args))
+func (i *Interpreter) initExceptionObject(obj *Object, args []ast.Expr, file string, line int) error {
+	if len(args) > 2 {
+		return fmt.Errorf("Exception expects at most 2 arguments, got %d", len(args))
 	}
 	message := StringValue("")
-	if len(args) == 1 {
+	code := IntValue(0)
+	if len(args) >= 1 {
 		value, err := i.eval(args[0])
 		if err != nil {
 			return err
 		}
 		message = StringValue(value.String())
 	}
+	if len(args) >= 2 {
+		value, err := i.eval(args[1])
+		if err != nil {
+			return err
+		}
+		code = IntValue(valueToInt(value))
+	}
 	obj.Props["message"] = message
 	obj.PropMeta["message"] = PropertyMeta{Owner: "Exception", Visibility: "private"}
+	obj.Props["code"] = code
+	obj.PropMeta["code"] = PropertyMeta{Owner: "Exception", Visibility: "private"}
+	obj.Props["file"] = StringValue(file)
+	obj.PropMeta["file"] = PropertyMeta{Owner: "Exception", Visibility: "private"}
+	obj.Props["line"] = IntValue(int64(line))
+	obj.PropMeta["line"] = PropertyMeta{Owner: "Exception", Visibility: "private"}
 	return nil
+}
+
+func (i *Interpreter) callExceptionMethod(obj *Object, methodName string, args []ast.Expr) (Value, bool, error) {
+	if len(args) != 0 {
+		switch strings.ToLower(methodName) {
+		case "getmessage", "getcode", "getfile", "getline", "__tostring":
+			return NullValue(), true, fmt.Errorf("Exception::%s expects 0 arguments, got %d", methodName, len(args))
+		}
+	}
+	switch strings.ToLower(methodName) {
+	case "getmessage":
+		return exceptionProperty(obj, "message", StringValue("")), true, nil
+	case "getcode":
+		return exceptionProperty(obj, "code", IntValue(0)), true, nil
+	case "getfile":
+		return exceptionProperty(obj, "file", StringValue("")), true, nil
+	case "getline":
+		return exceptionProperty(obj, "line", IntValue(0)), true, nil
+	case "__tostring":
+		return StringValue(i.exceptionString(obj)), true, nil
+	default:
+		return NullValue(), false, nil
+	}
+}
+
+func exceptionProperty(obj *Object, name string, fallback Value) Value {
+	if value, ok := obj.Props[name]; ok {
+		return value
+	}
+	return fallback
+}
+
+func valueToInt(value Value) int64 {
+	if number, ok := value.number(); ok {
+		return int64(number)
+	}
+	return 0
+}
+
+func (i *Interpreter) exceptionString(obj *Object) string {
+	message := exceptionProperty(obj, "message", StringValue("")).String()
+	file := exceptionProperty(obj, "file", StringValue("")).String()
+	line := exceptionProperty(obj, "line", IntValue(0)).String()
+	if file == "" {
+		return obj.ClassName + ": " + message
+	}
+	return obj.ClassName + ": " + message + " in " + file + ":" + line
 }
 
 func (i *Interpreter) isExceptionObject(obj *Object) bool {

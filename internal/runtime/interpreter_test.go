@@ -371,6 +371,14 @@ func TestThrowAndCatchException(t *testing.T) {
 	}
 }
 
+func TestExceptionAccessors(t *testing.T) {
+	src := "<?php try { throw new Exception('boom', 7); } catch (Exception $e) { echo $e->getMessage(); echo ':'; echo $e->getCode(); echo ':'; echo $e->getFile(); echo ':'; echo $e->getLine(); echo ':'; echo $e; }"
+	got := run(t, src)
+	if got != "boom:7::1:Exception: boom" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestMultipleCatchChoosesFirstMatchingHandler(t *testing.T) {
 	src := "<?php class First extends Exception {} class Second extends Exception {} try { throw new Second('two'); } catch (First $e) { echo 'first'; } catch (Second $e) { echo $e->getMessage(); } catch (Exception $e) { echo 'base'; }"
 	got := run(t, src)
