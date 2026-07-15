@@ -23,6 +23,7 @@ type Interpreter struct {
 	globals                     map[string]*variableSlot
 	functions                   map[string]*ast.FunctionDeclStmt
 	classes                     map[string]*ast.ClassDeclStmt
+	classAliases                map[string]classAlias
 	interfaces                  map[string]*ast.InterfaceDeclStmt
 	constants                   map[string]map[string]Value
 	runtimeConstants            map[string]Value
@@ -44,6 +45,11 @@ type Interpreter struct {
 	Out                         bytes.Buffer
 }
 
+type classAlias struct {
+	Name   string
+	Target string
+}
+
 func NewInterpreter() *Interpreter {
 	return NewInterpreterWithBaseDir(".")
 }
@@ -57,6 +63,7 @@ func NewInterpreterWithBaseDir(baseDir string) *Interpreter {
 		globals:                     map[string]*variableSlot{},
 		functions:                   map[string]*ast.FunctionDeclStmt{},
 		classes:                     map[string]*ast.ClassDeclStmt{classNameKey("Exception"): builtinExceptionClass()},
+		classAliases:                map[string]classAlias{},
 		interfaces:                  map[string]*ast.InterfaceDeclStmt{},
 		constants:                   map[string]map[string]Value{},
 		runtimeConstants:            map[string]Value{},
@@ -979,6 +986,8 @@ func (i *Interpreter) callBuiltin(c *ast.CallExpr) (Value, bool, error) {
 		return i.callGetDeclaredClasses(c.Args)
 	case "get_declared_interfaces":
 		return i.callGetDeclaredInterfaces(c.Args)
+	case "class_alias":
+		return i.callClassAlias(c.Args)
 	case "method_exists":
 		return i.callMethodExists(c.Args)
 	case "property_exists":
@@ -1255,9 +1264,12 @@ func (i *Interpreter) callGetDeclaredClasses(args []ast.Expr) (Value, bool, erro
 	if len(args) != 0 {
 		return NullValue(), true, fmt.Errorf("get_declared_classes expects 0 arguments, got %d", len(args))
 	}
-	names := make([]string, 0, len(i.classes))
+	names := make([]string, 0, len(i.classes)+len(i.classAliases))
 	for _, class := range i.classes {
 		names = append(names, class.Name)
+	}
+	for _, alias := range i.classAliases {
+		names = append(names, alias.Name)
 	}
 	sort.Strings(names)
 	result := NewArray()
@@ -1281,6 +1293,47 @@ func (i *Interpreter) callGetDeclaredInterfaces(args []ast.Expr) (Value, bool, e
 		result.Append(StringValue(name))
 	}
 	return ArrayValue(result), true, nil
+}
+
+func (i *Interpreter) callClassAlias(args []ast.Expr) (Value, bool, error) {
+	if len(args) < 2 || len(args) > 3 {
+		return NullValue(), true, fmt.Errorf("class_alias expects 2 or 3 arguments, got %d", len(args))
+	}
+	originalValue, err := i.eval(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	aliasValue, err := i.eval(args[1])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	autoload := true
+	if len(args) == 3 {
+		autoloadValue, err := i.eval(args[2])
+		if err != nil {
+			return NullValue(), true, err
+		}
+		autoload = autoloadValue.Truthy()
+	}
+	original := strings.TrimPrefix(originalValue.String(), "\\")
+	alias := strings.TrimPrefix(aliasValue.String(), "\\")
+	if original == "" || alias == "" {
+		return BoolValue(false), true, nil
+	}
+	if autoload {
+		if err := i.autoloadClass(original); err != nil {
+			return NullValue(), true, err
+		}
+	}
+	class, ok := i.classByName(original)
+	if !ok {
+		return BoolValue(false), true, nil
+	}
+	if _, exists := i.classLikeName(alias); exists {
+		return BoolValue(false), true, nil
+	}
+	i.classAliases[classNameKey(alias)] = classAlias{Name: alias, Target: class.Name}
+	return BoolValue(true), true, nil
 }
 
 func (i *Interpreter) callMethodExists(args []ast.Expr) (Value, bool, error) {
@@ -4195,8 +4248,15 @@ func classNameKey(name string) string {
 }
 
 func (i *Interpreter) classByName(name string) (*ast.ClassDeclStmt, bool) {
-	class, ok := i.classes[classNameKey(name)]
-	return class, ok
+	key := classNameKey(name)
+	if class, ok := i.classes[key]; ok {
+		return class, true
+	}
+	if alias, ok := i.classAliases[key]; ok {
+		class, ok := i.classes[classNameKey(alias.Target)]
+		return class, ok
+	}
+	return nil, false
 }
 
 func (i *Interpreter) interfaceByName(name string) (*ast.InterfaceDeclStmt, bool) {
@@ -4906,6 +4966,12 @@ func (i *Interpreter) valueInstanceOf(value Value, className string) bool {
 }
 
 func (i *Interpreter) isSameOrSubclass(className, ancestor string) bool {
+	if class, ok := i.classByName(className); ok {
+		className = class.Name
+	}
+	if class, ok := i.classByName(ancestor); ok {
+		ancestor = class.Name
+	}
 	for className != "" {
 		if strings.EqualFold(className, ancestor) {
 			return true

@@ -427,6 +427,18 @@ func TestOOPDeclaredIntrospectionIncludesAutoloadedTypes(t *testing.T) {
 	}
 }
 
+func TestClassAliasAutoloadAndLookup(t *testing.T) {
+	dir := t.TempDir()
+	src := "<?php class AliasSource { const LABEL = 'source'; public static $count = 2; public static function bump() { self::$count = self::$count + 1; return self::$count; } public function name() { return 'object'; } }"
+	if err := os.WriteFile(filepath.Join(dir, "alias_source.php"), []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got := runFile(t, dir, "<?php function __autoload($class) { include 'alias_source.php'; } echo class_alias('AliasSource', 'AliasTarget') ? 'alias' : 'no'; echo ':'; echo class_exists('aliastarget', false) ? 'exists' : 'missing'; echo ':'; $obj = new AliasTarget(); echo get_class($obj); echo ':'; echo $obj->name(); echo ':'; echo AliasTarget::LABEL; echo ':'; echo AliasTarget::bump(); echo ':'; echo is_a($obj, 'AliasTarget') ? 'isa' : 'no'; echo ':'; $classes = get_declared_classes(); echo in_array('AliasTarget', $classes) ? 'declared' : 'missing'; echo ':'; echo class_alias('AliasSource', 'AliasTarget') ? 'again' : 'duplicate';")
+	if got != "alias:exists:AliasSource:object:source:3:isa:declared:duplicate" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestThrowAndCatchException(t *testing.T) {
 	src := "<?php try { throw new Exception('boom'); } catch (Exception $e) { echo $e->getMessage(); } echo ' done';"
 	got := run(t, src)
