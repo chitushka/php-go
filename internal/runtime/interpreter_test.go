@@ -379,6 +379,14 @@ func TestExceptionAccessors(t *testing.T) {
 	}
 }
 
+func TestExceptionPreviousAndTraceAsString(t *testing.T) {
+	src := "<?php function wrap() { fail(); } function fail() { throw new Exception('outer', 2, new Exception('inner', 1)); } try { wrap(); } catch (Exception $e) { $previous = $e->getPrevious(); echo $previous->getMessage(); echo ':'; echo $e->getTraceAsString(); }"
+	got := run(t, src)
+	if got != "inner:#0 fail()\n#1 wrap()" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestMultipleCatchChoosesFirstMatchingHandler(t *testing.T) {
 	src := "<?php class First extends Exception {} class Second extends Exception {} try { throw new Second('two'); } catch (First $e) { echo 'first'; } catch (Second $e) { echo $e->getMessage(); } catch (Exception $e) { echo 'base'; }"
 	got := run(t, src)

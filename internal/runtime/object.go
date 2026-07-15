@@ -3,10 +3,11 @@ package runtime
 import "php-src-go/internal/ast"
 
 type Object struct {
-	ClassName string
-	Methods   map[string]*ast.FunctionDeclStmt
-	Props     map[string]Value
-	PropMeta  map[string]PropertyMeta
+	ClassName      string
+	Methods        map[string]*ast.FunctionDeclStmt
+	Props          map[string]Value
+	PropMeta       map[string]PropertyMeta
+	ExceptionTrace []string
 }
 
 type PropertyMeta struct {

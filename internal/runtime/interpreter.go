@@ -81,6 +81,7 @@ func builtinExceptionClass() *ast.ClassDeclStmt {
 			{Name: "code", Visibility: "private", Default: &ast.IntLit{Value: 0}, Owner: "Exception"},
 			{Name: "file", Visibility: "private", Default: &ast.StringLit{Value: ""}, Owner: "Exception"},
 			{Name: "line", Visibility: "private", Default: &ast.IntLit{Value: 0}, Owner: "Exception"},
+			{Name: "previous", Visibility: "private", Default: &ast.NullLit{}, Owner: "Exception"},
 		},
 	}
 }
@@ -2095,7 +2096,9 @@ func (i *Interpreter) cloneObject(obj *Object) *Object {
 	for name, info := range obj.PropMeta {
 		meta[name] = info
 	}
-	return NewObject(obj.ClassName, obj.Methods, props, meta)
+	clone := NewObject(obj.ClassName, obj.Methods, props, meta)
+	clone.ExceptionTrace = append([]string(nil), obj.ExceptionTrace...)
+	return clone
 }
 
 func (i *Interpreter) runDestructors() error {
@@ -3385,11 +3388,12 @@ func (i *Interpreter) newException(n *ast.NewExpr) (Value, error) {
 }
 
 func (i *Interpreter) initExceptionObject(obj *Object, args []ast.Expr, file string, line int) error {
-	if len(args) > 2 {
-		return fmt.Errorf("Exception expects at most 2 arguments, got %d", len(args))
+	if len(args) > 3 {
+		return fmt.Errorf("Exception expects at most 3 arguments, got %d", len(args))
 	}
 	message := StringValue("")
 	code := IntValue(0)
+	previous := NullValue()
 	if len(args) >= 1 {
 		value, err := i.eval(args[0])
 		if err != nil {
@@ -3404,6 +3408,18 @@ func (i *Interpreter) initExceptionObject(obj *Object, args []ast.Expr, file str
 		}
 		code = IntValue(valueToInt(value))
 	}
+	if len(args) >= 3 {
+		value, err := i.eval(args[2])
+		if err != nil {
+			return err
+		}
+		if value.Kind != Null {
+			if value.Kind != ObjectKind || value.O == nil || !i.isExceptionObject(value.O) {
+				return fmt.Errorf("Exception previous must be an Exception or null")
+			}
+			previous = value
+		}
+	}
 	obj.Props["message"] = message
 	obj.PropMeta["message"] = PropertyMeta{Owner: "Exception", Visibility: "private"}
 	obj.Props["code"] = code
@@ -3412,13 +3428,16 @@ func (i *Interpreter) initExceptionObject(obj *Object, args []ast.Expr, file str
 	obj.PropMeta["file"] = PropertyMeta{Owner: "Exception", Visibility: "private"}
 	obj.Props["line"] = IntValue(int64(line))
 	obj.PropMeta["line"] = PropertyMeta{Owner: "Exception", Visibility: "private"}
+	obj.Props["previous"] = previous
+	obj.PropMeta["previous"] = PropertyMeta{Owner: "Exception", Visibility: "private"}
+	obj.ExceptionTrace = i.captureExceptionTrace()
 	return nil
 }
 
 func (i *Interpreter) callExceptionMethod(obj *Object, methodName string, args []ast.Expr) (Value, bool, error) {
 	if len(args) != 0 {
 		switch strings.ToLower(methodName) {
-		case "getmessage", "getcode", "getfile", "getline", "__tostring":
+		case "getmessage", "getcode", "getfile", "getline", "getprevious", "gettraceasstring", "__tostring":
 			return NullValue(), true, fmt.Errorf("Exception::%s expects 0 arguments, got %d", methodName, len(args))
 		}
 	}
@@ -3431,11 +3450,33 @@ func (i *Interpreter) callExceptionMethod(obj *Object, methodName string, args [
 		return exceptionProperty(obj, "file", StringValue("")), true, nil
 	case "getline":
 		return exceptionProperty(obj, "line", IntValue(0)), true, nil
+	case "getprevious":
+		return exceptionProperty(obj, "previous", NullValue()), true, nil
+	case "gettraceasstring":
+		return StringValue(strings.Join(obj.ExceptionTrace, "\n")), true, nil
 	case "__tostring":
 		return StringValue(i.exceptionString(obj)), true, nil
 	default:
 		return NullValue(), false, nil
 	}
+}
+
+func (i *Interpreter) captureExceptionTrace() []string {
+	trace := make([]string, 0, len(i.frames))
+	frameNo := 0
+	for idx := len(i.frames) - 1; idx >= 0; idx-- {
+		frame := i.frames[idx]
+		name := frame.function
+		if frame.className != "" && frame.function != "" {
+			name = frame.className + "::" + frame.function
+		}
+		if name == "" {
+			continue
+		}
+		trace = append(trace, fmt.Sprintf("#%d %s()", frameNo, name))
+		frameNo++
+	}
+	return trace
 }
 
 func exceptionProperty(obj *Object, name string, fallback Value) Value {
