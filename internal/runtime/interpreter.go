@@ -34,6 +34,7 @@ type Interpreter struct {
 	responseHeaders             []string
 	uploadedFiles               map[string]bool
 	includedOnce                map[string]bool
+	autoloading                 map[string]bool
 	baseDir                     string
 	dirStack                    []string
 	fileStack                   []string
@@ -64,6 +65,7 @@ func NewInterpreterWithBaseDir(baseDir string) *Interpreter {
 		staticMeta:                  map[string]map[string]PropertyMeta{},
 		uploadedFiles:               map[string]bool{},
 		includedOnce:                map[string]bool{},
+		autoloading:                 map[string]bool{},
 		baseDir:                     baseDir,
 		dirStack:                    []string{baseDir},
 		fileStack:                   []string{},
@@ -97,6 +99,13 @@ func (i *Interpreter) Run(p *ast.Program) error {
 
 func (i *Interpreter) runProgram(p *ast.Program, shutdown bool) error {
 	for _, s := range p.Statements {
+		if fn, ok := s.(*ast.FunctionDeclStmt); ok {
+			if err := i.defineFunction(fn); err != nil {
+				return err
+			}
+		}
+	}
+	for _, s := range p.Statements {
 		if iface, ok := s.(*ast.InterfaceDeclStmt); ok {
 			if err := i.defineInterface(iface); err != nil {
 				return err
@@ -104,12 +113,6 @@ func (i *Interpreter) runProgram(p *ast.Program, shutdown bool) error {
 		}
 	}
 	for _, s := range p.Statements {
-		if fn, ok := s.(*ast.FunctionDeclStmt); ok {
-			if err := i.defineFunction(fn); err != nil {
-				return err
-			}
-			continue
-		}
 		if class, ok := s.(*ast.ClassDeclStmt); ok {
 			if err := i.defineClass(class); err != nil {
 				return err
@@ -714,7 +717,7 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 		if err != nil {
 			return NullValue(), err
 		}
-		className, err := i.resolveClassName(n.ClassName)
+		className, err := i.resolveClassNameAutoload(n.ClassName)
 		if err != nil {
 			return NullValue(), err
 		}
@@ -897,7 +900,7 @@ func (i *Interpreter) lookupNamedConstant(name string) (Value, bool) {
 	if !ok || className == "" || constName == "" {
 		return NullValue(), false
 	}
-	resolved, err := i.resolveClassName(className)
+	resolved, err := i.resolveClassNameAutoload(className)
 	if err != nil {
 		return NullValue(), false
 	}
@@ -1605,7 +1608,7 @@ func (i *Interpreter) lookupDynamicStaticPropertyValue(expr *ast.DynamicStaticPr
 }
 
 func (i *Interpreter) lookupStaticProperty(className, property string) (Value, bool, error) {
-	resolved, err := i.resolveClassName(className)
+	resolved, err := i.resolveClassNameAutoload(className)
 	if err != nil {
 		return NullValue(), false, nil
 	}
@@ -2050,9 +2053,9 @@ func (i *Interpreter) newClassName(n *ast.NewExpr) (string, error) {
 		if name == "" {
 			return "", fmt.Errorf("class name must not be empty")
 		}
-		return i.resolveClassName(name)
+		return i.resolveClassNameAutoload(name)
 	}
-	return i.resolveClassName(n.ClassName)
+	return i.resolveClassNameAutoload(n.ClassName)
 }
 
 func (i *Interpreter) trackObject(obj *Object) {
@@ -2208,7 +2211,7 @@ func (i *Interpreter) callDynamicStatic(n *ast.DynamicStaticCallExpr) (Value, er
 }
 
 func (i *Interpreter) callStaticName(staticClassName, methodName string, args []ast.Expr) (Value, error) {
-	className, err := i.resolveClassName(staticClassName)
+	className, err := i.resolveClassNameAutoload(staticClassName)
 	if err != nil {
 		return NullValue(), err
 	}
@@ -3451,6 +3454,24 @@ func (i *Interpreter) classLikeName(name string) (string, bool) {
 	return "", false
 }
 
+func (i *Interpreter) autoloadClass(name string) error {
+	if _, ok := i.classLikeName(name); ok {
+		return nil
+	}
+	fn, ok := i.functions[functionNameKey("__autoload")]
+	if !ok {
+		return nil
+	}
+	key := classNameKey(name)
+	if i.autoloading[key] {
+		return nil
+	}
+	i.autoloading[key] = true
+	defer delete(i.autoloading, key)
+	_, err := i.callFunctionValues(fn, []Value{StringValue(name)}, nil, "")
+	return err
+}
+
 func namespaceBaseName(name string) string {
 	name = strings.TrimPrefix(name, "\\")
 	if idx := strings.LastIndex(name, "\\"); idx >= 0 {
@@ -3538,6 +3559,9 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 		}
 	}
 	if class.Parent != "" {
+		if err := i.autoloadClass(class.Parent); err != nil {
+			return err
+		}
 		parent, ok := i.classByName(class.Parent)
 		if !ok {
 			return fmt.Errorf("undefined parent class %s", class.Parent)
@@ -3564,6 +3588,9 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 		}
 	}
 	for idx, ifaceName := range class.Implements {
+		if err := i.autoloadClass(ifaceName); err != nil {
+			return err
+		}
 		iface, ok := i.interfaceByName(ifaceName)
 		if !ok {
 			return fmt.Errorf("undefined interface %s", ifaceName)
@@ -3719,6 +3746,9 @@ func (i *Interpreter) defineInterface(iface *ast.InterfaceDeclStmt) error {
 		return fmt.Errorf("cannot redeclare interface %s", iface.Name)
 	}
 	for idx, parentName := range iface.Parents {
+		if err := i.autoloadClass(parentName); err != nil {
+			return err
+		}
 		parent, ok := i.interfaceByName(parentName)
 		if !ok {
 			return fmt.Errorf("undefined parent interface %s", parentName)
@@ -3845,7 +3875,7 @@ func (i *Interpreter) instanceDefaults(class *ast.ClassDeclStmt) (map[string]Val
 }
 
 func (i *Interpreter) getStaticProperty(className, property string) Value {
-	resolved, err := i.resolveClassName(className)
+	resolved, err := i.resolveClassNameAutoload(className)
 	if err == nil {
 		className = resolved
 	}
@@ -3856,7 +3886,7 @@ func (i *Interpreter) getStaticProperty(className, property string) Value {
 }
 
 func (i *Interpreter) setStaticProperty(className, property string, value Value) {
-	resolved, err := i.resolveClassName(className)
+	resolved, err := i.resolveClassNameAutoload(className)
 	if err == nil {
 		className = resolved
 	}
@@ -3907,7 +3937,7 @@ func (i *Interpreter) checkPropertyAccess(obj *Object, property string) error {
 }
 
 func (i *Interpreter) checkStaticPropertyAccess(className, property string) error {
-	resolved, err := i.resolveClassName(className)
+	resolved, err := i.resolveClassNameAutoload(className)
 	if err != nil {
 		return err
 	}
@@ -3947,7 +3977,7 @@ func (i *Interpreter) findStaticProperty(className, property string) (Value, Pro
 }
 
 func (i *Interpreter) getClassConstant(className, name string) (Value, error) {
-	resolved, err := i.resolveClassName(className)
+	resolved, err := i.resolveClassNameAutoload(className)
 	if err != nil {
 		return NullValue(), err
 	}
@@ -4076,6 +4106,23 @@ func (i *Interpreter) resolveClassName(name string) (string, error) {
 		}
 		return name, nil
 	}
+}
+
+func (i *Interpreter) resolveClassNameAutoload(name string) (string, error) {
+	resolved, err := i.resolveClassName(name)
+	if err != nil {
+		return "", err
+	}
+	if _, ok := i.classLikeName(resolved); ok {
+		return resolved, nil
+	}
+	if err := i.autoloadClass(resolved); err != nil {
+		return "", err
+	}
+	if canonical, ok := i.classLikeName(resolved); ok {
+		return canonical, nil
+	}
+	return resolved, nil
 }
 
 func (i *Interpreter) classesRelated(a, b string) bool {

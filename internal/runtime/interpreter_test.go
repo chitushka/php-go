@@ -327,6 +327,42 @@ func TestIncludedClass(t *testing.T) {
 	}
 }
 
+func TestAutoloadLoadsClassOnNew(t *testing.T) {
+	dir := t.TempDir()
+	src := "<?php class Autoloaded { public function name() { return 'loaded'; } }"
+	if err := os.WriteFile(filepath.Join(dir, "autoloaded.php"), []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got := runFile(t, dir, "<?php function __autoload($class) { include 'autoloaded.php'; } $obj = new Autoloaded(); echo $obj->name();")
+	if got != "loaded" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestAutoloadLoadsClassForStaticAccess(t *testing.T) {
+	dir := t.TempDir()
+	src := "<?php class AutoloadedStatic { const LABEL = 'static'; public static $count = 2; public static function name() { return self::LABEL; } }"
+	if err := os.WriteFile(filepath.Join(dir, "autoloaded_static.php"), []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got := runFile(t, dir, "<?php function __autoload($class) { include 'autoloaded_static.php'; } echo autoloadedstatic::LABEL; echo ':'; echo AUTOLOADEDSTATIC::$count; echo ':'; echo AutoloadedStatic::NAME();")
+	if got != "static:2:static" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestAutoloadLoadsParentClassDuringDeclaration(t *testing.T) {
+	dir := t.TempDir()
+	src := "<?php class AutoloadedParent { public function name() { return 'parent'; } }"
+	if err := os.WriteFile(filepath.Join(dir, "autoloaded_parent.php"), []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got := runFile(t, dir, "<?php function __autoload($class) { include 'autoloaded_parent.php'; } class AutoloadedChild extends AutoloadedParent {} $obj = new AutoloadedChild(); echo $obj->name();")
+	if got != "parent" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestThrowAndCatchException(t *testing.T) {
 	src := "<?php try { throw new Exception('boom'); } catch (Exception $e) { echo $e->getMessage(); } echo ' done';"
 	got := run(t, src)
