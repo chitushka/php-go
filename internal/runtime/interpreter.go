@@ -988,6 +988,8 @@ func (i *Interpreter) callBuiltin(c *ast.CallExpr) (Value, bool, error) {
 		return i.callGetDeclaredInterfaces(c.Args)
 	case "class_alias":
 		return i.callClassAlias(c.Args)
+	case "is_callable":
+		return i.callIsCallable(c.Args)
 	case "method_exists":
 		return i.callMethodExists(c.Args)
 	case "property_exists":
@@ -1334,6 +1336,148 @@ func (i *Interpreter) callClassAlias(args []ast.Expr) (Value, bool, error) {
 	}
 	i.classAliases[classNameKey(alias)] = classAlias{Name: alias, Target: class.Name}
 	return BoolValue(true), true, nil
+}
+
+func (i *Interpreter) callIsCallable(args []ast.Expr) (Value, bool, error) {
+	if len(args) < 1 || len(args) > 3 {
+		return NullValue(), true, fmt.Errorf("is_callable expects 1 to 3 arguments, got %d", len(args))
+	}
+	value, err := i.eval(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	syntaxOnly := false
+	if len(args) >= 2 {
+		flag, err := i.eval(args[1])
+		if err != nil {
+			return NullValue(), true, err
+		}
+		syntaxOnly = flag.Truthy()
+	}
+	callableName := i.callableName(value)
+	if len(args) == 3 {
+		if err := i.assignBuiltinResult(args[2], StringValue(callableName)); err != nil {
+			return NullValue(), true, err
+		}
+	}
+	if syntaxOnly {
+		return BoolValue(i.isCallableSyntax(value)), true, nil
+	}
+	return BoolValue(i.isCallableValue(value)), true, nil
+}
+
+func (i *Interpreter) isCallableSyntax(value Value) bool {
+	switch value.Kind {
+	case ClosureKind:
+		return value.C != nil
+	case String:
+		return value.String() != ""
+	case ArrayKind:
+		if value.A == nil {
+			return false
+		}
+		target, okTarget := value.A.Get(IntKey(0))
+		method, okMethod := value.A.Get(IntKey(1))
+		if !okTarget || !okMethod || method.String() == "" {
+			return false
+		}
+		return target.Kind == ObjectKind || target.Kind == String
+	default:
+		return false
+	}
+}
+
+func (i *Interpreter) isCallableValue(value Value) bool {
+	switch value.Kind {
+	case ClosureKind:
+		return value.C != nil
+	case String:
+		name := value.String()
+		if className, methodName, ok := strings.Cut(name, "::"); ok {
+			return i.isCallableStaticMethod(className, methodName)
+		}
+		_, ok := i.functions[functionNameKey(name)]
+		return ok
+	case ArrayKind:
+		if value.A == nil {
+			return false
+		}
+		target, okTarget := value.A.Get(IntKey(0))
+		method, okMethod := value.A.Get(IntKey(1))
+		if !okTarget || !okMethod {
+			return false
+		}
+		methodName := method.String()
+		if methodName == "" || strings.EqualFold(methodName, "__clone") {
+			return false
+		}
+		switch target.Kind {
+		case ObjectKind:
+			if target.O == nil {
+				return false
+			}
+			if method, ok := target.O.Methods[methodNameKey(methodName)]; ok && i.methodAccessible(method) {
+				return true
+			}
+			return i.hasPublicMethod(target.O, "__call")
+		case String:
+			return i.isCallableStaticMethod(target.String(), methodName)
+		default:
+			return false
+		}
+	default:
+		return false
+	}
+}
+
+func (i *Interpreter) isCallableStaticMethod(className, methodName string) bool {
+	if className == "" || methodName == "" || strings.EqualFold(methodName, "__clone") {
+		return false
+	}
+	resolved, err := i.resolveClassNameAutoload(className)
+	if err != nil {
+		return false
+	}
+	class, ok := i.classByName(resolved)
+	if !ok {
+		return false
+	}
+	methods := i.methodsForClass(class)
+	if method, ok := methods[methodNameKey(methodName)]; ok {
+		return method.Static && i.methodAccessible(method)
+	}
+	return i.hasPublicStaticMethod(methods, "__callStatic")
+}
+
+func (i *Interpreter) callableName(value Value) string {
+	switch value.Kind {
+	case ClosureKind:
+		return "Closure::__invoke"
+	case String:
+		return value.String()
+	case ArrayKind:
+		if value.A == nil {
+			return ""
+		}
+		target, okTarget := value.A.Get(IntKey(0))
+		method, okMethod := value.A.Get(IntKey(1))
+		if !okTarget || !okMethod {
+			return ""
+		}
+		switch target.Kind {
+		case ObjectKind:
+			if target.O == nil {
+				return "::" + method.String()
+			}
+			return target.O.ClassName + "::" + method.String()
+		case String:
+			return target.String() + "::" + method.String()
+		default:
+			return method.String()
+		}
+	default:
+		return ""
+	}
 }
 
 func (i *Interpreter) callMethodExists(args []ast.Expr) (Value, bool, error) {

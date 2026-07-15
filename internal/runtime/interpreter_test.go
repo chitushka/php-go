@@ -447,6 +447,14 @@ func TestIsObjectBuiltinForOOPValues(t *testing.T) {
 	}
 }
 
+func TestIsCallableBuiltinForOOPValues(t *testing.T) {
+	src := "<?php function callable_fn() {} class CallableTarget { public function run() {} private function hidden() {} public static function stat() {} } class CallableMagic { public function __call($name, $args) {} public static function __callStatic($name, $args) {} } class_alias('CallableTarget', 'CallableAlias'); $obj = new CallableTarget(); $magic = new CallableMagic(); $fn = function() {}; echo is_callable('callable_fn') ? 'fn' : 'no'; echo ':'; echo is_callable($fn) ? 'closure' : 'no'; echo ':'; echo is_callable(array($obj, 'run')) ? 'method' : 'no'; echo ':'; echo is_callable(array($obj, 'hidden')) ? 'hidden' : 'no'; echo ':'; echo is_callable(array($magic, 'missing')) ? 'magic' : 'no'; echo ':'; echo is_callable(array('CallableTarget', 'stat')) ? 'static' : 'no'; echo ':'; echo is_callable('CallableAlias::stat') ? 'alias' : 'no'; echo ':'; echo is_callable(array('CallableMagic', 'missing')) ? 'static-magic' : 'no'; echo ':'; echo is_callable(array('Missing', 'missing'), true) ? 'syntax' : 'no'; echo ':'; echo is_callable(array($obj, '__clone')) ? 'clone' : 'no';"
+	got := run(t, src)
+	if got != "fn:closure:method:no:magic:static:alias:static-magic:syntax:no" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestThrowAndCatchException(t *testing.T) {
 	src := "<?php try { throw new Exception('boom'); } catch (Exception $e) { echo $e->getMessage(); } echo ' done';"
 	got := run(t, src)
