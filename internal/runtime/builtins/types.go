@@ -20,3 +20,10 @@ func isNull(args []Value) (Value, error) {
 	}
 	return BoolValue(args[0].Kind == NullKind), nil
 }
+
+func isObject(args []Value) (Value, error) {
+	if err := checkArgCount("is_object", len(args), 1, 1); err != nil {
+		return NullValue(), err
+	}
+	return BoolValue(args[0].Kind == ObjectKind), nil
+}

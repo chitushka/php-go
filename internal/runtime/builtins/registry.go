@@ -21,6 +21,7 @@ var funcs = map[string]Func{
 	"is_array":          isArray,
 	"is_string":         isString,
 	"is_null":           isNull,
+	"is_object":         isObject,
 	"trim":              trim,
 	"ltrim":             ltrim,
 	"rtrim":             rtrim,

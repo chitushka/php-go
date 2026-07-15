@@ -439,6 +439,14 @@ func TestClassAliasAutoloadAndLookup(t *testing.T) {
 	}
 }
 
+func TestIsObjectBuiltinForOOPValues(t *testing.T) {
+	src := "<?php class ObjectType {} class_alias('ObjectType', 'ObjectAlias'); $obj = new ObjectType(); $alias = new ObjectAlias(); $fn = function() {}; echo is_object($obj) ? 'object' : 'no'; echo ':'; echo is_object($alias) ? 'alias' : 'no'; echo ':'; echo is_object($fn) ? 'closure' : 'no'; echo ':'; echo is_object(array()) ? 'array' : 'no'; echo ':'; echo is_object(null) ? 'null' : 'no';"
+	got := run(t, src)
+	if got != "object:alias:closure:no:no" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestThrowAndCatchException(t *testing.T) {
 	src := "<?php try { throw new Exception('boom'); } catch (Exception $e) { echo $e->getMessage(); } echo ' done';"
 	got := run(t, src)

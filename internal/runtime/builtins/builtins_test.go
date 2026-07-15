@@ -41,6 +41,10 @@ func TestVariableAndTypeBuiltins(t *testing.T) {
 	if err != nil || !ok || !value.Truthy() {
 		t.Fatalf("is_string got value=%+v ok=%v err=%v", value, ok, err)
 	}
+	value, ok, err = Call("is_object", []Value{ObjectValue()})
+	if err != nil || !ok || !value.Truthy() {
+		t.Fatalf("is_object got value=%+v ok=%v err=%v", value, ok, err)
+	}
 }
 
 func TestMoreStringBuiltins(t *testing.T) {
