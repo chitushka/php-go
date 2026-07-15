@@ -1214,6 +1214,9 @@ func (p *Parser) parseExpression(precedence int) ast.Expr {
 		left = p.parseClosure()
 	case lexer.NewKeyword:
 		left = p.parseNew()
+	case lexer.Clone:
+		p.next()
+		left = &ast.CloneExpr{Expr: p.parseExpression(prefix)}
 	case lexer.Bang, lexer.Minus, lexer.Plus, lexer.Tilde:
 		op := p.cur.Literal
 		p.next()

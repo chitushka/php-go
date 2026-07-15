@@ -117,6 +117,7 @@ const (
 	Final       TokenType = "FINAL"
 	Abstract    TokenType = "ABSTRACT"
 	NewKeyword  TokenType = "NEW"
+	Clone       TokenType = "CLONE"
 	InstanceOf  TokenType = "INSTANCEOF"
 	AndWord     TokenType = "AND"
 	OrWord      TokenType = "OR"
@@ -178,6 +179,7 @@ var keywords = map[string]TokenType{
 	"final":        Final,
 	"abstract":     Abstract,
 	"new":          NewKeyword,
+	"clone":        Clone,
 	"instanceof":   InstanceOf,
 	"and":          AndWord,
 	"or":           OrWord,

@@ -656,6 +656,29 @@ func TestMagicCallStaticForDynamicMethodName(t *testing.T) {
 	}
 }
 
+func TestCloneCopiesObjectProperties(t *testing.T) {
+	src := "<?php class Box { public $value = 1; } $a = new Box(); $b = clone $a; $b->value = 2; echo $a->value; echo ':'; echo $b->value;"
+	got := run(t, src)
+	if got != "1:2" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestMagicCloneRunsOnClonedObject(t *testing.T) {
+	src := "<?php class Box { public $value = 'old'; public function __clone() { $this->value = 'clone'; echo 'c'; } } $a = new Box(); $b = clone $a; echo ':'; echo $a->value; echo ':'; echo $b->value;"
+	got := run(t, src)
+	if got != "c:old:clone" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestCloneRequiresObject(t *testing.T) {
+	err := runErr(t, "<?php $x = clone 1;")
+	if err == nil || err.Error() != "clone expects object" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestMagicToString(t *testing.T) {
 	src := "<?php class Label { public function __toString() { return 'label'; } } $label = new Label(); echo $label;"
 	got := run(t, src)

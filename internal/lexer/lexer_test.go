@@ -49,6 +49,17 @@ func TestVariableVariableToken(t *testing.T) {
 	}
 }
 
+func TestCloneKeywordToken(t *testing.T) {
+	l := New("<?php $b = clone $a;")
+
+	for _, want := range []TokenType{Var, Assign, Clone, Var, Semicolon, EOF} {
+		got := l.NextToken()
+		if got.Type != want {
+			t.Fatalf("got token %s (%q), want %s", got.Type, got.Literal, want)
+		}
+	}
+}
+
 func TestStringEscapes(t *testing.T) {
 	tests := []struct {
 		source      string

@@ -633,6 +633,8 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 			z, err := Binary("^", v, IntValue(-1))
 			return z, err
 		}
+	case *ast.CloneExpr:
+		return i.evalClone(n.Expr)
 	case *ast.IncDecExpr:
 		return i.evalIncDec(n.Target, n.Op, n.Post)
 	case *ast.InfixExpr:
@@ -1683,6 +1685,36 @@ func (i *Interpreter) trackObject(obj *Object) {
 		return
 	}
 	i.objects = append(i.objects, obj)
+}
+
+func (i *Interpreter) evalClone(expr ast.Expr) (Value, error) {
+	value, err := i.eval(expr)
+	if err != nil {
+		return NullValue(), err
+	}
+	if value.Kind != ObjectKind || value.O == nil {
+		return NullValue(), fmt.Errorf("clone expects object")
+	}
+	clone := i.cloneObject(value.O)
+	i.trackObject(clone)
+	if method, ok := clone.Methods["__clone"]; ok {
+		if _, err := i.callFunction(method, nil, clone, clone.ClassName); err != nil {
+			return NullValue(), err
+		}
+	}
+	return ObjectValue(clone), nil
+}
+
+func (i *Interpreter) cloneObject(obj *Object) *Object {
+	props := map[string]Value{}
+	for name, value := range obj.Props {
+		props[name] = value
+	}
+	meta := map[string]PropertyMeta{}
+	for name, info := range obj.PropMeta {
+		meta[name] = info
+	}
+	return NewObject(obj.ClassName, obj.Methods, props, meta)
 }
 
 func (i *Interpreter) runDestructors() error {

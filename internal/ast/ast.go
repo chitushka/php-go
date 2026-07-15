@@ -298,6 +298,12 @@ type PrefixExpr struct {
 
 func (*PrefixExpr) exprNode() {}
 
+type CloneExpr struct {
+	Expr Expr
+}
+
+func (*CloneExpr) exprNode() {}
+
 type IncDecExpr struct {
 	Target Expr
 	Op     string
