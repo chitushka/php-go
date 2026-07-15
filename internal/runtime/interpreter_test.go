@@ -632,6 +632,30 @@ func TestMagicCallForInaccessibleMethod(t *testing.T) {
 	}
 }
 
+func TestMagicCallStatic(t *testing.T) {
+	src := "<?php class Dynamic { public static function __callStatic($name, $args) { echo $name; foreach ($args as $arg) { echo ':'; echo $arg; } } } Dynamic::missing(1, 'x');"
+	got := run(t, src)
+	if got != "missing:1:x" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestMagicCallStaticForInaccessibleMethod(t *testing.T) {
+	src := "<?php class Dynamic { private static function hidden() { return 'no'; } public static function __callStatic($name, $args) { return $name; } } echo Dynamic::hidden();"
+	got := run(t, src)
+	if got != "hidden" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestMagicCallStaticForDynamicMethodName(t *testing.T) {
+	src := "<?php class Dynamic { public static function __callStatic($name, $args) { return $name . ':' . $args[0]; } } $method = 'missing'; echo Dynamic::$method('x');"
+	got := run(t, src)
+	if got != "missing:x" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestMagicToString(t *testing.T) {
 	src := "<?php class Label { public function __toString() { return 'label'; } } $label = new Label(); echo $label;"
 	got := run(t, src)

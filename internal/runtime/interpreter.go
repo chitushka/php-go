@@ -1812,6 +1812,9 @@ func (i *Interpreter) callStaticName(staticClassName, methodName string, args []
 	methods := i.methodsForClass(class)
 	method, ok := methods[methodName]
 	if !ok {
+		if i.hasPublicStaticMethod(methods, "__callStatic") {
+			return i.callMagicCallStatic(className, methods["__callStatic"], methodName, args)
+		}
 		return NullValue(), fmt.Errorf("undefined static method %s::%s", className, methodName)
 	}
 	if !method.Static {
@@ -1825,6 +1828,9 @@ func (i *Interpreter) callStaticName(staticClassName, methodName string, args []
 		return i.callFunction(method, args, thisObj, thisObj.ClassName)
 	}
 	if err := i.checkMethodAccess(className, method); err != nil {
+		if methodName != "__callStatic" && i.hasPublicStaticMethod(methods, "__callStatic") {
+			return i.callMagicCallStatic(className, methods["__callStatic"], methodName, args)
+		}
 		return NullValue(), err
 	}
 	return i.callFunction(method, args, nil, className)
@@ -2885,6 +2891,14 @@ func (i *Interpreter) hasPublicMethod(obj *Object, name string) bool {
 	return method.Visibility == "" || method.Visibility == "public"
 }
 
+func (i *Interpreter) hasPublicStaticMethod(methods map[string]*ast.FunctionDeclStmt, name string) bool {
+	method, ok := methods[name]
+	if !ok {
+		return false
+	}
+	return method.Static && (method.Visibility == "" || method.Visibility == "public")
+}
+
 func (i *Interpreter) shouldUseGet(obj *Object) bool {
 	return i.hasPublicMethod(obj, "__get") && i.currentClass() != obj.ClassName
 }
@@ -2935,6 +2949,18 @@ func (i *Interpreter) callMagicCall(obj *Object, methodName string, args []ast.E
 		values.Append(value)
 	}
 	return i.callFunctionValues(obj.Methods["__call"], []Value{StringValue(methodName), ArrayValue(values)}, obj, obj.ClassName)
+}
+
+func (i *Interpreter) callMagicCallStatic(className string, method *ast.FunctionDeclStmt, methodName string, args []ast.Expr) (Value, error) {
+	values := NewArray()
+	for _, arg := range args {
+		value, err := i.eval(arg)
+		if err != nil {
+			return NullValue(), err
+		}
+		values.Append(value)
+	}
+	return i.callFunctionValues(method, []Value{StringValue(methodName), ArrayValue(values)}, nil, className)
 }
 
 func (i *Interpreter) newException(args []ast.Expr) (Value, error) {
