@@ -3504,6 +3504,14 @@ func (i *Interpreter) unsetTarget(target ast.Expr) error {
 			return err
 		}
 		return i.unsetProperty(n.Object, property)
+	case *ast.StaticPropertyFetchExpr:
+		return i.unsetStaticProperty(n.ClassName, n.Property)
+	case *ast.DynamicStaticPropertyFetchExpr:
+		property, err := i.dynamicMemberName(n.Property)
+		if err != nil {
+			return err
+		}
+		return i.unsetStaticProperty(n.ClassName, property)
 	default:
 		return nil
 	}
@@ -3529,6 +3537,27 @@ func (i *Interpreter) unsetProperty(object ast.Expr, property string) error {
 	}
 	delete(obj.O.Props, property)
 	delete(obj.O.PropMeta, property)
+	return nil
+}
+
+func (i *Interpreter) unsetStaticProperty(className, property string) error {
+	if err := i.checkStaticPropertyAccess(className, property); err != nil {
+		return err
+	}
+	resolved, err := i.resolveClassNameAutoload(className)
+	if err != nil {
+		return err
+	}
+	owner := resolved
+	if _, info, ok := i.findStaticProperty(resolved, property); ok {
+		owner = info.Owner
+	}
+	if props, ok := i.statics[owner]; ok {
+		delete(props, property)
+	}
+	if meta, ok := i.staticMeta[owner]; ok {
+		delete(meta, property)
+	}
 	return nil
 }
 

@@ -819,6 +819,14 @@ func TestMagicUnset(t *testing.T) {
 	}
 }
 
+func TestUnsetConstructTargets(t *testing.T) {
+	src := "<?php class UnsetBase { public static $base = 'base'; } class UnsetTarget extends UnsetBase { public static $count = 7; public $name = 'Ada'; } $var = 'v'; $items = array('x' => 1, 'y' => 2); $obj = new UnsetTarget(); $prop = 'name'; $static = 'slot'; $slot = 'count'; unset($var, $items['x'], $obj->$prop, UnsetTarget::$$static); echo isset($var) ? 'var' : 'no-var'; echo ':'; echo isset($items['x']) ? 'x' : 'no-x'; echo ':'; echo isset($obj->name) ? 'name' : 'no-name'; echo ':'; echo isset(UnsetTarget::$count) ? 'count' : 'no-count'; unset(UnsetTarget::$base); echo ':'; echo isset(UnsetBase::$base) ? 'base' : 'no-base';"
+	got := run(t, src)
+	if got != "no-var:no-x:no-name:no-count:no-base" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestMagicCall(t *testing.T) {
 	src := "<?php class Dynamic { public function __call($name, $args) { echo $name; foreach ($args as $arg) { echo ':'; echo $arg; } } } $d = new Dynamic(); $d->missing(1, 'x');"
 	got := run(t, src)
