@@ -180,6 +180,30 @@ func TestClassConstructorMethodAndThis(t *testing.T) {
 	}
 }
 
+func TestOldStyleConstructorMethodAndThis(t *testing.T) {
+	src := "<?php class Box { function Box($value) { $this->value = $value; } function get() { return $this->value; } } $box = new Box(9); echo $box->get();"
+	got := run(t, src)
+	if got != "9" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestInheritedOldStyleConstructor(t *testing.T) {
+	src := "<?php class Base { function Base($value) { $this->value = $value; } } class Child extends Base { function get() { return $this->value; } } $child = new Child(7); echo $child->get();"
+	got := run(t, src)
+	if got != "7" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestConstructPreferredOverOldStyleConstructor(t *testing.T) {
+	src := "<?php class Box { function Box($value) { $this->value = 'old'; } function __construct($value) { $this->value = $value; } function get() { return $this->value; } } $box = new Box('new'); echo $box->get();"
+	got := run(t, src)
+	if got != "new" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestObjectPropertyAssignmentOutsideClass(t *testing.T) {
 	src := "<?php class Box { function get() { return $this->value; } } $box = new Box(); $box->value = 4; echo $box->value; echo $box->get();"
 	got := run(t, src)

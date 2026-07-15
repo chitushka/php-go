@@ -1595,7 +1595,7 @@ func (i *Interpreter) newObject(n *ast.NewExpr) (Value, error) {
 		return NullValue(), err
 	}
 	obj := NewObject(class.Name, i.methodsForClass(class), props, meta)
-	if constructor, ok := obj.Methods["__construct"]; ok {
+	if constructor, ok := i.constructorForClass(class); ok {
 		if _, err := i.callFunction(constructor, n.Args, obj, obj.ClassName); err != nil {
 			return NullValue(), err
 		}
@@ -1607,6 +1607,36 @@ func (i *Interpreter) newObject(n *ast.NewExpr) (Value, error) {
 		return NullValue(), fmt.Errorf("class %s has no constructor", n.ClassName)
 	}
 	return ObjectValue(obj), nil
+}
+
+func (i *Interpreter) constructorForClass(class *ast.ClassDeclStmt) (*ast.FunctionDeclStmt, bool) {
+	if class == nil {
+		return nil, false
+	}
+	if method, ok := declaredMethod(class, "__construct"); ok {
+		return method, true
+	}
+	baseName := namespaceBaseName(class.Name)
+	if method, ok := declaredMethod(class, baseName); ok {
+		return method, true
+	}
+	if class.Parent == "" {
+		return nil, false
+	}
+	parent, ok := i.classes[class.Parent]
+	if !ok {
+		return nil, false
+	}
+	return i.constructorForClass(parent)
+}
+
+func declaredMethod(class *ast.ClassDeclStmt, name string) (*ast.FunctionDeclStmt, bool) {
+	for _, method := range class.Methods {
+		if strings.EqualFold(method.Name, name) {
+			return method, true
+		}
+	}
+	return nil, false
 }
 
 func (i *Interpreter) callMethod(n *ast.MethodCallExpr) (Value, error) {
