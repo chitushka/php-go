@@ -415,6 +415,18 @@ func TestOOPDeclaredClassInterfaceIntrospectionFunctions(t *testing.T) {
 	}
 }
 
+func TestOOPDeclaredIntrospectionIncludesAutoloadedTypes(t *testing.T) {
+	dir := t.TempDir()
+	src := "<?php interface DeclaredAutoloadContract {} class DeclaredAutoloaded implements DeclaredAutoloadContract {}"
+	if err := os.WriteFile(filepath.Join(dir, "declared_autoload.php"), []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got := runFile(t, dir, "<?php function __autoload($class) { include 'declared_autoload.php'; } $classes = get_declared_classes(); $interfaces = get_declared_interfaces(); echo in_array('DeclaredAutoloaded', $classes) ? 'loaded' : 'missing'; echo ':'; echo in_array('DeclaredAutoloadContract', $interfaces) ? 'loaded' : 'missing'; echo ':'; echo class_exists('DeclaredAutoloaded') ? 'class' : 'no'; $classes = get_declared_classes(); $interfaces = get_declared_interfaces(); echo ':'; echo in_array('DeclaredAutoloaded', $classes) ? 'loaded' : 'missing'; echo ':'; echo in_array('DeclaredAutoloadContract', $interfaces) ? 'loaded' : 'missing';")
+	if got != "missing:missing:class:loaded:loaded" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestThrowAndCatchException(t *testing.T) {
 	src := "<?php try { throw new Exception('boom'); } catch (Exception $e) { echo $e->getMessage(); } echo ' done';"
 	got := run(t, src)
