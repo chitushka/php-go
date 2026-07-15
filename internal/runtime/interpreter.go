@@ -941,6 +941,9 @@ func (i *Interpreter) callVariable(c *ast.VariableCallExpr) (Value, error) {
 	if callee.Kind == ClosureKind {
 		return i.callClosure(callee.C, c.Args)
 	}
+	if callee.Kind == ObjectKind && callee.O != nil {
+		return i.callInvokableObject(callee.O, c.Args)
+	}
 	return i.call(&ast.CallExpr{Name: callee.String(), Args: c.Args})
 }
 
@@ -1370,6 +1373,8 @@ func (i *Interpreter) isCallableSyntax(value Value) bool {
 	switch value.Kind {
 	case ClosureKind:
 		return value.C != nil
+	case ObjectKind:
+		return value.O != nil
 	case String:
 		return value.String() != ""
 	case ArrayKind:
@@ -1391,6 +1396,12 @@ func (i *Interpreter) isCallableValue(value Value) bool {
 	switch value.Kind {
 	case ClosureKind:
 		return value.C != nil
+	case ObjectKind:
+		if value.O == nil {
+			return false
+		}
+		method, ok := value.O.Methods[methodNameKey("__invoke")]
+		return ok && i.methodAccessible(method)
 	case String:
 		name := value.String()
 		if className, methodName, ok := strings.Cut(name, "::"); ok {
@@ -1453,6 +1464,11 @@ func (i *Interpreter) callableName(value Value) string {
 	switch value.Kind {
 	case ClosureKind:
 		return "Closure::__invoke"
+	case ObjectKind:
+		if value.O == nil {
+			return ""
+		}
+		return value.O.ClassName + "::__invoke"
 	case String:
 		return value.String()
 	case ArrayKind:
@@ -2998,6 +3014,20 @@ func (i *Interpreter) callDynamicMethod(n *ast.DynamicMethodCallExpr) (Value, er
 		return NullValue(), err
 	}
 	return i.callMethodName(n.Object, method, n.Args)
+}
+
+func (i *Interpreter) callInvokableObject(obj *Object, args []ast.Expr) (Value, error) {
+	if obj == nil {
+		return NullValue(), fmt.Errorf("object is not callable")
+	}
+	method, ok := obj.Methods[methodNameKey("__invoke")]
+	if !ok {
+		return NullValue(), fmt.Errorf("object of class %s is not callable", obj.ClassName)
+	}
+	if err := i.checkMethodAccess(obj.ClassName, method); err != nil {
+		return NullValue(), err
+	}
+	return i.callFunction(method, args, obj, obj.ClassName)
 }
 
 func (i *Interpreter) callMethodName(object ast.Expr, methodName string, args []ast.Expr) (Value, error) {

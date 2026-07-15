@@ -455,6 +455,14 @@ func TestIsCallableBuiltinForOOPValues(t *testing.T) {
 	}
 }
 
+func TestInvokableObjectCallAndIsCallable(t *testing.T) {
+	src := "<?php class InvokableBox { public function __invoke($prefix, &$value) { $value = $value . ':changed'; return $prefix . ':' . $value; } } class HiddenInvoke { private function __invoke() {} } $box = new InvokableBox(); $value = 'start'; echo $box('go', $value); echo ':'; echo $value; echo ':'; echo is_callable($box) ? 'callable' : 'no'; echo ':'; $hidden = new HiddenInvoke(); echo is_callable($hidden) ? 'hidden' : 'no'; echo ':'; echo is_callable($box, false, $name) ? $name : 'no';"
+	got := run(t, src)
+	if got != "go:start:changed:start:changed:callable:no:InvokableBox::__invoke" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestThrowAndCatchException(t *testing.T) {
 	src := "<?php try { throw new Exception('boom'); } catch (Exception $e) { echo $e->getMessage(); } echo ' done';"
 	got := run(t, src)
