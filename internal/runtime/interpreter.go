@@ -993,6 +993,10 @@ func (i *Interpreter) callBuiltin(c *ast.CallExpr) (Value, bool, error) {
 		return i.callClassAlias(c.Args)
 	case "is_callable":
 		return i.callIsCallable(c.Args)
+	case "call_user_func":
+		return i.callUserFunc(c.Args)
+	case "call_user_func_array":
+		return i.callUserFuncArray(c.Args)
 	case "method_exists":
 		return i.callMethodExists(c.Args)
 	case "property_exists":
@@ -1494,6 +1498,145 @@ func (i *Interpreter) callableName(value Value) string {
 	default:
 		return ""
 	}
+}
+
+func (i *Interpreter) callUserFunc(args []ast.Expr) (Value, bool, error) {
+	if len(args) < 1 {
+		return NullValue(), true, fmt.Errorf("call_user_func expects at least 1 argument, got %d", len(args))
+	}
+	callable, err := i.eval(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	value, err := i.callCallableValue(callable, args[1:])
+	return value, true, err
+}
+
+func (i *Interpreter) callUserFuncArray(args []ast.Expr) (Value, bool, error) {
+	if len(args) != 2 {
+		return NullValue(), true, fmt.Errorf("call_user_func_array expects 2 arguments, got %d", len(args))
+	}
+	callable, err := i.eval(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	argArray, err := i.eval(args[1])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	if argArray.Kind != ArrayKind || argArray.A == nil {
+		return NullValue(), true, fmt.Errorf("call_user_func_array expects argument 2 to be array")
+	}
+	values := make([]Value, 0, len(argArray.A.Entries))
+	for _, entry := range argArray.A.Entries {
+		values = append(values, entry.RuntimeValue())
+	}
+	value, err := i.callCallableValueValues(callable, values)
+	return value, true, err
+}
+
+func (i *Interpreter) callCallableValue(callable Value, args []ast.Expr) (Value, error) {
+	switch callable.Kind {
+	case ClosureKind:
+		return i.callClosure(callable.C, args)
+	case ObjectKind:
+		return i.callInvokableObject(callable.O, args)
+	case String:
+		name := callable.String()
+		if className, methodName, ok := strings.Cut(name, "::"); ok {
+			return i.callStaticName(className, methodName, args)
+		}
+		return i.call(&ast.CallExpr{Name: name, Args: args})
+	case ArrayKind:
+		if callable.A == nil {
+			return NullValue(), fmt.Errorf("invalid callable")
+		}
+		target, okTarget := callable.A.Get(IntKey(0))
+		method, okMethod := callable.A.Get(IntKey(1))
+		if !okTarget || !okMethod || method.String() == "" {
+			return NullValue(), fmt.Errorf("invalid callable")
+		}
+		methodName := method.String()
+		switch target.Kind {
+		case ObjectKind:
+			return i.callObjectMethodValue(target.O, methodName, args)
+		case String:
+			return i.callStaticName(target.String(), methodName, args)
+		default:
+			return NullValue(), fmt.Errorf("invalid callable")
+		}
+	default:
+		return NullValue(), fmt.Errorf("invalid callable")
+	}
+}
+
+func (i *Interpreter) callCallableValueValues(callable Value, args []Value) (Value, error) {
+	switch callable.Kind {
+	case ClosureKind:
+		return i.callClosureValues(callable.C, args)
+	case ObjectKind:
+		return i.callInvokableObjectValues(callable.O, args)
+	case String:
+		name := callable.String()
+		if className, methodName, ok := strings.Cut(name, "::"); ok {
+			return i.callStaticNameValues(className, methodName, args)
+		}
+		return i.callNamedFunctionValues(name, args)
+	case ArrayKind:
+		if callable.A == nil {
+			return NullValue(), fmt.Errorf("invalid callable")
+		}
+		target, okTarget := callable.A.Get(IntKey(0))
+		method, okMethod := callable.A.Get(IntKey(1))
+		if !okTarget || !okMethod || method.String() == "" {
+			return NullValue(), fmt.Errorf("invalid callable")
+		}
+		methodName := method.String()
+		switch target.Kind {
+		case ObjectKind:
+			return i.callObjectMethodValueValues(target.O, methodName, args)
+		case String:
+			return i.callStaticNameValues(target.String(), methodName, args)
+		default:
+			return NullValue(), fmt.Errorf("invalid callable")
+		}
+	default:
+		return NullValue(), fmt.Errorf("invalid callable")
+	}
+}
+
+func (i *Interpreter) callNamedFunctionValues(name string, args []Value) (Value, error) {
+	fn, ok := i.functions[functionNameKey(name)]
+	if ok {
+		return i.callFunctionValues(fn, args, nil, "")
+	}
+	if base := namespaceBaseName(name); base != name {
+		return i.callNamedFunctionValues(base, args)
+	}
+	runtimeArgs := append([]Value(nil), args...)
+	if value, ok, err := i.callSAPIBuiltin(name, runtimeArgs); ok || err != nil {
+		return value, err
+	}
+	builtinArgs := make([]builtins.Value, 0, len(args))
+	for _, arg := range args {
+		builtinArgs = append(builtinArgs, toBuiltinValue(arg))
+	}
+	if value, output, ok, err := builtins.CallWithOutput(name, builtinArgs); ok || err != nil {
+		if output != "" {
+			i.Out.WriteString(output)
+		}
+		if err != nil {
+			return NullValue(), err
+		}
+		return fromBuiltinValue(value), nil
+	}
+	if value, ok, err := builtins.Call(name, builtinArgs); ok || err != nil {
+		if err != nil {
+			return NullValue(), err
+		}
+		return fromBuiltinValue(value), nil
+	}
+	return NullValue(), fmt.Errorf("undefined function %s", name)
 }
 
 func (i *Interpreter) callMethodExists(args []ast.Expr) (Value, bool, error) {
@@ -2771,6 +2914,30 @@ func (i *Interpreter) callClosure(closure *Closure, args []ast.Expr) (Value, err
 	return result.value, err
 }
 
+func (i *Interpreter) callClosureValues(closure *Closure, args []Value) (Value, error) {
+	if closure == nil || closure.Fn == nil {
+		return NullValue(), fmt.Errorf("invalid closure")
+	}
+	fn := closure.Fn
+	result, err := i.callFunctionWithBinderResult(fn, len(args), nil, "", closure.Captures, func(idx int, param ast.Param) (*variableSlot, error) {
+		if idx >= len(args) {
+			if param.Default == nil {
+				return nil, fmt.Errorf("function %s expects at least %d arguments, got %d", fn.Name, i.requiredParamCount(fn), len(args))
+			}
+			value, err := i.eval(param.Default)
+			if err != nil {
+				return nil, err
+			}
+			return &variableSlot{value: value}, nil
+		}
+		if param.ByRef {
+			return nil, fmt.Errorf("argument %d for %s must be a variable passed by reference", idx+1, fn.Name)
+		}
+		return &variableSlot{value: args[idx]}, nil
+	})
+	return result.value, err
+}
+
 func (i *Interpreter) callClosureResult(closure *Closure, args []ast.Expr) (functionCallResult, error) {
 	if closure == nil || closure.Fn == nil {
 		return functionCallResult{}, fmt.Errorf("invalid closure")
@@ -3030,6 +3197,20 @@ func (i *Interpreter) callInvokableObject(obj *Object, args []ast.Expr) (Value, 
 	return i.callFunction(method, args, obj, obj.ClassName)
 }
 
+func (i *Interpreter) callInvokableObjectValues(obj *Object, args []Value) (Value, error) {
+	if obj == nil {
+		return NullValue(), fmt.Errorf("object is not callable")
+	}
+	method, ok := obj.Methods[methodNameKey("__invoke")]
+	if !ok {
+		return NullValue(), fmt.Errorf("object of class %s is not callable", obj.ClassName)
+	}
+	if err := i.checkMethodAccess(obj.ClassName, method); err != nil {
+		return NullValue(), err
+	}
+	return i.callFunctionValues(method, args, obj, obj.ClassName)
+}
+
 func (i *Interpreter) callMethodName(object ast.Expr, methodName string, args []ast.Expr) (Value, error) {
 	obj, err := i.eval(object)
 	if err != nil {
@@ -3038,28 +3219,58 @@ func (i *Interpreter) callMethodName(object ast.Expr, methodName string, args []
 	if obj.Kind != ObjectKind || obj.O == nil {
 		return NullValue(), fmt.Errorf("cannot call method %s on non-object", methodName)
 	}
-	if i.isExceptionObject(obj.O) {
-		if value, ok, err := i.callExceptionMethod(obj.O, methodName, args); ok || err != nil {
+	return i.callObjectMethodValue(obj.O, methodName, args)
+}
+
+func (i *Interpreter) callObjectMethodValue(obj *Object, methodName string, args []ast.Expr) (Value, error) {
+	if obj == nil {
+		return NullValue(), fmt.Errorf("cannot call method %s on non-object", methodName)
+	}
+	if i.isExceptionObject(obj) {
+		if value, ok, err := i.callExceptionMethod(obj, methodName, args); ok || err != nil {
 			return value, err
 		}
 	}
 	if strings.EqualFold(methodName, "__clone") {
 		return NullValue(), fmt.Errorf("cannot call __clone directly; use clone")
 	}
-	method, ok := obj.O.Methods[methodNameKey(methodName)]
+	method, ok := obj.Methods[methodNameKey(methodName)]
 	if !ok {
-		if methodName != "__call" && i.hasPublicMethod(obj.O, "__call") {
-			return i.callMagicCall(obj.O, methodName, args)
+		if methodName != "__call" && i.hasPublicMethod(obj, "__call") {
+			return i.callMagicCall(obj, methodName, args)
 		}
-		return NullValue(), fmt.Errorf("undefined method %s::%s", obj.O.ClassName, methodName)
+		return NullValue(), fmt.Errorf("undefined method %s::%s", obj.ClassName, methodName)
 	}
-	if err := i.checkMethodAccess(obj.O.ClassName, method); err != nil {
-		if methodName != "__call" && i.hasPublicMethod(obj.O, "__call") {
-			return i.callMagicCall(obj.O, methodName, args)
+	if err := i.checkMethodAccess(obj.ClassName, method); err != nil {
+		if methodName != "__call" && i.hasPublicMethod(obj, "__call") {
+			return i.callMagicCall(obj, methodName, args)
 		}
 		return NullValue(), err
 	}
-	return i.callFunction(method, args, obj.O, obj.O.ClassName)
+	return i.callFunction(method, args, obj, obj.ClassName)
+}
+
+func (i *Interpreter) callObjectMethodValueValues(obj *Object, methodName string, args []Value) (Value, error) {
+	if obj == nil {
+		return NullValue(), fmt.Errorf("cannot call method %s on non-object", methodName)
+	}
+	if strings.EqualFold(methodName, "__clone") {
+		return NullValue(), fmt.Errorf("cannot call __clone directly; use clone")
+	}
+	method, ok := obj.Methods[methodNameKey(methodName)]
+	if !ok {
+		if methodName != "__call" && i.hasPublicMethod(obj, "__call") {
+			return i.callMagicCallValues(obj, methodName, args)
+		}
+		return NullValue(), fmt.Errorf("undefined method %s::%s", obj.ClassName, methodName)
+	}
+	if err := i.checkMethodAccess(obj.ClassName, method); err != nil {
+		if methodName != "__call" && i.hasPublicMethod(obj, "__call") {
+			return i.callMagicCallValues(obj, methodName, args)
+		}
+		return NullValue(), err
+	}
+	return i.callFunctionValues(method, args, obj, obj.ClassName)
 }
 
 func (i *Interpreter) callStatic(n *ast.StaticCallExpr) (Value, error) {
@@ -3108,6 +3319,42 @@ func (i *Interpreter) callStaticName(staticClassName, methodName string, args []
 		return NullValue(), err
 	}
 	return i.callFunction(method, args, nil, className)
+}
+
+func (i *Interpreter) callStaticNameValues(staticClassName, methodName string, args []Value) (Value, error) {
+	className, err := i.resolveClassNameAutoload(staticClassName)
+	if err != nil {
+		return NullValue(), err
+	}
+	class, ok := i.classByName(className)
+	if !ok {
+		return NullValue(), fmt.Errorf("undefined class %s", className)
+	}
+	methods := i.methodsForClass(class)
+	method, ok := methods[methodNameKey(methodName)]
+	if !ok {
+		if i.hasPublicStaticMethod(methods, "__callStatic") {
+			return i.callMagicCallStaticValues(className, methods[methodNameKey("__callStatic")], methodName, args)
+		}
+		return NullValue(), fmt.Errorf("undefined static method %s::%s", className, methodName)
+	}
+	if !method.Static {
+		thisObj := i.currentThis()
+		if thisObj == nil {
+			return NullValue(), fmt.Errorf("method %s::%s is not static", className, methodName)
+		}
+		if err := i.checkMethodAccess(className, method); err != nil {
+			return NullValue(), err
+		}
+		return i.callFunctionValues(method, args, thisObj, thisObj.ClassName)
+	}
+	if err := i.checkMethodAccess(className, method); err != nil {
+		if methodName != "__callStatic" && i.hasPublicStaticMethod(methods, "__callStatic") {
+			return i.callMagicCallStaticValues(className, methods[methodNameKey("__callStatic")], methodName, args)
+		}
+		return NullValue(), err
+	}
+	return i.callFunctionValues(method, args, nil, className)
 }
 
 func (i *Interpreter) execSwitch(n *ast.SwitchStmt) (*returnSignal, error) {
@@ -4260,6 +4507,14 @@ func (i *Interpreter) callMagicCall(obj *Object, methodName string, args []ast.E
 	return i.callFunctionValues(obj.Methods[methodNameKey("__call")], []Value{StringValue(methodName), ArrayValue(values)}, obj, obj.ClassName)
 }
 
+func (i *Interpreter) callMagicCallValues(obj *Object, methodName string, args []Value) (Value, error) {
+	values := NewArray()
+	for _, arg := range args {
+		values.Append(arg)
+	}
+	return i.callFunctionValues(obj.Methods[methodNameKey("__call")], []Value{StringValue(methodName), ArrayValue(values)}, obj, obj.ClassName)
+}
+
 func (i *Interpreter) callMagicCallStatic(className string, method *ast.FunctionDeclStmt, methodName string, args []ast.Expr) (Value, error) {
 	values := NewArray()
 	for _, arg := range args {
@@ -4268,6 +4523,14 @@ func (i *Interpreter) callMagicCallStatic(className string, method *ast.Function
 			return NullValue(), err
 		}
 		values.Append(value)
+	}
+	return i.callFunctionValues(method, []Value{StringValue(methodName), ArrayValue(values)}, nil, className)
+}
+
+func (i *Interpreter) callMagicCallStaticValues(className string, method *ast.FunctionDeclStmt, methodName string, args []Value) (Value, error) {
+	values := NewArray()
+	for _, arg := range args {
+		values.Append(arg)
 	}
 	return i.callFunctionValues(method, []Value{StringValue(methodName), ArrayValue(values)}, nil, className)
 }

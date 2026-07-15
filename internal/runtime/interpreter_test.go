@@ -463,6 +463,22 @@ func TestInvokableObjectCallAndIsCallable(t *testing.T) {
 	}
 }
 
+func TestCallUserFuncForOOPCallables(t *testing.T) {
+	src := "<?php function cuf_label($value) { return 'fn:' . $value; } class CufBox { public function run($value) { return 'method:' . $value; } public static function stat($value) { return 'static:' . $value; } public function __call($name, $args) { return 'magic:' . $name . ':' . $args[0]; } public static function __callStatic($name, $args) { return 'magic-static:' . $name . ':' . $args[0]; } public function __invoke($value) { return 'invoke:' . $value; } } $box = new CufBox(); $closure = function($value) { return 'closure:' . $value; }; echo call_user_func('cuf_label', 'a'); echo ':'; echo call_user_func($closure, 'b'); echo ':'; echo call_user_func(array($box, 'run'), 'c'); echo ':'; echo call_user_func(array($box, 'missing'), 'd'); echo ':'; echo call_user_func('CufBox::stat', 'e'); echo ':'; echo call_user_func(array('CufBox', 'missingStatic'), 'f'); echo ':'; echo call_user_func($box, 'g');"
+	got := run(t, src)
+	if got != "fn:a:closure:b:method:c:magic:missing:d:static:e:magic-static:missingStatic:f:invoke:g" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestCallUserFuncArrayForOOPCallables(t *testing.T) {
+	src := "<?php function cufa_label($value) { return 'fn:' . $value; } class CufaBox { public function run($value) { return 'method:' . $value; } public static function stat($value) { return 'static:' . $value; } public function __call($name, $args) { return 'magic:' . $name . ':' . $args[0]; } public static function __callStatic($name, $args) { return 'magic-static:' . $name . ':' . $args[0]; } public function __invoke($value) { return 'invoke:' . $value; } } $box = new CufaBox(); $closure = function($value) { return 'closure:' . $value; }; echo call_user_func_array('cufa_label', array('a')); echo ':'; echo call_user_func_array($closure, array('b')); echo ':'; echo call_user_func_array(array($box, 'run'), array('c')); echo ':'; echo call_user_func_array(array($box, 'missing'), array('d')); echo ':'; echo call_user_func_array('CufaBox::stat', array('e')); echo ':'; echo call_user_func_array(array('CufaBox', 'missingStatic'), array('f')); echo ':'; echo call_user_func_array($box, array('g')); echo ':'; echo call_user_func_array('strlen', array('abcd'));"
+	got := run(t, src)
+	if got != "fn:a:closure:b:method:c:magic:missing:d:static:e:magic-static:missingStatic:f:invoke:g:4" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestThrowAndCatchException(t *testing.T) {
 	src := "<?php try { throw new Exception('boom'); } catch (Exception $e) { echo $e->getMessage(); } echo ' done';"
 	got := run(t, src)
