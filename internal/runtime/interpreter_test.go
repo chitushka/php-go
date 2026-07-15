@@ -306,6 +306,36 @@ func TestPrivateStaticPropertyAccessDeniedOutsideClass(t *testing.T) {
 	}
 }
 
+func TestCanWidenInheritedPropertyVisibility(t *testing.T) {
+	src := "<?php class Base { protected $value = 1; } class Child extends Base { public $value = 2; } $c = new Child(); echo $c->value;"
+	got := run(t, src)
+	if got != "2" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestCannotReduceInheritedPropertyVisibility(t *testing.T) {
+	err := runErr(t, "<?php class Base { public $value = 1; } class Child extends Base { protected $value = 2; }")
+	if err == nil || err.Error() != "cannot reduce visibility of inherited property Base::$value in Child" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCannotChangeInheritedPropertyStaticModifier(t *testing.T) {
+	err := runErr(t, "<?php class Base { public $value = 1; } class Child extends Base { public static $value = 2; }")
+	if err == nil || err.Error() != "cannot change static modifier of inherited property Base::$value in Child" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCanRedeclarePrivateParentProperty(t *testing.T) {
+	src := "<?php class Base { private $value = 1; } class Child extends Base { public $value = 2; } $c = new Child(); echo $c->value;"
+	got := run(t, src)
+	if got != "2" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestSelfStaticAccess(t *testing.T) {
 	src := "<?php class Counter { private static $count = 0; public static function inc() { self::$count = self::$count + 1; return self::$count; } } echo Counter::inc(); echo Counter::inc();"
 	got := run(t, src)

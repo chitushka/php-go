@@ -2901,6 +2901,12 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 			return fmt.Errorf("method %s::%s cannot be both final and abstract", class.Name, method.Name)
 		}
 	}
+	for _, prop := range class.Properties {
+		prop.Owner = class.Name
+		if prop.Visibility == "" {
+			prop.Visibility = "public"
+		}
+	}
 	if class.Parent != "" {
 		parent, ok := i.classes[class.Parent]
 		if !ok {
@@ -2917,14 +2923,16 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 				}
 			}
 		}
-	}
-	i.classes[class.Name] = class
-	for _, prop := range class.Properties {
-		prop.Owner = class.Name
-		if prop.Visibility == "" {
-			prop.Visibility = "public"
+		parentProperties := i.inheritedPropertiesForClass(parent)
+		for _, prop := range class.Properties {
+			if parentProp, ok := parentProperties[prop.Name]; ok {
+				if err := validatePropertyOverrideCompatibility(class.Name, prop, parentProp); err != nil {
+					return err
+				}
+			}
 		}
 	}
+	i.classes[class.Name] = class
 	if _, ok := i.constants[class.Name]; !ok {
 		i.constants[class.Name] = map[string]Value{}
 	}
@@ -2966,6 +2974,19 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 		if err := i.checkInterfaceImplementations(class); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func validatePropertyOverrideCompatibility(className string, prop, parentProp *ast.ClassProperty) error {
+	if parentProp.Visibility == "private" {
+		return nil
+	}
+	if prop.Static != parentProp.Static {
+		return fmt.Errorf("cannot change static modifier of inherited property %s::$%s in %s", parentProp.Owner, parentProp.Name, className)
+	}
+	if visibilityRank(prop.Visibility) < visibilityRank(parentProp.Visibility) {
+		return fmt.Errorf("cannot reduce visibility of inherited property %s::$%s in %s", parentProp.Owner, parentProp.Name, className)
 	}
 	return nil
 }
@@ -3032,6 +3053,24 @@ func visibilityRank(visibility string) int {
 	default:
 		return 0
 	}
+}
+
+func (i *Interpreter) inheritedPropertiesForClass(class *ast.ClassDeclStmt) map[string]*ast.ClassProperty {
+	properties := map[string]*ast.ClassProperty{}
+	if class.Parent != "" {
+		if parent, ok := i.classes[class.Parent]; ok {
+			for name, prop := range i.inheritedPropertiesForClass(parent) {
+				properties[name] = prop
+			}
+		}
+	}
+	for _, prop := range class.Properties {
+		if prop.Visibility == "private" {
+			continue
+		}
+		properties[prop.Name] = prop
+	}
+	return properties
 }
 
 func (i *Interpreter) defineInterface(iface *ast.InterfaceDeclStmt) error {

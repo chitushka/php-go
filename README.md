@@ -21,7 +21,7 @@
 - Ограниченные `include`, `require`, `include_once` и `require_once` для строковых путей, разрешаемых относительно текущего PHP-файла.
 - Базовые классы: `class`, `extends`, `new`, методы, `__construct`, `$this`, динамические свойства включая `$obj->$name`, `$obj->method()` и dynamic method calls (`$obj->$method()`), static methods/properties включая dynamic static member names (`Class::$$name`, `Class::$method()`).
 - Модификаторы `public`, `protected`, `private`, `static` для методов и свойств, включая runtime-проверку доступа.
-- `self::`, `parent::`, `static::`, late static binding для static members, а также базовые проверки `final`, `abstract` и совместимости inherited method visibility/static/signature override.
+- `self::`, `parent::`, `static::`, late static binding для static members, а также базовые проверки `final`, `abstract`, inherited method visibility/static/signature override и inherited property visibility/static compatibility.
 - `interface`, `extends` для интерфейсов, `implements` и runtime-проверка обязательных методов.
 - Class constants через `const NAME = ...`, доступ `Class::NAME`, `self::NAME`, `parent::NAME` и наследование констант.
 - Bare/runtime constants: bare-доступ `NAME`, `define()`, `defined()`, `constant()`, case-insensitive `define(..., true)` и fallback неизвестной bare-константы в строку имени.
@@ -45,5 +45,5 @@ go run ./cmd/php53test tests/phpt
 
 ## Следующие шаги переноса
 
-1. Следующий шаг: продолжить P2 PHP 5.3 method/property compatibility rules: property compatibility как отдельный vertical slice с PHPT-контрактом.
+1. Следующий шаг: продолжить P2 constructors/destructors: old-style constructors, `__destruct` и constructor inheritance как отдельные vertical slices с PHPT-контрактом.
 2. `declare`/`eval` отложены до отдельного решения; `eval` может остаться выключенным из-за security-модели.
