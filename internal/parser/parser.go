@@ -1072,28 +1072,42 @@ func (p *Parser) parseTryCatch() ast.Stmt {
 		return nil
 	}
 	tryBlock := p.parseBlock().(*ast.BlockStmt)
-	if !p.expectPeek(lexer.Catch) {
+	var catches []ast.CatchClause
+	for p.peek.Type == lexer.Catch {
+		p.next()
+		clause, ok := p.parseCatchClause()
+		if !ok {
+			return nil
+		}
+		catches = append(catches, clause)
+	}
+	if len(catches) == 0 {
+		p.errors = append(p.errors, "try expects at least one catch")
 		return nil
 	}
+	return &ast.TryCatchStmt{TryBlock: tryBlock, Catches: catches}
+}
+
+func (p *Parser) parseCatchClause() (ast.CatchClause, bool) {
 	if !p.expectPeek(lexer.LParen) {
-		return nil
+		return ast.CatchClause{}, false
 	}
 	if !p.expectPeek(lexer.Ident) {
-		return nil
+		return ast.CatchClause{}, false
 	}
 	catchClass := p.resolveClassName(p.cur.Literal)
 	if !p.expectPeek(lexer.Var) {
-		return nil
+		return ast.CatchClause{}, false
 	}
 	catchVar := p.cur.Literal
 	if !p.expectPeek(lexer.RParen) {
-		return nil
+		return ast.CatchClause{}, false
 	}
 	if !p.expectPeek(lexer.LBrace) {
-		return nil
+		return ast.CatchClause{}, false
 	}
 	catchBlock := p.parseBlock().(*ast.BlockStmt)
-	return &ast.TryCatchStmt{TryBlock: tryBlock, CatchClass: catchClass, CatchVar: catchVar, CatchBlock: catchBlock}
+	return ast.CatchClause{Class: catchClass, Var: catchVar, Block: catchBlock}, true
 }
 
 func (p *Parser) parseExprOrPropertyAssign() ast.Stmt {

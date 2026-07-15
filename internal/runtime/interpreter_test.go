@@ -216,6 +216,14 @@ func TestThrowAndCatchException(t *testing.T) {
 	}
 }
 
+func TestMultipleCatchChoosesFirstMatchingHandler(t *testing.T) {
+	src := "<?php class First extends Exception {} class Second extends Exception {} try { throw new Second('two'); } catch (First $e) { echo 'first'; } catch (Second $e) { echo $e->getMessage(); } catch (Exception $e) { echo 'base'; }"
+	got := run(t, src)
+	if got != "two" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestExceptionPropagatesFromFunction(t *testing.T) {
 	src := "<?php function fail() { throw new Exception('bad'); } try { fail(); echo 'no'; } catch (Exception $e) { echo $e->getMessage(); }"
 	got := run(t, src)

@@ -52,7 +52,7 @@ func NewInterpreterWithBaseDir(baseDir string) *Interpreter {
 		Vars:                        map[string]Value{},
 		globals:                     map[string]*variableSlot{},
 		functions:                   map[string]*ast.FunctionDeclStmt{},
-		classes:                     map[string]*ast.ClassDeclStmt{},
+		classes:                     map[string]*ast.ClassDeclStmt{"Exception": builtinExceptionClass()},
 		interfaces:                  map[string]*ast.InterfaceDeclStmt{},
 		constants:                   map[string]map[string]Value{},
 		runtimeConstants:            map[string]Value{},
@@ -65,6 +65,15 @@ func NewInterpreterWithBaseDir(baseDir string) *Interpreter {
 		baseDir:                     baseDir,
 		dirStack:                    []string{baseDir},
 		fileStack:                   []string{},
+	}
+}
+
+func builtinExceptionClass() *ast.ClassDeclStmt {
+	return &ast.ClassDeclStmt{
+		Name: "Exception",
+		Properties: []*ast.ClassProperty{
+			{Name: "message", Visibility: "private", Default: &ast.StringLit{Value: ""}, Owner: "Exception"},
+		},
 	}
 }
 
@@ -484,11 +493,14 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 		if !ok {
 			return nil, err
 		}
-		if !i.exceptionMatches(thrown.value, n.CatchClass) {
-			return nil, err
+		for _, catch := range n.Catches {
+			if !i.exceptionMatches(thrown.value, catch.Class) {
+				continue
+			}
+			i.setVar(catch.Var, thrown.value)
+			return i.exec(catch.Block)
 		}
-		i.setVar(n.CatchVar, thrown.value)
-		return i.exec(n.CatchBlock)
+		return nil, err
 	case *ast.ReturnStmt:
 		if n.Value == nil {
 			return &returnSignal{value: NullValue()}, nil
@@ -1593,6 +1605,10 @@ func (i *Interpreter) newObject(n *ast.NewExpr) (Value, error) {
 		if _, err := i.callFunction(constructor, n.Args, obj, obj.ClassName); err != nil {
 			return NullValue(), err
 		}
+	} else if i.isExceptionObject(obj) {
+		if err := i.initExceptionObject(obj, n.Args); err != nil {
+			return NullValue(), err
+		}
 	} else if len(n.Args) != 0 {
 		return NullValue(), fmt.Errorf("class %s has no constructor", n.ClassName)
 	}
@@ -1619,7 +1635,7 @@ func (i *Interpreter) callMethodName(object ast.Expr, methodName string, args []
 	if obj.Kind != ObjectKind || obj.O == nil {
 		return NullValue(), fmt.Errorf("cannot call method %s on non-object", methodName)
 	}
-	if obj.O.ClassName == "Exception" && methodName == "getMessage" {
+	if methodName == "getMessage" && i.isExceptionObject(obj.O) {
 		if len(args) != 0 {
 			return NullValue(), fmt.Errorf("Exception::getMessage expects 0 arguments, got %d", len(args))
 		}
@@ -2763,19 +2779,35 @@ func (i *Interpreter) callMagicCall(obj *Object, methodName string, args []ast.E
 }
 
 func (i *Interpreter) newException(args []ast.Expr) (Value, error) {
+	obj := NewObject("Exception", i.methodsForClass(i.classes["Exception"]), nil, nil)
+	if err := i.initExceptionObject(obj, args); err != nil {
+		return NullValue(), err
+	}
+	return ObjectValue(obj), nil
+}
+
+func (i *Interpreter) initExceptionObject(obj *Object, args []ast.Expr) error {
 	if len(args) > 1 {
-		return NullValue(), fmt.Errorf("Exception expects at most 1 argument, got %d", len(args))
+		return fmt.Errorf("Exception expects at most 1 argument, got %d", len(args))
 	}
 	message := StringValue("")
 	if len(args) == 1 {
 		value, err := i.eval(args[0])
 		if err != nil {
-			return NullValue(), err
+			return err
 		}
 		message = StringValue(value.String())
 	}
-	obj := NewObject("Exception", map[string]*ast.FunctionDeclStmt{}, map[string]Value{"message": message}, map[string]PropertyMeta{"message": {Owner: "Exception", Visibility: "private"}})
-	return ObjectValue(obj), nil
+	obj.Props["message"] = message
+	obj.PropMeta["message"] = PropertyMeta{Owner: "Exception", Visibility: "private"}
+	return nil
+}
+
+func (i *Interpreter) isExceptionObject(obj *Object) bool {
+	if obj == nil {
+		return false
+	}
+	return i.isSameOrSubclass(obj.ClassName, "Exception")
 }
 
 func (i *Interpreter) exceptionMatches(value Value, catchClass string) bool {

@@ -230,10 +230,14 @@ type ThrowStmt struct {
 func (*ThrowStmt) stmtNode() {}
 
 type TryCatchStmt struct {
-	TryBlock   *BlockStmt
-	CatchClass string
-	CatchVar   string
-	CatchBlock *BlockStmt
+	TryBlock *BlockStmt
+	Catches  []CatchClause
+}
+
+type CatchClause struct {
+	Class string
+	Var   string
+	Block *BlockStmt
 }
 
 func (*TryCatchStmt) stmtNode() {}
