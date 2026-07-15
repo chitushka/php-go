@@ -204,6 +204,58 @@ func TestConstructPreferredOverOldStyleConstructor(t *testing.T) {
 	}
 }
 
+func TestDestructorRunsAtShutdown(t *testing.T) {
+	src := "<?php class Box { function __destruct() { echo ' destruct'; } } $box = new Box(); echo 'body';"
+	got := run(t, src)
+	if got != "body destruct" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestDestructorsRunInReverseCreationOrder(t *testing.T) {
+	src := "<?php class Item { function __construct($name) { $this->name = $name; } function __destruct() { echo $this->name; } } $a = new Item('a'); $b = new Item('b'); echo 'body';"
+	got := run(t, src)
+	if got != "bodyba" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestInheritedDestructorRunsAtShutdown(t *testing.T) {
+	src := "<?php class Base { function __destruct() { echo 'base'; } } class Child extends Base {} $child = new Child(); echo 'body';"
+	got := run(t, src)
+	if got != "bodybase" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestDestructorRunsAfterExit(t *testing.T) {
+	p := parser.New(lexer.New("<?php class Box { function __destruct() { echo ' destruct'; } } $box = new Box(); echo 'body'; exit(' exit');"))
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i := runtime.NewInterpreter()
+	err := i.Run(program)
+	if exitErr, ok := err.(*runtime.ExitError); !ok || exitErr.Code != 0 {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := i.Out.String(); got != "body exit destruct" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestIncludedObjectDestructorRunsAtMainShutdown(t *testing.T) {
+	dir := t.TempDir()
+	src := "<?php class Included { function __destruct() { echo ' destruct'; } } $included = new Included(); echo 'include';"
+	if err := os.WriteFile(filepath.Join(dir, "included.php"), []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got := runFile(t, dir, "<?php include 'included.php'; echo ' main';")
+	if got != "include main destruct" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestObjectPropertyAssignmentOutsideClass(t *testing.T) {
 	src := "<?php class Box { function get() { return $this->value; } } $box = new Box(); $box->value = 4; echo $box->value; echo $box->get();"
 	got := run(t, src)

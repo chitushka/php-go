@@ -19,7 +19,7 @@
 - `isset` и `empty` выполняются как language constructs: аргументы проверяются без обычного предварительного вычисления, поддержаны несколько аргументов `isset`, nested array access, свойства и static-свойства.
 - Builtins вынесены в пакет `internal/runtime/builtins`; новые функции добавляются по функциональным файлам (`strings.go`, `arrays.go`, `filesystem.go`, `regex.go`, `json.go`, `hash.go`, `serialization.go`) и регистрируются в `registry.go`.
 - Ограниченные `include`, `require`, `include_once` и `require_once` для строковых путей, разрешаемых относительно текущего PHP-файла.
-- Базовые классы: `class`, `extends`, `new`, методы, `__construct`, old-style constructors, `$this`, динамические свойства включая `$obj->$name`, `$obj->method()` и dynamic method calls (`$obj->$method()`), static methods/properties включая dynamic static member names (`Class::$$name`, `Class::$method()`).
+- Базовые классы: `class`, `extends`, `new`, методы, `__construct`, old-style constructors, `__destruct`, `$this`, динамические свойства включая `$obj->$name`, `$obj->method()` и dynamic method calls (`$obj->$method()`), static methods/properties включая dynamic static member names (`Class::$$name`, `Class::$method()`).
 - Модификаторы `public`, `protected`, `private`, `static` для методов и свойств, включая runtime-проверку доступа.
 - `self::`, `parent::`, `static::`, late static binding для static members, а также базовые проверки `final`, `abstract`, inherited method visibility/static/signature override и inherited property visibility/static compatibility.
 - `interface`, `extends` для интерфейсов, `implements` и runtime-проверка обязательных методов.
@@ -45,5 +45,5 @@ go run ./cmd/php53test tests/phpt
 
 ## Следующие шаги переноса
 
-1. Следующий шаг: продолжить P2 constructors/destructors: `__destruct` и constructor inheritance edge cases как отдельные vertical slices с PHPT-контрактом.
+1. Следующий шаг: продолжить P2 More magic methods: `__isset`, `__unset`, `__callStatic`, `__clone`, `__sleep`, `__wakeup` как отдельные vertical slices с PHPT-контрактом.
 2. `declare`/`eval` отложены до отдельного решения; `eval` может остаться выключенным из-за security-модели.

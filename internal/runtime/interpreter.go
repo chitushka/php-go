@@ -37,6 +37,8 @@ type Interpreter struct {
 	baseDir                     string
 	dirStack                    []string
 	fileStack                   []string
+	objects                     []*Object
+	destructed                  map[*Object]bool
 	Out                         bytes.Buffer
 }
 
@@ -65,6 +67,7 @@ func NewInterpreterWithBaseDir(baseDir string) *Interpreter {
 		baseDir:                     baseDir,
 		dirStack:                    []string{baseDir},
 		fileStack:                   []string{},
+		destructed:                  map[*Object]bool{},
 	}
 }
 
@@ -89,6 +92,10 @@ func (i *Interpreter) SetEntryFile(path string) {
 }
 
 func (i *Interpreter) Run(p *ast.Program) error {
+	return i.runProgram(p, true)
+}
+
+func (i *Interpreter) runProgram(p *ast.Program, shutdown bool) error {
 	for _, s := range p.Statements {
 		if iface, ok := s.(*ast.InterfaceDeclStmt); ok {
 			if err := i.defineInterface(iface); err != nil {
@@ -120,8 +127,16 @@ func (i *Interpreter) Run(p *ast.Program) error {
 			continue
 		}
 		if _, err := i.exec(s); err != nil {
+			if _, ok := err.(*ExitError); ok && shutdown {
+				if shutdownErr := i.runDestructors(); shutdownErr != nil {
+					return shutdownErr
+				}
+			}
 			return err
 		}
+	}
+	if shutdown {
+		return i.runDestructors()
 	}
 	return nil
 }
@@ -1595,6 +1610,7 @@ func (i *Interpreter) newObject(n *ast.NewExpr) (Value, error) {
 		return NullValue(), err
 	}
 	obj := NewObject(class.Name, i.methodsForClass(class), props, meta)
+	i.trackObject(obj)
 	if constructor, ok := i.constructorForClass(class); ok {
 		if _, err := i.callFunction(constructor, n.Args, obj, obj.ClassName); err != nil {
 			return NullValue(), err
@@ -1607,6 +1623,41 @@ func (i *Interpreter) newObject(n *ast.NewExpr) (Value, error) {
 		return NullValue(), fmt.Errorf("class %s has no constructor", n.ClassName)
 	}
 	return ObjectValue(obj), nil
+}
+
+func (i *Interpreter) trackObject(obj *Object) {
+	if obj == nil {
+		return
+	}
+	i.objects = append(i.objects, obj)
+}
+
+func (i *Interpreter) runDestructors() error {
+	for {
+		obj := i.nextUndestructedObject()
+		if obj == nil {
+			return nil
+		}
+		i.destructed[obj] = true
+		destructor, ok := obj.Methods["__destruct"]
+		if !ok {
+			continue
+		}
+		if _, err := i.callFunction(destructor, nil, obj, obj.ClassName); err != nil {
+			return err
+		}
+	}
+}
+
+func (i *Interpreter) nextUndestructedObject() *Object {
+	for idx := len(i.objects) - 1; idx >= 0; idx-- {
+		obj := i.objects[idx]
+		if obj == nil || i.destructed[obj] {
+			continue
+		}
+		return obj
+	}
+	return nil
 }
 
 func (i *Interpreter) constructorForClass(class *ast.ClassDeclStmt) (*ast.FunctionDeclStmt, bool) {
@@ -3517,7 +3568,7 @@ func (i *Interpreter) include(path string, require bool, once bool) error {
 	}
 	i.dirStack = append(i.dirStack, filepath.Dir(resolved))
 	i.fileStack = append(i.fileStack, resolved)
-	err = i.Run(program)
+	err = i.runProgram(program, false)
 	i.fileStack = i.fileStack[:len(i.fileStack)-1]
 	i.dirStack = i.dirStack[:len(i.dirStack)-1]
 	return err
