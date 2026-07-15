@@ -970,6 +970,12 @@ func (i *Interpreter) callBuiltin(c *ast.CallExpr) (Value, bool, error) {
 		return i.callMethodExists(c.Args)
 	case "property_exists":
 		return i.callPropertyExists(c.Args)
+	case "get_parent_class":
+		return i.callGetParentClass(c.Args)
+	case "is_subclass_of":
+		return i.callIsSubclassOf(c.Args)
+	case "is_a":
+		return i.callIsA(c.Args)
 	}
 
 	if strings.EqualFold(c.Name, "preg_match") && len(c.Args) >= 3 {
@@ -1165,6 +1171,157 @@ func (i *Interpreter) callPropertyExists(args []ast.Expr) (Value, bool, error) {
 		return BoolValue(false), true, nil
 	}
 	return BoolValue(i.classDeclaresProperty(class, property)), true, nil
+}
+
+func (i *Interpreter) callGetParentClass(args []ast.Expr) (Value, bool, error) {
+	if len(args) > 1 {
+		return NullValue(), true, fmt.Errorf("get_parent_class expects 0 or 1 arguments, got %d", len(args))
+	}
+	var className string
+	if len(args) == 0 {
+		className = i.currentClass()
+		if className == "" {
+			return BoolValue(false), true, nil
+		}
+	} else {
+		value, err := i.eval(args[0])
+		if err != nil {
+			return NullValue(), true, err
+		}
+		switch value.Kind {
+		case ObjectKind:
+			if value.O == nil {
+				return BoolValue(false), true, nil
+			}
+			className = value.O.ClassName
+		case String:
+			className = value.String()
+			if err := i.autoloadClass(className); err != nil {
+				return NullValue(), true, err
+			}
+		default:
+			return BoolValue(false), true, nil
+		}
+	}
+	class, ok := i.classByName(className)
+	if !ok || class.Parent == "" {
+		return BoolValue(false), true, nil
+	}
+	return StringValue(class.Parent), true, nil
+}
+
+func (i *Interpreter) callIsSubclassOf(args []ast.Expr) (Value, bool, error) {
+	if len(args) < 2 || len(args) > 3 {
+		return NullValue(), true, fmt.Errorf("is_subclass_of expects 2 or 3 arguments, got %d", len(args))
+	}
+	target, err := i.eval(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	classValue, err := i.eval(args[1])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	allowString := true
+	if len(args) == 3 {
+		allowValue, err := i.eval(args[2])
+		if err != nil {
+			return NullValue(), true, err
+		}
+		allowString = allowValue.Truthy()
+	}
+	className, ok, err := i.classNameFromValue(target, allowString)
+	if err != nil {
+		return NullValue(), true, err
+	}
+	if !ok {
+		return BoolValue(false), true, nil
+	}
+	matches, err := i.classLikeMatches(className, classValue.String(), false)
+	if err != nil {
+		return NullValue(), true, err
+	}
+	return BoolValue(matches), true, nil
+}
+
+func (i *Interpreter) callIsA(args []ast.Expr) (Value, bool, error) {
+	if len(args) < 2 || len(args) > 3 {
+		return NullValue(), true, fmt.Errorf("is_a expects 2 or 3 arguments, got %d", len(args))
+	}
+	target, err := i.eval(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	classValue, err := i.eval(args[1])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	allowString := false
+	if len(args) == 3 {
+		allowValue, err := i.eval(args[2])
+		if err != nil {
+			return NullValue(), true, err
+		}
+		allowString = allowValue.Truthy()
+	}
+	className, ok, err := i.classNameFromValue(target, allowString)
+	if err != nil {
+		return NullValue(), true, err
+	}
+	if !ok {
+		return BoolValue(false), true, nil
+	}
+	matches, err := i.classLikeMatches(className, classValue.String(), true)
+	if err != nil {
+		return NullValue(), true, err
+	}
+	return BoolValue(matches), true, nil
+}
+
+func (i *Interpreter) classNameFromValue(value Value, allowString bool) (string, bool, error) {
+	if value.Kind == ObjectKind && value.O != nil {
+		return value.O.ClassName, true, nil
+	}
+	if value.Kind != String || !allowString {
+		return "", false, nil
+	}
+	name := value.String()
+	if err := i.autoloadClass(name); err != nil {
+		return "", false, err
+	}
+	if canonical, ok := i.classLikeName(name); ok {
+		return canonical, true, nil
+	}
+	return name, true, nil
+}
+
+func (i *Interpreter) classLikeMatches(className, targetName string, allowSame bool) (bool, error) {
+	if err := i.autoloadClass(targetName); err != nil {
+		return false, err
+	}
+	if allowSame && strings.EqualFold(className, targetName) {
+		return true, nil
+	}
+	if _, ok := i.classByName(targetName); ok {
+		return i.isStrictSubclassOf(className, targetName), nil
+	}
+	if _, ok := i.interfaceByName(targetName); ok {
+		if iface, classIsInterface := i.interfaceByName(className); classIsInterface {
+			if !allowSame && strings.EqualFold(iface.Name, targetName) {
+				return false, nil
+			}
+			return i.interfaceExtendsInterface(iface.Name, targetName), nil
+		}
+		return i.classImplementsInterface(className, targetName), nil
+	}
+	return false, nil
+}
+
+func (i *Interpreter) isStrictSubclassOf(className, ancestor string) bool {
+	if strings.EqualFold(className, ancestor) {
+		return false
+	}
+	return i.isSameOrSubclass(className, ancestor)
 }
 
 func (i *Interpreter) methodsForTarget(target Value) (map[string]*ast.FunctionDeclStmt, bool) {

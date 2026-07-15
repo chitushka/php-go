@@ -375,6 +375,18 @@ func TestOOPIntrospectionFunctions(t *testing.T) {
 	}
 }
 
+func TestOOPHierarchyIntrospectionFunctions(t *testing.T) {
+	dir := t.TempDir()
+	src := "<?php interface ParentContract {} interface ChildContract extends ParentContract {} class HierBase {} class HierChild extends HierBase implements ChildContract { public function parentName() { return get_parent_class(); } }"
+	if err := os.WriteFile(filepath.Join(dir, "hierarchy.php"), []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got := runFile(t, dir, "<?php function __autoload($class) { include 'hierarchy.php'; } $obj = new HierChild(); echo get_parent_class($obj); echo ':'; echo $obj->parentName(); echo ':'; echo is_subclass_of($obj, 'HierBase') ? 'y' : 'n'; echo ':'; echo is_subclass_of('HierChild', 'ParentContract') ? 'y' : 'n'; echo ':'; echo is_a($obj, 'HierChild') ? 'y' : 'n'; echo ':'; echo is_a('HierChild', 'HierBase') ? 'y' : 'n'; echo ':'; echo is_a('HierChild', 'HierBase', true) ? 'y' : 'n';")
+	if got != "HierBase:HierBase:y:y:y:n:y" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestThrowAndCatchException(t *testing.T) {
 	src := "<?php try { throw new Exception('boom'); } catch (Exception $e) { echo $e->getMessage(); } echo ' done';"
 	got := run(t, src)
