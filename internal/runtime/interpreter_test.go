@@ -679,6 +679,22 @@ func TestCloneRequiresObject(t *testing.T) {
 	}
 }
 
+func TestMagicSleepSelectsSerializedProperties(t *testing.T) {
+	src := "<?php class User { public $name = 'Ada'; public $secret = 'hidden'; public function __sleep() { return array('name'); } } $u = new User(); echo serialize($u);"
+	got := run(t, src)
+	if got != `O:4:"User":1:{s:4:"name";s:3:"Ada";}` {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestMagicWakeupRunsAfterUnserialize(t *testing.T) {
+	src := `<?php class User { public $name; public $ready = 'no'; public function __wakeup() { $this->ready = 'yes'; } } $u = unserialize('O:4:"User":1:{s:4:"name";s:3:"Ada";}'); echo $u->name; echo ':'; echo $u->ready;`
+	got := run(t, src)
+	if got != "Ada:yes" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestMagicToString(t *testing.T) {
 	src := "<?php class Label { public function __toString() { return 'label'; } } $label = new Label(); echo $label;"
 	got := run(t, src)

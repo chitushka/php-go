@@ -949,6 +949,10 @@ func (i *Interpreter) callBuiltin(c *ast.CallExpr) (Value, bool, error) {
 		return i.callDefined(c.Args)
 	case "constant":
 		return i.callConstant(c.Args)
+	case "serialize":
+		return i.callSerialize(c.Args)
+	case "unserialize":
+		return i.callUnserialize(c.Args)
 	}
 
 	if strings.EqualFold(c.Name, "preg_match") && len(c.Args) >= 3 {
@@ -1046,6 +1050,361 @@ func (i *Interpreter) callConstant(args []ast.Expr) (Value, bool, error) {
 		return NullValue(), true, fmt.Errorf("undefined constant %s", name.String())
 	}
 	return value, true, nil
+}
+
+func (i *Interpreter) callSerialize(args []ast.Expr) (Value, bool, error) {
+	if len(args) != 1 {
+		return NullValue(), true, fmt.Errorf("serialize expects 1 arguments, got %d", len(args))
+	}
+	value, err := i.eval(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	serialized, err := i.serializeValue(value)
+	if err != nil {
+		return NullValue(), true, err
+	}
+	return StringValue(serialized), true, nil
+}
+
+func (i *Interpreter) callUnserialize(args []ast.Expr) (Value, bool, error) {
+	if len(args) != 1 {
+		return NullValue(), true, fmt.Errorf("unserialize expects 1 arguments, got %d", len(args))
+	}
+	raw, err := i.eval(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	parser := runtimeSerializedParser{input: raw.String(), interp: i}
+	value, err := parser.parse()
+	if err != nil {
+		return NullValue(), true, err
+	}
+	return value, true, nil
+}
+
+func (i *Interpreter) serializeValue(value Value) (string, error) {
+	switch value.Kind {
+	case Null:
+		return "N;", nil
+	case Bool:
+		if value.B {
+			return "b:1;", nil
+		}
+		return "b:0;", nil
+	case Int:
+		return "i:" + strconv.FormatInt(value.I, 10) + ";", nil
+	case Float:
+		return "d:" + strconv.FormatFloat(value.F, 'f', -1, 64) + ";", nil
+	case String:
+		return `s:` + strconv.Itoa(len(value.S)) + `:"` + value.S + `";`, nil
+	case ArrayKind:
+		return i.serializeArray(value.A)
+	case ObjectKind:
+		return i.serializeObject(value.O)
+	default:
+		return "N;", nil
+	}
+}
+
+func (i *Interpreter) serializeArray(arr *Array) (string, error) {
+	if arr == nil {
+		return "a:0:{}", nil
+	}
+	var b strings.Builder
+	b.WriteString("a:")
+	b.WriteString(strconv.Itoa(len(arr.Entries)))
+	b.WriteString(":{")
+	for _, entry := range arr.Entries {
+		if entry.Key.IsInt {
+			b.WriteString("i:")
+			b.WriteString(strconv.FormatInt(entry.Key.Int, 10))
+			b.WriteString(";")
+		} else {
+			key, err := i.serializeValue(StringValue(entry.Key.Str))
+			if err != nil {
+				return "", err
+			}
+			b.WriteString(key)
+		}
+		value, err := i.serializeValue(entry.RuntimeValue())
+		if err != nil {
+			return "", err
+		}
+		b.WriteString(value)
+	}
+	b.WriteString("}")
+	return b.String(), nil
+}
+
+func (i *Interpreter) serializeObject(obj *Object) (string, error) {
+	if obj == nil {
+		return "N;", nil
+	}
+	props, err := i.serializableObjectProperties(obj)
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	b.WriteString("O:")
+	b.WriteString(strconv.Itoa(len(obj.ClassName)))
+	b.WriteString(`:"`)
+	b.WriteString(obj.ClassName)
+	b.WriteString(`":`)
+	b.WriteString(strconv.Itoa(len(props)))
+	b.WriteString(":{")
+	for _, prop := range props {
+		key, err := i.serializeValue(StringValue(prop.name))
+		if err != nil {
+			return "", err
+		}
+		value, err := i.serializeValue(prop.value)
+		if err != nil {
+			return "", err
+		}
+		b.WriteString(key)
+		b.WriteString(value)
+	}
+	b.WriteString("}")
+	return b.String(), nil
+}
+
+type serializedObjectProperty struct {
+	name  string
+	value Value
+}
+
+func (i *Interpreter) serializableObjectProperties(obj *Object) ([]serializedObjectProperty, error) {
+	if i.hasPublicMethod(obj, "__sleep") {
+		names, err := i.callFunctionValues(obj.Methods["__sleep"], nil, obj, obj.ClassName)
+		if err != nil {
+			return nil, err
+		}
+		if names.Kind != ArrayKind || names.A == nil {
+			return nil, fmt.Errorf("__sleep must return array")
+		}
+		props := make([]serializedObjectProperty, 0, len(names.A.Entries))
+		for _, entry := range names.A.Entries {
+			name := entry.RuntimeValue().String()
+			value, ok := obj.Props[name]
+			if !ok {
+				value = NullValue()
+			}
+			props = append(props, serializedObjectProperty{name: name, value: value})
+		}
+		return props, nil
+	}
+	props := make([]serializedObjectProperty, 0, len(obj.Props))
+	for name, value := range obj.Props {
+		props = append(props, serializedObjectProperty{name: name, value: value})
+	}
+	return props, nil
+}
+
+type runtimeSerializedParser struct {
+	input  string
+	pos    int
+	interp *Interpreter
+}
+
+func (p *runtimeSerializedParser) parse() (Value, error) {
+	if p.pos >= len(p.input) {
+		return NullValue(), fmt.Errorf("unexpected end of serialized value")
+	}
+	switch p.input[p.pos] {
+	case 'N':
+		p.pos += 2
+		return NullValue(), nil
+	case 'b':
+		n, err := p.readNumberAfterPrefix()
+		if err != nil {
+			return NullValue(), err
+		}
+		return BoolValue(n != 0), nil
+	case 'i':
+		n, err := p.readNumberAfterPrefix()
+		if err != nil {
+			return NullValue(), err
+		}
+		return IntValue(n), nil
+	case 'd':
+		raw, err := p.readRawAfterPrefix()
+		if err != nil {
+			return NullValue(), err
+		}
+		f, err := strconv.ParseFloat(raw, 64)
+		if err != nil {
+			return NullValue(), err
+		}
+		return FloatValue(f), nil
+	case 's':
+		return p.parseString()
+	case 'a':
+		return p.parseArray()
+	case 'O':
+		return p.parseObject()
+	default:
+		return NullValue(), fmt.Errorf("unsupported serialized type %q", p.input[p.pos])
+	}
+}
+
+func (p *runtimeSerializedParser) parseString() (Value, error) {
+	p.pos += 2
+	lengthText, err := p.readUntil(':')
+	if err != nil {
+		return NullValue(), err
+	}
+	length, err := strconv.Atoi(lengthText)
+	if err != nil {
+		return NullValue(), err
+	}
+	if err := p.expectByte('"'); err != nil {
+		return NullValue(), err
+	}
+	if p.pos+length > len(p.input) {
+		return NullValue(), fmt.Errorf("serialized string length out of range")
+	}
+	s := p.input[p.pos : p.pos+length]
+	p.pos += length
+	if err := p.expectByte('"'); err != nil {
+		return NullValue(), err
+	}
+	if err := p.expectByte(';'); err != nil {
+		return NullValue(), err
+	}
+	return StringValue(s), nil
+}
+
+func (p *runtimeSerializedParser) parseArray() (Value, error) {
+	p.pos += 2
+	countText, err := p.readUntil(':')
+	if err != nil {
+		return NullValue(), err
+	}
+	count, err := strconv.Atoi(countText)
+	if err != nil {
+		return NullValue(), err
+	}
+	if err := p.expectByte('{'); err != nil {
+		return NullValue(), err
+	}
+	arr := NewArray()
+	for idx := 0; idx < count; idx++ {
+		key, err := p.parse()
+		if err != nil {
+			return NullValue(), err
+		}
+		value, err := p.parse()
+		if err != nil {
+			return NullValue(), err
+		}
+		arr.Set(KeyFromValue(key), value)
+	}
+	if err := p.expectByte('}'); err != nil {
+		return NullValue(), err
+	}
+	return ArrayValue(arr), nil
+}
+
+func (p *runtimeSerializedParser) parseObject() (Value, error) {
+	p.pos += 2
+	lengthText, err := p.readUntil(':')
+	if err != nil {
+		return NullValue(), err
+	}
+	length, err := strconv.Atoi(lengthText)
+	if err != nil {
+		return NullValue(), err
+	}
+	if err := p.expectByte('"'); err != nil {
+		return NullValue(), err
+	}
+	if p.pos+length > len(p.input) {
+		return NullValue(), fmt.Errorf("serialized class name length out of range")
+	}
+	className := p.input[p.pos : p.pos+length]
+	p.pos += length
+	if err := p.expectByte('"'); err != nil {
+		return NullValue(), err
+	}
+	if err := p.expectByte(':'); err != nil {
+		return NullValue(), err
+	}
+	countText, err := p.readUntil(':')
+	if err != nil {
+		return NullValue(), err
+	}
+	count, err := strconv.Atoi(countText)
+	if err != nil {
+		return NullValue(), err
+	}
+	if err := p.expectByte('{'); err != nil {
+		return NullValue(), err
+	}
+	props := map[string]Value{}
+	meta := map[string]PropertyMeta{}
+	for idx := 0; idx < count; idx++ {
+		key, err := p.parse()
+		if err != nil {
+			return NullValue(), err
+		}
+		value, err := p.parse()
+		if err != nil {
+			return NullValue(), err
+		}
+		name := key.String()
+		props[name] = value
+		meta[name] = PropertyMeta{Owner: className, Visibility: "public"}
+	}
+	if err := p.expectByte('}'); err != nil {
+		return NullValue(), err
+	}
+	methods := map[string]*ast.FunctionDeclStmt{}
+	if class, ok := p.interp.classes[className]; ok {
+		methods = p.interp.methodsForClass(class)
+	}
+	obj := NewObject(className, methods, props, meta)
+	p.interp.trackObject(obj)
+	if p.interp.hasPublicMethod(obj, "__wakeup") {
+		if _, err := p.interp.callFunctionValues(obj.Methods["__wakeup"], nil, obj, obj.ClassName); err != nil {
+			return NullValue(), err
+		}
+	}
+	return ObjectValue(obj), nil
+}
+
+func (p *runtimeSerializedParser) readNumberAfterPrefix() (int64, error) {
+	raw, err := p.readRawAfterPrefix()
+	if err != nil {
+		return 0, err
+	}
+	return strconv.ParseInt(raw, 10, 64)
+}
+
+func (p *runtimeSerializedParser) readRawAfterPrefix() (string, error) {
+	p.pos += 2
+	return p.readUntil(';')
+}
+
+func (p *runtimeSerializedParser) readUntil(delim byte) (string, error) {
+	start := p.pos
+	for p.pos < len(p.input) && p.input[p.pos] != delim {
+		p.pos++
+	}
+	if p.pos >= len(p.input) {
+		return "", fmt.Errorf("delimiter %q not found", delim)
+	}
+	out := p.input[start:p.pos]
+	p.pos++
+	return out, nil
+}
+
+func (p *runtimeSerializedParser) expectByte(want byte) error {
+	if p.pos >= len(p.input) || p.input[p.pos] != want {
+		return fmt.Errorf("expected %q", want)
+	}
+	p.pos++
+	return nil
 }
 
 func (i *Interpreter) callIsset(args []ast.Expr) (Value, bool, error) {

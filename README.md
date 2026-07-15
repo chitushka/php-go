@@ -28,7 +28,7 @@
 - Magic constants: `__FILE__`, `__DIR__`, `__LINE__`, `__FUNCTION__`, `__CLASS__`, `__METHOD__`.
 - Namespaces/imports: базовые `namespace`, `use ... as ...`, leading `\`, `__NAMESPACE__`, namespaced functions/classes/constants и fallback namespaced function/constant lookup к global имени.
 - `instanceof` для классов, родителей и интерфейсов.
-- Magic methods `__get`, `__set`, `__isset`, `__unset`, `__call`, `__callStatic`, `__clone`, `__toString` для базового property/method overloading, клонирования и строкового вывода объектов.
+- Magic methods `__get`, `__set`, `__isset`, `__unset`, `__call`, `__callStatic`, `__clone`, `__sleep`, `__wakeup`, `__toString` для базового property/method overloading, клонирования, сериализации и строкового вывода объектов.
 - Исключения: `throw`, `try`, несколько `catch`-блоков, пользовательские классы-наследники встроенного `Exception` и минимальный `Exception::getMessage()`.
 - PHPT-подобный runner с секциями `--TEST--`, `--FILE--`, `--EXPECT--`, `--EXPECTF--`, `--EXPECTREGEX--`, `--SKIPIF--`, `--INI--`, `--CLEAN--`, `--EXIT_CODE--`, `--GET--`, `--POST--`, `--ENV--`, `--COOKIE--`, `--HEADERS--`.
 - SAPI-модель PHPT runner подготавливает `$_GET`, `$_POST`, `$_COOKIE`, `$_FILES`, `$_REQUEST`, `$_ENV`, `$_SERVER` с базовыми request/server/header полями; поддержаны синтетический `--FILES--`, `--POST_RAW--` multipart/form-data, nested upload names (`file[]`, `file[group][]`, `file[avatar][front]`), upload INI-лимиты (`post_max_size`, `upload_max_filesize`, `file_uploads`, `max_file_uploads`, `upload_tmp_dir`), RFC1867 `MAX_FILE_SIZE`/empty filename edge cases, `is_uploaded_file()` и `move_uploaded_file()`.
@@ -45,5 +45,5 @@ go run ./cmd/php53test tests/phpt
 
 ## Следующие шаги переноса
 
-1. Следующий шаг: продолжить P2 More magic methods: `__sleep` и `__wakeup` как отдельные vertical slices с PHPT-контрактом.
+1. Следующий шаг: продолжить P2 object model: dynamic class names in `new` как отдельный vertical slice с PHPT-контрактом.
 2. `declare`/`eval` отложены до отдельного решения; `eval` может остаться выключенным из-за security-модели.
