@@ -387,6 +387,18 @@ func TestOOPHierarchyIntrospectionFunctions(t *testing.T) {
 	}
 }
 
+func TestOOPHierarchyArrayIntrospectionFunctions(t *testing.T) {
+	dir := t.TempDir()
+	src := "<?php interface ParentContract {} interface ChildContract extends ParentContract {} class HierBase {} class HierChild extends HierBase implements ChildContract {}"
+	if err := os.WriteFile(filepath.Join(dir, "hierarchy_arrays.php"), []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got := runFile(t, dir, "<?php function __autoload($class) { include 'hierarchy_arrays.php'; } echo class_parents('HierChild', false) ? 'loaded' : 'missing'; echo ':'; $parents = class_parents('hierchild'); echo $parents['HierBase']; echo ':'; $interfaces = class_implements('HierChild'); echo $interfaces['ChildContract']; echo ':'; echo $interfaces['ParentContract']; echo ':'; $ifaceParents = class_implements('ChildContract'); echo $ifaceParents['ParentContract'];")
+	if got != "missing:HierBase:ChildContract:ParentContract:ParentContract" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestThrowAndCatchException(t *testing.T) {
 	src := "<?php try { throw new Exception('boom'); } catch (Exception $e) { echo $e->getMessage(); } echo ' done';"
 	got := run(t, src)

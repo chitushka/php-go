@@ -976,6 +976,10 @@ func (i *Interpreter) callBuiltin(c *ast.CallExpr) (Value, bool, error) {
 		return i.callIsSubclassOf(c.Args)
 	case "is_a":
 		return i.callIsA(c.Args)
+	case "class_parents":
+		return i.callClassParents(c.Args)
+	case "class_implements":
+		return i.callClassImplements(c.Args)
 	}
 
 	if strings.EqualFold(c.Name, "preg_match") && len(c.Args) >= 3 {
@@ -1276,6 +1280,131 @@ func (i *Interpreter) callIsA(args []ast.Expr) (Value, bool, error) {
 		return NullValue(), true, err
 	}
 	return BoolValue(matches), true, nil
+}
+
+func (i *Interpreter) callClassParents(args []ast.Expr) (Value, bool, error) {
+	if len(args) < 1 || len(args) > 2 {
+		return NullValue(), true, fmt.Errorf("class_parents expects 1 or 2 arguments, got %d", len(args))
+	}
+	target, err := i.eval(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	autoload := true
+	if len(args) == 2 {
+		autoloadValue, err := i.eval(args[1])
+		if err != nil {
+			return NullValue(), true, err
+		}
+		autoload = autoloadValue.Truthy()
+	}
+	className, ok, err := i.classNameFromIntrospectionValue(target, autoload)
+	if err != nil {
+		return NullValue(), true, err
+	}
+	if !ok {
+		return BoolValue(false), true, nil
+	}
+	class, ok := i.classByName(className)
+	if !ok {
+		return BoolValue(false), true, nil
+	}
+	parents := NewArray()
+	for class.Parent != "" {
+		parent, ok := i.classByName(class.Parent)
+		if !ok {
+			break
+		}
+		parents.Set(StringKey(parent.Name), StringValue(parent.Name))
+		class = parent
+	}
+	return ArrayValue(parents), true, nil
+}
+
+func (i *Interpreter) callClassImplements(args []ast.Expr) (Value, bool, error) {
+	if len(args) < 1 || len(args) > 2 {
+		return NullValue(), true, fmt.Errorf("class_implements expects 1 or 2 arguments, got %d", len(args))
+	}
+	target, err := i.eval(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	autoload := true
+	if len(args) == 2 {
+		autoloadValue, err := i.eval(args[1])
+		if err != nil {
+			return NullValue(), true, err
+		}
+		autoload = autoloadValue.Truthy()
+	}
+	name, ok, err := i.classNameFromIntrospectionValue(target, autoload)
+	if err != nil {
+		return NullValue(), true, err
+	}
+	if !ok {
+		return BoolValue(false), true, nil
+	}
+	interfaces := NewArray()
+	seen := map[string]bool{}
+	addInterface := func(interfaceName string) {}
+	addInterface = func(interfaceName string) {
+		iface, ok := i.interfaceByName(interfaceName)
+		if !ok {
+			return
+		}
+		key := classNameKey(iface.Name)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		interfaces.Set(StringKey(iface.Name), StringValue(iface.Name))
+		for _, parentName := range iface.Parents {
+			addInterface(parentName)
+		}
+	}
+	if iface, ok := i.interfaceByName(name); ok {
+		for _, parentName := range iface.Parents {
+			addInterface(parentName)
+		}
+		return ArrayValue(interfaces), true, nil
+	}
+	class, ok := i.classByName(name)
+	if !ok {
+		return BoolValue(false), true, nil
+	}
+	for class != nil {
+		for _, interfaceName := range class.Implements {
+			addInterface(interfaceName)
+		}
+		if class.Parent == "" {
+			break
+		}
+		parent, ok := i.classByName(class.Parent)
+		if !ok {
+			break
+		}
+		class = parent
+	}
+	return ArrayValue(interfaces), true, nil
+}
+
+func (i *Interpreter) classNameFromIntrospectionValue(value Value, autoload bool) (string, bool, error) {
+	if value.Kind == ObjectKind && value.O != nil {
+		return value.O.ClassName, true, nil
+	}
+	if value.Kind != String {
+		return "", false, nil
+	}
+	name := value.String()
+	if autoload {
+		if err := i.autoloadClass(name); err != nil {
+			return "", false, err
+		}
+	}
+	if canonical, ok := i.classLikeName(name); ok {
+		return canonical, true, nil
+	}
+	return name, true, nil
 }
 
 func (i *Interpreter) classNameFromValue(value Value, allowString bool) (string, bool, error) {
