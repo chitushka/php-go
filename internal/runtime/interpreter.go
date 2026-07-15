@@ -1565,13 +1565,7 @@ func (i *Interpreter) callFunctionWithBinderResult(fn *ast.FunctionDeclStmt, pro
 }
 
 func (i *Interpreter) requiredParamCount(fn *ast.FunctionDeclStmt) int {
-	required := 0
-	for _, param := range fn.Params {
-		if param.Default == nil {
-			required++
-		}
-	}
-	return required
+	return requiredParamCount(fn)
 }
 
 func functionKey(fn *ast.FunctionDeclStmt) string {
@@ -2989,7 +2983,42 @@ func validateMethodOverrideCompatibility(className string, method, parentMethod 
 	if visibilityRank(method.Visibility) < visibilityRank(parentMethod.Visibility) {
 		return fmt.Errorf("cannot reduce visibility of inherited method %s::%s in %s", parentMethod.Owner, parentMethod.Name, className)
 	}
+	if err := validateMethodSignatureCompatibility(className, method, parentMethod); err != nil {
+		return err
+	}
 	return nil
+}
+
+func validateMethodSignatureCompatibility(className string, method, prototype *ast.FunctionDeclStmt) error {
+	methodLabel := className + "::" + method.Name
+	prototypeLabel := prototype.Owner + "::" + prototype.Name
+	if len(method.Params) < len(prototype.Params) {
+		return fmt.Errorf("method %s must accept at least %d parameters to match %s", methodLabel, len(prototype.Params), prototypeLabel)
+	}
+	methodRequired := requiredParamCount(method)
+	prototypeRequired := requiredParamCount(prototype)
+	if methodRequired > prototypeRequired {
+		return fmt.Errorf("method %s cannot require %d parameters to match %s requiring %d", methodLabel, methodRequired, prototypeLabel, prototypeRequired)
+	}
+	for idx, prototypeParam := range prototype.Params {
+		if method.Params[idx].ByRef != prototypeParam.ByRef {
+			return fmt.Errorf("method %s parameter %d reference modifier must match %s", methodLabel, idx+1, prototypeLabel)
+		}
+	}
+	if method.ReturnsByRef != prototype.ReturnsByRef {
+		return fmt.Errorf("method %s return-by-reference modifier must match %s", methodLabel, prototypeLabel)
+	}
+	return nil
+}
+
+func requiredParamCount(fn *ast.FunctionDeclStmt) int {
+	required := 0
+	for _, param := range fn.Params {
+		if param.Default == nil {
+			required++
+		}
+	}
+	return required
 }
 
 func visibilityRank(visibility string) int {
@@ -3038,11 +3067,11 @@ func (i *Interpreter) checkInterfaceImplementations(class *ast.ClassDeclStmt) er
 			if !ok || method.Abstract {
 				return fmt.Errorf("class %s must implement interface method %s::%s", class.Name, ifaceName, name)
 			}
-			if len(method.Params) != len(ifaceMethod.Params) {
-				return fmt.Errorf("class %s method %s must have %d parameters for interface %s", class.Name, name, len(ifaceMethod.Params), ifaceName)
-			}
 			if method.Visibility != "" && method.Visibility != "public" {
 				return fmt.Errorf("class %s interface method %s must be public", class.Name, name)
+			}
+			if err := validateMethodSignatureCompatibility(class.Name, method, ifaceMethod); err != nil {
+				return err
 			}
 		}
 	}

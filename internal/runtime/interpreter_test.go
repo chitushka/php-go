@@ -366,6 +366,42 @@ func TestCannotChangeInheritedMethodStaticModifier(t *testing.T) {
 	}
 }
 
+func TestCanAddOptionalInheritedMethodParameter(t *testing.T) {
+	src := "<?php class Base { public function value($name) { return $name; } } class Child extends Base { public function value($name, $suffix = '!') { return $name . $suffix; } } $c = new Child(); echo $c->value('go'); echo $c->value('go', '?');"
+	got := run(t, src)
+	if got != "go!go?" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestCannotAddRequiredInheritedMethodParameter(t *testing.T) {
+	err := runErr(t, "<?php class Base { public function value($name) { return $name; } } class Child extends Base { public function value($name, $suffix) { return $name . $suffix; } }")
+	if err == nil || err.Error() != "method Child::value cannot require 2 parameters to match Base::value requiring 1" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCannotRemoveInheritedMethodParameter(t *testing.T) {
+	err := runErr(t, "<?php class Base { public function value($name, $suffix = '!') { return $name . $suffix; } } class Child extends Base { public function value($name) { return $name; } }")
+	if err == nil || err.Error() != "method Child::value must accept at least 2 parameters to match Base::value" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestInheritedMethodParameterReferenceModifierMustMatch(t *testing.T) {
+	err := runErr(t, "<?php class Base { public function value(&$name) { return $name; } } class Child extends Base { public function value($name) { return $name; } }")
+	if err == nil || err.Error() != "method Child::value parameter 1 reference modifier must match Base::value" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestInheritedMethodReturnByReferenceModifierMustMatch(t *testing.T) {
+	err := runErr(t, "<?php class Base { public function &value() { return $this->value; } } class Child extends Base { public function value() { return 1; } }")
+	if err == nil || err.Error() != "method Child::value return-by-reference modifier must match Base::value" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestAbstractClassCannotBeInstantiated(t *testing.T) {
 	err := runErr(t, "<?php abstract class Base { abstract public function value(); } $b = new Base();")
 	if err == nil || err.Error() != "cannot instantiate abstract class Base" {
@@ -384,6 +420,14 @@ func TestInterfaceImplementation(t *testing.T) {
 	src := "<?php interface Named { public function name(); } class User implements Named { public function name() { return 'Ada'; } } $u = new User(); echo $u->name();"
 	got := run(t, src)
 	if got != "Ada" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestInterfaceImplementationCanAddOptionalParameter(t *testing.T) {
+	src := "<?php interface Named { public function name($first); } class User implements Named { public function name($first, $last = '') { return $first . $last; } } $u = new User(); echo $u->name('Ada'); echo $u->name('Ada', ' Lovelace');"
+	got := run(t, src)
+	if got != "AdaAda Lovelace" {
 		t.Fatalf("got %q", got)
 	}
 }
