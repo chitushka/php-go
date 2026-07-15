@@ -883,6 +883,21 @@ func TestMagicCloneRunsOnClonedObject(t *testing.T) {
 	}
 }
 
+func TestPrivateCloneDeniedOutsideClass(t *testing.T) {
+	err := runErr(t, "<?php class Box { private function __clone() {} } $a = new Box(); $b = clone $a;")
+	if err == nil || err.Error() != "cannot access private method Box::__clone" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestPrivateCloneAllowedInsideClass(t *testing.T) {
+	src := "<?php class Box { public $value = 'old'; private function __clone() { $this->value = 'clone'; } public function copy() { return clone $this; } } $a = new Box(); $b = $a->copy(); echo $a->value; echo ':'; echo $b->value;"
+	got := run(t, src)
+	if got != "old:clone" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestCloneRequiresObject(t *testing.T) {
 	err := runErr(t, "<?php $x = clone 1;")
 	if err == nil || err.Error() != "clone expects object" {

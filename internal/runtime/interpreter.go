@@ -2762,6 +2762,9 @@ func (i *Interpreter) evalClone(expr ast.Expr) (Value, error) {
 	clone := i.cloneObject(value.O)
 	i.trackObject(clone)
 	if method, ok := clone.Methods[methodNameKey("__clone")]; ok {
+		if err := i.checkMethodAccess(clone.ClassName, method); err != nil {
+			return NullValue(), err
+		}
 		if _, err := i.callFunction(method, nil, clone, clone.ClassName); err != nil {
 			return NullValue(), err
 		}
