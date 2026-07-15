@@ -966,6 +966,8 @@ func (i *Interpreter) callBuiltin(c *ast.CallExpr) (Value, bool, error) {
 		return i.callInterfaceExists(c.Args)
 	case "get_class":
 		return i.callGetClass(c.Args)
+	case "get_called_class":
+		return i.callGetCalledClass(c.Args)
 	case "method_exists":
 		return i.callMethodExists(c.Args)
 	case "property_exists":
@@ -1122,6 +1124,16 @@ func (i *Interpreter) callGetClass(args []ast.Expr) (Value, bool, error) {
 		return NullValue(), true, fmt.Errorf("get_class expects object")
 	}
 	return StringValue(value.O.ClassName), true, nil
+}
+
+func (i *Interpreter) callGetCalledClass(args []ast.Expr) (Value, bool, error) {
+	if len(args) != 0 {
+		return NullValue(), true, fmt.Errorf("get_called_class expects 0 arguments, got %d", len(args))
+	}
+	if called := i.currentCalledClass(); called != "" {
+		return StringValue(called), true, nil
+	}
+	return NullValue(), true, fmt.Errorf("get_called_class used outside class context")
 }
 
 func (i *Interpreter) callMethodExists(args []ast.Expr) (Value, bool, error) {

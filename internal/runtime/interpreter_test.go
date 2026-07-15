@@ -567,6 +567,14 @@ func TestLateStaticAccess(t *testing.T) {
 	}
 }
 
+func TestGetCalledClass(t *testing.T) {
+	src := "<?php class Base { public static function who() { return get_called_class(); } public function instanceWho() { return get_called_class(); } } class Child extends Base {} $c = new Child(); echo Base::who(); echo ':'; echo Child::who(); echo ':'; echo $c->instanceWho();"
+	got := run(t, src)
+	if got != "Base:Child:Child" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestParentMethodCall(t *testing.T) {
 	src := "<?php class Base { protected function value() { return 4; } } class Child extends Base { public function value2() { return parent::value() * 2; } } $c = new Child(); echo $c->value2();"
 	got := run(t, src)
