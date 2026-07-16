@@ -826,6 +826,28 @@ func TestSerializationAndStringMagicDeclarationsAreValidated(t *testing.T) {
 	}
 }
 
+func TestCloneMagicDeclarationIsValidated(t *testing.T) {
+	cases := []struct {
+		src string
+		err string
+	}{
+		{
+			src: "<?php class StaticCloneMagic { public static function __clone() {} }",
+			err: "magic method StaticCloneMagic::__clone must not be static",
+		},
+		{
+			src: "<?php class BadCloneMagicArgs { private function __clone($name) {} }",
+			err: "magic method BadCloneMagicArgs::__clone must take exactly 0 arguments",
+		},
+	}
+	for _, tc := range cases {
+		err := runErr(t, tc.src)
+		if err == nil || err.Error() != tc.err {
+			t.Fatalf("for %q got %v", tc.src, err)
+		}
+	}
+}
+
 func TestPrivatePropertyAccessDeniedOutsideClass(t *testing.T) {
 	err := runErr(t, "<?php class Sample { private $a = 2; } $s = new Sample(); echo $s->a;")
 	if err == nil || err.Error() != "cannot access private property Sample::$a" {
