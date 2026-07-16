@@ -5023,6 +5023,9 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 		if method.Final && method.Abstract {
 			return fmt.Errorf("method %s::%s cannot be both final and abstract", class.Name, method.Name)
 		}
+		if method.Abstract && method.Visibility == "private" {
+			return fmt.Errorf("abstract method %s::%s cannot be private", class.Name, method.Name)
+		}
 	}
 	for _, prop := range class.Properties {
 		prop.Owner = class.Name
@@ -5245,6 +5248,9 @@ func (i *Interpreter) defineInterface(iface *ast.InterfaceDeclStmt) error {
 	}
 	for _, method := range iface.Methods {
 		method.Owner = iface.Name
+		if method.Visibility != "" && method.Visibility != "public" {
+			return fmt.Errorf("interface method %s::%s must be public", iface.Name, method.Name)
+		}
 		method.Visibility = "public"
 		method.Abstract = true
 		if err := validateFunctionCompatibility(method, "method "+iface.Name+"::"+method.Name); err != nil {

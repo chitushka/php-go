@@ -765,6 +765,13 @@ func TestConcreteClassMustImplementAbstractMethods(t *testing.T) {
 	}
 }
 
+func TestAbstractMethodCannotBePrivate(t *testing.T) {
+	err := runErr(t, "<?php abstract class Base { abstract private function value(); }")
+	if err == nil || err.Error() != "abstract method Base::value cannot be private" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestInterfaceImplementation(t *testing.T) {
 	src := "<?php interface Named { public function name(); } class User implements Named { public function name() { return 'Ada'; } } $u = new User(); echo $u->name();"
 	got := run(t, src)
@@ -814,6 +821,13 @@ func TestClassMustImplementInterfaceMethod(t *testing.T) {
 func TestInterfaceMethodMustBePublic(t *testing.T) {
 	err := runErr(t, "<?php interface Named { public function name(); } class User implements Named { protected function name() { return 'x'; } }")
 	if err == nil || err.Error() != "class User interface method name must be public" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestInterfaceDeclarationMethodMustBePublic(t *testing.T) {
+	err := runErr(t, "<?php interface Named { protected function name(); }")
+	if err == nil || err.Error() != "interface method Named::name must be public" {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
