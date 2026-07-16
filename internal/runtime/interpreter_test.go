@@ -288,6 +288,14 @@ func TestVariableVariableClassNameInNew(t *testing.T) {
 	}
 }
 
+func TestNewSelfParentAndStaticClassNames(t *testing.T) {
+	src := "<?php class BaseNew { public $name = 'base'; public function makeSelf() { return new self(); } public static function makeStatic() { return new static(); } } class ChildNew extends BaseNew { public $name = 'child'; public function makeParent() { return new parent(); } } $child = new ChildNew(); echo get_class($child->makeSelf()); echo ':'; echo get_class($child->makeParent()); echo ':'; echo get_class(ChildNew::makeStatic()); echo ':'; echo ChildNew::makeStatic()->name;"
+	got := run(t, src)
+	if got != "BaseNew:BaseNew:ChildNew:child" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestClassNamesAreCaseInsensitive(t *testing.T) {
 	src := "<?php class BaseCase { const KIND = 'base'; public static $count = 1; public function value() { return 'v'; } public static function bump() { self::$count = self::$count + 1; return self::$count; } } class ChildCase extends basecase {} $name = 'childcase'; $child = new $name(); echo $child instanceof CHILDCASE; echo ':'; echo childcase::KIND; echo ':'; echo CHILDCASE::BUMP(); echo ':'; echo $child instanceof BASECASE; echo ':'; echo $child->VALUE();"
 	got := run(t, src)

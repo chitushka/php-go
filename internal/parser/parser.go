@@ -1336,9 +1336,17 @@ func (p *Parser) parseStaticAccess() ast.Expr {
 func (p *Parser) parseNew() ast.Expr {
 	expr := &ast.NewExpr{Line: p.cur.Line}
 	switch p.peek.Type {
-	case lexer.Ident:
+	case lexer.Ident, lexer.Self, lexer.Parent, lexer.Static:
 		p.next()
 		expr.ClassName = p.resolveClassName(p.cur.Literal)
+		switch p.cur.Type {
+		case lexer.Self:
+			expr.ClassName = "self"
+		case lexer.Parent:
+			expr.ClassName = "parent"
+		case lexer.Static:
+			expr.ClassName = "static"
+		}
 	case lexer.Var:
 		p.next()
 		expr.ClassExpr = &ast.Ident{Name: p.cur.Literal}
