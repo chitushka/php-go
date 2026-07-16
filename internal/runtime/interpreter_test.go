@@ -204,6 +204,18 @@ func TestConstructPreferredOverOldStyleConstructor(t *testing.T) {
 	}
 }
 
+func TestOldStyleConstructorCannotBeStatic(t *testing.T) {
+	err := runErr(t, "<?php class StaticOldStyle { public static function StaticOldStyle() {} }")
+	if err == nil || err.Error() != "old-style constructor StaticOldStyle::StaticOldStyle must not be static" {
+		t.Fatalf("got %v", err)
+	}
+	src := "<?php class ModernWithStaticSameName { public static function ModernWithStaticSameName() { return 'static'; } public function __construct() { $this->value = 'modern'; } public function value() { return $this->value; } } $obj = new ModernWithStaticSameName(); echo $obj->value(); echo ':'; echo ModernWithStaticSameName::ModernWithStaticSameName();"
+	got := run(t, src)
+	if got != "modern:static" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestConstructorVisibility(t *testing.T) {
 	err := runErr(t, "<?php class HiddenCtor { private function __construct() {} } $box = new HiddenCtor();")
 	if err == nil || err.Error() != "cannot access private method HiddenCtor::__construct" {

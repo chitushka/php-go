@@ -3223,6 +3223,18 @@ func declaredMethod(class *ast.ClassDeclStmt, name string) (*ast.FunctionDeclStm
 	return nil, false
 }
 
+func classDeclaresMethod(class *ast.ClassDeclStmt, name string) bool {
+	if class == nil {
+		return false
+	}
+	_, ok := declaredMethod(class, name)
+	return ok
+}
+
+func isOldStyleConstructor(className, methodName string) bool {
+	return strings.EqualFold(methodName, namespaceBaseName(className))
+}
+
 func (i *Interpreter) callMethod(n *ast.MethodCallExpr) (Value, error) {
 	return i.callMethodName(n.Object, n.Method, n.Args)
 }
@@ -5043,6 +5055,7 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 	if class.Final && class.Abstract {
 		return fmt.Errorf("class %s cannot be both final and abstract", class.Name)
 	}
+	hasModernConstructor := classDeclaresMethod(class, "__construct")
 	seenMethods := map[string]string{}
 	for _, method := range class.Methods {
 		method.Owner = class.Name
@@ -5056,6 +5069,9 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 		}
 		if err := validateMagicMethodDeclaration(class.Name, method); err != nil {
 			return err
+		}
+		if !hasModernConstructor && isOldStyleConstructor(class.Name, method.Name) && method.Static {
+			return fmt.Errorf("old-style constructor %s::%s must not be static", class.Name, method.Name)
 		}
 		if err := validateFunctionCompatibility(method, "method "+class.Name+"::"+method.Name); err != nil {
 			return err
