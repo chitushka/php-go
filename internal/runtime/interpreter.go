@@ -5206,6 +5206,14 @@ func validateMagicMethodDeclaration(className string, method *ast.FunctionDeclSt
 		if method.Static {
 			return fmt.Errorf("magic method %s::__clone must not be static", className)
 		}
+	case "__construct":
+		if method.Static {
+			return fmt.Errorf("magic method %s::__construct must not be static", className)
+		}
+	case "__destruct":
+		if method.Static {
+			return fmt.Errorf("magic method %s::__destruct must not be static", className)
+		}
 	case "__call":
 		if method.Visibility != "public" {
 			return fmt.Errorf("magic method %s::__call must be public", className)
@@ -5237,6 +5245,8 @@ func magicMethodParamCount(name string) (int, bool) {
 		return 0, true
 	case "__clone":
 		return 0, true
+	case "__destruct":
+		return 0, true
 	default:
 		return 0, false
 	}
@@ -5264,6 +5274,10 @@ func magicMethodName(name string) string {
 		return "__toString"
 	case "__clone":
 		return "__clone"
+	case "__construct":
+		return "__construct"
+	case "__destruct":
+		return "__destruct"
 	default:
 		return name
 	}
