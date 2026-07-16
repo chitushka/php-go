@@ -832,6 +832,20 @@ func TestInterfaceDeclarationMethodMustBePublic(t *testing.T) {
 	}
 }
 
+func TestPropertyCannotBeAbstract(t *testing.T) {
+	err := runErr(t, "<?php abstract class Base { abstract public $value; }")
+	if err == nil || err.Error() != "property Base::$value cannot be abstract" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestPropertyCannotBeFinal(t *testing.T) {
+	err := runErr(t, "<?php class Base { final public $value; }")
+	if err == nil || err.Error() != "property Base::$value cannot be final" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestClassConstants(t *testing.T) {
 	src := "<?php class Config { const NAME = 'php'; const VERSION = 53; public function name() { return self::NAME; } } $c = new Config(); echo Config::VERSION; echo ':'; echo $c->name();"
 	got := run(t, src)

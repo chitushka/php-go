@@ -191,6 +191,8 @@ type ClassProperty struct {
 	Name       string
 	Visibility string
 	Static     bool
+	Final      bool
+	Abstract   bool
 	Default    Expr
 	Owner      string
 }

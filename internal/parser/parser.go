@@ -927,7 +927,7 @@ func (p *Parser) parseClassDecl(final bool, abstract bool) ast.Stmt {
 				class.Methods = append(class.Methods, method)
 			}
 		case lexer.Var:
-			class.Properties = append(class.Properties, p.parseClassProperty(visibility, static))
+			class.Properties = append(class.Properties, p.parseClassProperty(visibility, static, finalMember, abstractMember))
 		case lexer.Const:
 			class.Constants = append(class.Constants, p.parseClassConstants()...)
 		default:
@@ -1027,8 +1027,8 @@ func (p *Parser) parseMemberModifiers() (string, bool, bool, bool) {
 	}
 }
 
-func (p *Parser) parseClassProperty(visibility string, static bool) *ast.ClassProperty {
-	prop := &ast.ClassProperty{Name: p.cur.Literal, Visibility: visibility, Static: static}
+func (p *Parser) parseClassProperty(visibility string, static bool, final bool, abstract bool) *ast.ClassProperty {
+	prop := &ast.ClassProperty{Name: p.cur.Literal, Visibility: visibility, Static: static, Final: final, Abstract: abstract}
 	if p.peek.Type == lexer.Assign {
 		p.next()
 		p.next()

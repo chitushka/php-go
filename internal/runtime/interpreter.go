@@ -5032,6 +5032,12 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 		if prop.Visibility == "" {
 			prop.Visibility = "public"
 		}
+		if prop.Abstract {
+			return fmt.Errorf("property %s::$%s cannot be abstract", class.Name, prop.Name)
+		}
+		if prop.Final {
+			return fmt.Errorf("property %s::$%s cannot be final", class.Name, prop.Name)
+		}
 	}
 	if class.Parent != "" {
 		if err := i.autoloadClass(class.Parent); err != nil {
