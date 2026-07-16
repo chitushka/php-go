@@ -204,6 +204,26 @@ func TestConstructPreferredOverOldStyleConstructor(t *testing.T) {
 	}
 }
 
+func TestConstructorVisibility(t *testing.T) {
+	err := runErr(t, "<?php class HiddenCtor { private function __construct() {} } $box = new HiddenCtor();")
+	if err == nil || err.Error() != "cannot access private method HiddenCtor::__construct" {
+		t.Fatalf("got %v", err)
+	}
+	err = runErr(t, "<?php class HiddenOldCtor { private function HiddenOldCtor() {} } $box = new HiddenOldCtor();")
+	if err == nil || err.Error() != "cannot access private method HiddenOldCtor::HiddenOldCtor" {
+		t.Fatalf("got %v", err)
+	}
+	err = runErr(t, "<?php class ProtectedCtor { protected function __construct() {} } $box = new ProtectedCtor();")
+	if err == nil || err.Error() != "cannot access protected method ProtectedCtor::__construct" {
+		t.Fatalf("got %v", err)
+	}
+	src := "<?php class PrivateFactory { private function __construct() { $this->value = 'private'; } public static function create() { return new self(); } public function value() { return $this->value; } } class ProtectedBaseFactory { protected function __construct() { $this->value = 'protected'; } } class ProtectedChildFactory extends ProtectedBaseFactory { public static function create() { return new self(); } public function value() { return $this->value; } } echo PrivateFactory::create()->value(); echo ':'; echo ProtectedChildFactory::create()->value();"
+	got := run(t, src)
+	if got != "private:protected" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestDestructorRunsAtShutdown(t *testing.T) {
 	src := "<?php class Box { function __destruct() { echo ' destruct'; } } $box = new Box(); echo 'body';"
 	got := run(t, src)

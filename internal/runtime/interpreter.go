@@ -3092,6 +3092,9 @@ func (i *Interpreter) newObject(n *ast.NewExpr) (Value, error) {
 	obj := NewObject(class.Name, i.methodsForClass(class), props, meta)
 	i.trackObject(obj)
 	if constructor, ok := i.constructorForClass(class); ok {
+		if err := i.checkMethodAccess(class.Name, constructor); err != nil {
+			return NullValue(), err
+		}
 		if _, err := i.callFunction(constructor, n.Args, obj, obj.ClassName); err != nil {
 			return NullValue(), err
 		}
