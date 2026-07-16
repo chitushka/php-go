@@ -983,12 +983,12 @@ func (p *Parser) parseInterfaceDecl() ast.Stmt {
 	iface := &ast.InterfaceDeclStmt{Name: name, Parents: parents}
 	p.next()
 	for p.cur.Type != lexer.RBrace && p.cur.Type != lexer.EOF {
-		visibility, static, _, _ := p.parseMemberModifiers()
+		visibility, static, finalMember, _ := p.parseMemberModifiers()
 		switch p.cur.Type {
 		case lexer.Const:
 			iface.Constants = append(iface.Constants, p.parseClassConstants()...)
 		case lexer.Function:
-			method, ok := p.parseFunctionDeclFull(visibility, static, false, true, false).(*ast.FunctionDeclStmt)
+			method, ok := p.parseFunctionDeclFull(visibility, static, finalMember, true, false).(*ast.FunctionDeclStmt)
 			if ok && method != nil {
 				iface.Methods = append(iface.Methods, method)
 			}

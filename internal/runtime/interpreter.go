@@ -5257,6 +5257,9 @@ func (i *Interpreter) defineInterface(iface *ast.InterfaceDeclStmt) error {
 		if method.Visibility != "" && method.Visibility != "public" {
 			return fmt.Errorf("interface method %s::%s must be public", iface.Name, method.Name)
 		}
+		if method.Final {
+			return fmt.Errorf("interface method %s::%s cannot be final", iface.Name, method.Name)
+		}
 		method.Visibility = "public"
 		method.Abstract = true
 		if err := validateFunctionCompatibility(method, "method "+iface.Name+"::"+method.Name); err != nil {

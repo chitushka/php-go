@@ -832,6 +832,13 @@ func TestInterfaceDeclarationMethodMustBePublic(t *testing.T) {
 	}
 }
 
+func TestInterfaceMethodCannotBeFinal(t *testing.T) {
+	err := runErr(t, "<?php interface Named { final public function name(); }")
+	if err == nil || err.Error() != "interface method Named::name cannot be final" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestPropertyCannotBeAbstract(t *testing.T) {
 	err := runErr(t, "<?php abstract class Base { abstract public $value; }")
 	if err == nil || err.Error() != "property Base::$value cannot be abstract" {
