@@ -204,10 +204,11 @@ type thrownError struct {
 
 func (e *thrownError) Error() string {
 	if e.value.Kind == ObjectKind && e.value.O != nil {
-		if message, ok := e.value.O.Props["message"]; ok {
-			return "uncaught " + e.value.O.ClassName + ": " + message.String()
+		message := exceptionProperty(e.value.O, "message", NullValue())
+		if message.Kind == Null {
+			return "uncaught " + e.value.O.ClassName
 		}
-		return "uncaught " + e.value.O.ClassName
+		return "uncaught " + e.value.O.ClassName + ": " + message.String()
 	}
 	return "uncaught non-object"
 }
@@ -1187,7 +1188,7 @@ func (i *Interpreter) callGetObjectVars(args []ast.Expr) (Value, bool, error) {
 		if hasMeta && !i.propertyAccessible(info) {
 			continue
 		}
-		result.Set(StringKey(name), value.O.Props[name])
+		result.Set(StringKey(propertyNameForKey(name, info)), value.O.Props[name])
 	}
 	return ArrayValue(result), true, nil
 }
@@ -1209,10 +1210,13 @@ func (i *Interpreter) callGetClassMethods(args []ast.Expr) (Value, bool, error) 
 	if !ok {
 		return BoolValue(false), true, nil
 	}
+	seen := map[string]bool{}
 	names := make([]string, 0, len(methods))
 	for _, method := range methods {
-		if i.methodAccessible(method) {
+		key := methodNameKey(method.Name)
+		if i.methodAccessible(method) && !seen[key] {
 			names = append(names, method.Name)
+			seen[key] = true
 		}
 	}
 	sort.Strings(names)
@@ -1251,7 +1255,7 @@ func (i *Interpreter) callGetClassVars(args []ast.Expr) (Value, bool, error) {
 			if info, ok := i.staticMeta[current.Name][name]; ok {
 				meta[name] = info
 			} else {
-				meta[name] = PropertyMeta{Owner: current.Name, Visibility: "public", Static: true}
+				meta[name] = PropertyMeta{Owner: current.Name, Name: name, Visibility: "public", Static: true}
 			}
 		}
 	}
@@ -1264,7 +1268,7 @@ func (i *Interpreter) callGetClassVars(args []ast.Expr) (Value, bool, error) {
 	sort.Strings(names)
 	result := NewArray()
 	for _, name := range names {
-		result.Set(StringKey(name), props[name])
+		result.Set(StringKey(propertyNameForKey(name, meta[name])), props[name])
 	}
 	return ArrayValue(result), true, nil
 }
@@ -1404,7 +1408,7 @@ func (i *Interpreter) isCallableValue(value Value) bool {
 		if value.O == nil {
 			return false
 		}
-		method, ok := value.O.Methods[methodNameKey("__invoke")]
+		method, ok := i.objectMethod(value.O, "__invoke")
 		return ok && i.methodAccessible(method)
 	case String:
 		name := value.String()
@@ -1431,7 +1435,7 @@ func (i *Interpreter) isCallableValue(value Value) bool {
 			if target.O == nil {
 				return false
 			}
-			if method, ok := target.O.Methods[methodNameKey(methodName)]; ok && i.methodAccessible(method) {
+			if method, ok := i.objectMethod(target.O, methodName); ok && i.methodAccessible(method) {
 				return true
 			}
 			return i.hasPublicMethod(target.O, "__call")
@@ -1458,7 +1462,7 @@ func (i *Interpreter) isCallableStaticMethod(className, methodName string) bool 
 		return false
 	}
 	methods := i.methodsForClass(class)
-	if method, ok := methods[methodNameKey(methodName)]; ok {
+	if method, ok := i.staticMethod(methods, resolved, methodName); ok {
 		return method.Static && i.methodAccessible(method)
 	}
 	return i.hasPublicStaticMethod(methods, "__callStatic")
@@ -1655,8 +1659,7 @@ func (i *Interpreter) callMethodExists(args []ast.Expr) (Value, bool, error) {
 	if !ok {
 		return BoolValue(false), true, nil
 	}
-	_, exists := methods[methodNameKey(methodValue.String())]
-	return BoolValue(exists), true, nil
+	return BoolValue(methodMapHasName(methods, methodValue.String())), true, nil
 }
 
 func (i *Interpreter) callPropertyExists(args []ast.Expr) (Value, bool, error) {
@@ -1673,7 +1676,7 @@ func (i *Interpreter) callPropertyExists(args []ast.Expr) (Value, bool, error) {
 	}
 	property := propertyValue.String()
 	if target.Kind == ObjectKind && target.O != nil {
-		if _, ok := target.O.Props[property]; ok {
+		if _, _, _, ok, inaccessible := i.objectProperty(target.O, property); ok || inaccessible {
 			return BoolValue(true), true, nil
 		}
 		class, ok := i.classByName(target.O.ClassName)
@@ -2178,19 +2181,32 @@ func (i *Interpreter) serializableObjectProperties(obj *Object) ([]serializedObj
 		props := make([]serializedObjectProperty, 0, len(names.A.Entries))
 		for _, entry := range names.A.Entries {
 			name := entry.RuntimeValue().String()
-			value, ok := obj.Props[name]
+			_, value, info, ok, _ := i.objectProperty(obj, name)
 			if !ok {
 				value = NullValue()
 			}
-			props = append(props, serializedObjectProperty{name: name, value: value})
+			props = append(props, serializedObjectProperty{name: serializedObjectPropertyName(name, info), value: value})
 		}
 		return props, nil
 	}
 	props := make([]serializedObjectProperty, 0, len(obj.Props))
 	for name, value := range obj.Props {
-		props = append(props, serializedObjectProperty{name: name, value: value})
+		props = append(props, serializedObjectProperty{name: serializedObjectPropertyName(name, obj.PropMeta[name]), value: value})
 	}
 	return props, nil
+}
+
+func serializedObjectPropertyName(key string, info PropertyMeta) string {
+	name := propertyNameForKey(key, info)
+	switch info.Visibility {
+	case "private":
+		if info.Owner != "" {
+			return "\x00" + info.Owner + "\x00" + name
+		}
+	case "protected":
+		return "\x00*\x00" + name
+	}
+	return name
 }
 
 type runtimeSerializedParser struct {
@@ -2344,9 +2360,9 @@ func (p *runtimeSerializedParser) parseObject() (Value, error) {
 		if err != nil {
 			return NullValue(), err
 		}
-		name := key.String()
+		name, info := unserializedObjectProperty(className, key.String())
 		props[name] = value
-		meta[name] = PropertyMeta{Owner: className, Visibility: "public"}
+		meta[name] = info
 	}
 	if err := p.expectByte('}'); err != nil {
 		return NullValue(), err
@@ -2364,6 +2380,20 @@ func (p *runtimeSerializedParser) parseObject() (Value, error) {
 		}
 	}
 	return ObjectValue(obj), nil
+}
+
+func unserializedObjectProperty(className, raw string) (string, PropertyMeta) {
+	if strings.HasPrefix(raw, "\x00") {
+		rest := strings.TrimPrefix(raw, "\x00")
+		owner, name, ok := strings.Cut(rest, "\x00")
+		if ok {
+			if owner == "*" {
+				return name, PropertyMeta{Owner: className, Name: name, Visibility: "protected"}
+			}
+			return propertyStorageKey(owner, "private", name), PropertyMeta{Owner: owner, Name: name, Visibility: "private"}
+		}
+	}
+	return raw, PropertyMeta{Owner: className, Name: raw, Visibility: "public"}
 }
 
 func (p *runtimeSerializedParser) readNumberAfterPrefix() (int64, error) {
@@ -2569,13 +2599,14 @@ func (i *Interpreter) fetchProperty(object ast.Expr, property string) (Value, er
 	if obj.Kind != ObjectKind || obj.O == nil {
 		return NullValue(), fmt.Errorf("cannot fetch property %s on non-object", property)
 	}
-	if err := i.checkPropertyAccess(obj.O, property); err != nil {
+	_, value, info, ok, inaccessible := i.objectProperty(obj.O, property)
+	if inaccessible {
 		if i.hasPublicMethod(obj.O, "__get") {
 			return i.callMagicGet(obj.O, property)
 		}
-		return NullValue(), err
+		return NullValue(), fmt.Errorf("cannot access %s property %s::$%s", info.Visibility, info.Owner, property)
 	}
-	if value, ok := obj.O.Props[property]; ok {
+	if ok {
 		return value, nil
 	}
 	if i.shouldUseGet(obj.O) {
@@ -3088,7 +3119,7 @@ func (i *Interpreter) evalClone(expr ast.Expr) (Value, error) {
 	}
 	clone := i.cloneObject(value.O)
 	i.trackObject(clone)
-	if method, ok := clone.Methods[methodNameKey("__clone")]; ok {
+	if method, ok := i.objectMethod(clone, "__clone"); ok {
 		if err := i.checkMethodAccess(clone.ClassName, method); err != nil {
 			return NullValue(), err
 		}
@@ -3120,7 +3151,7 @@ func (i *Interpreter) runDestructors() error {
 			return nil
 		}
 		i.destructed[obj] = true
-		destructor, ok := obj.Methods[methodNameKey("__destruct")]
+		destructor, ok := i.objectMethod(obj, "__destruct")
 		if !ok {
 			continue
 		}
@@ -3187,7 +3218,7 @@ func (i *Interpreter) callInvokableObject(obj *Object, args []ast.Expr) (Value, 
 	if obj == nil {
 		return NullValue(), fmt.Errorf("object is not callable")
 	}
-	method, ok := obj.Methods[methodNameKey("__invoke")]
+	method, ok := i.objectMethod(obj, "__invoke")
 	if !ok {
 		return NullValue(), fmt.Errorf("object of class %s is not callable", obj.ClassName)
 	}
@@ -3201,7 +3232,7 @@ func (i *Interpreter) callInvokableObjectValues(obj *Object, args []Value) (Valu
 	if obj == nil {
 		return NullValue(), fmt.Errorf("object is not callable")
 	}
-	method, ok := obj.Methods[methodNameKey("__invoke")]
+	method, ok := i.objectMethod(obj, "__invoke")
 	if !ok {
 		return NullValue(), fmt.Errorf("object of class %s is not callable", obj.ClassName)
 	}
@@ -3234,7 +3265,7 @@ func (i *Interpreter) callObjectMethodValue(obj *Object, methodName string, args
 	if strings.EqualFold(methodName, "__clone") {
 		return NullValue(), fmt.Errorf("cannot call __clone directly; use clone")
 	}
-	method, ok := obj.Methods[methodNameKey(methodName)]
+	method, ok := i.objectMethod(obj, methodName)
 	if !ok {
 		if methodName != "__call" && i.hasPublicMethod(obj, "__call") {
 			return i.callMagicCall(obj, methodName, args)
@@ -3257,7 +3288,7 @@ func (i *Interpreter) callObjectMethodValueValues(obj *Object, methodName string
 	if strings.EqualFold(methodName, "__clone") {
 		return NullValue(), fmt.Errorf("cannot call __clone directly; use clone")
 	}
-	method, ok := obj.Methods[methodNameKey(methodName)]
+	method, ok := i.objectMethod(obj, methodName)
 	if !ok {
 		if methodName != "__call" && i.hasPublicMethod(obj, "__call") {
 			return i.callMagicCallValues(obj, methodName, args)
@@ -3295,7 +3326,7 @@ func (i *Interpreter) callStaticName(staticClassName, methodName string, args []
 		return NullValue(), fmt.Errorf("undefined class %s", className)
 	}
 	methods := i.methodsForClass(class)
-	method, ok := methods[methodNameKey(methodName)]
+	method, ok := i.staticMethod(methods, className, methodName)
 	if !ok {
 		if i.hasPublicStaticMethod(methods, "__callStatic") {
 			return i.callMagicCallStatic(className, methods[methodNameKey("__callStatic")], methodName, args)
@@ -3331,7 +3362,7 @@ func (i *Interpreter) callStaticNameValues(staticClassName, methodName string, a
 		return NullValue(), fmt.Errorf("undefined class %s", className)
 	}
 	methods := i.methodsForClass(class)
-	method, ok := methods[methodNameKey(methodName)]
+	method, ok := i.staticMethod(methods, className, methodName)
 	if !ok {
 		if i.hasPublicStaticMethod(methods, "__callStatic") {
 			return i.callMagicCallStaticValues(className, methods[methodNameKey("__callStatic")], methodName, args)
@@ -3856,18 +3887,22 @@ func (i *Interpreter) assignProperty(object ast.Expr, property string, value Val
 	if obj.Kind != ObjectKind || obj.O == nil {
 		return fmt.Errorf("cannot assign property %s on non-object", property)
 	}
-	if err := i.checkPropertyAccess(obj.O, property); err != nil {
+	key, _, info, ok, inaccessible := i.objectProperty(obj.O, property)
+	if inaccessible {
 		if i.hasPublicMethod(obj.O, "__set") {
 			_, callErr := i.callMagicSet(obj.O, property, value)
 			return callErr
 		}
-		return err
+		return fmt.Errorf("cannot access %s property %s::$%s", info.Visibility, info.Owner, property)
 	}
-	if _, ok := obj.O.Props[property]; !ok && i.shouldUseSet(obj.O) {
+	if !ok && i.shouldUseSet(obj.O) {
 		_, callErr := i.callMagicSet(obj.O, property, value)
 		return callErr
 	}
-	obj.O.Props[property] = value
+	if key == "" {
+		key = property
+	}
+	obj.O.Props[key] = value
 	return nil
 }
 
@@ -3952,18 +3987,22 @@ func (i *Interpreter) unsetProperty(object ast.Expr, property string) error {
 	if obj.Kind != ObjectKind || obj.O == nil {
 		return nil
 	}
-	if _, ok, inaccessible := i.visibleObjectProperty(obj.O, property); inaccessible {
+	key, _, info, ok, inaccessible := i.objectProperty(obj.O, property)
+	if inaccessible {
 		if i.shouldUseUnset(obj.O) {
 			_, callErr := i.callMagicUnset(obj.O, property)
 			return callErr
 		}
-		return i.checkPropertyAccess(obj.O, property)
+		return fmt.Errorf("cannot access %s property %s::$%s", info.Visibility, info.Owner, property)
 	} else if !ok && i.shouldUseUnset(obj.O) {
 		_, callErr := i.callMagicUnset(obj.O, property)
 		return callErr
 	}
-	delete(obj.O.Props, property)
-	delete(obj.O.PropMeta, property)
+	if key == "" {
+		key = property
+	}
+	delete(obj.O.Props, key)
+	delete(obj.O.PropMeta, key)
 	return nil
 }
 
@@ -4207,13 +4246,14 @@ func (i *Interpreter) interpolationPropertyValue(value Value, property string) (
 	if value.Kind != ObjectKind || value.O == nil {
 		return NullValue(), nil
 	}
-	if err := i.checkPropertyAccess(value.O, property); err != nil {
+	_, propValue, _, ok, inaccessible := i.objectProperty(value.O, property)
+	if inaccessible {
 		if i.hasPublicMethod(value.O, "__get") {
 			return i.callMagicGet(value.O, property)
 		}
 		return NullValue(), nil
 	}
-	if propValue, ok := value.O.Props[property]; ok {
+	if ok {
 		return propValue, nil
 	}
 	if i.shouldUseGet(value.O) {
@@ -4333,11 +4373,11 @@ func (i *Interpreter) castValue(typ string, value Value) (Value, error) {
 			for _, entry := range value.A.Entries {
 				name := arrayKeyPropertyName(entry.Key)
 				props[name] = entry.RuntimeValue()
-				meta[name] = PropertyMeta{Owner: "stdClass", Visibility: "public"}
+				meta[name] = PropertyMeta{Owner: "stdClass", Name: name, Visibility: "public"}
 			}
 		} else if value.Kind != Null {
 			props["scalar"] = value
-			meta["scalar"] = PropertyMeta{Owner: "stdClass", Visibility: "public"}
+			meta["scalar"] = PropertyMeta{Owner: "stdClass", Name: "scalar", Visibility: "public"}
 		}
 		return ObjectValue(NewObject("stdClass", map[string]*ast.FunctionDeclStmt{}, props, meta)), nil
 	case "unset":
@@ -4471,12 +4511,105 @@ func (i *Interpreter) shouldUseUnset(obj *Object) bool {
 	return i.hasPublicMethod(obj, "__unset") && i.currentClass() != obj.ClassName
 }
 
-func (i *Interpreter) visibleObjectProperty(obj *Object, property string) (Value, bool, bool) {
-	if err := i.checkPropertyAccess(obj, property); err != nil {
-		return NullValue(), false, true
+func (i *Interpreter) objectProperty(obj *Object, property string) (string, Value, PropertyMeta, bool, bool) {
+	if obj == nil {
+		return "", NullValue(), PropertyMeta{}, false, false
 	}
-	value, ok := obj.Props[property]
-	return value, ok, false
+	if current := i.currentClass(); current != "" {
+		key := propertyStorageKey(current, "private", property)
+		if value, ok := obj.Props[key]; ok {
+			info := obj.PropMeta[key]
+			if info.Name == "" {
+				info.Name = property
+			}
+			return key, value, info, true, !i.propertyAccessible(info)
+		}
+	}
+	if value, ok := obj.Props[property]; ok {
+		info := obj.PropMeta[property]
+		if info.Name == "" {
+			info.Name = property
+		}
+		if !i.propertyAccessible(info) {
+			return property, value, info, false, true
+		}
+		return property, value, info, true, false
+	}
+	lineage := i.objectClassLineage(obj)
+	for idx := len(lineage) - 1; idx >= 0; idx-- {
+		class := lineage[idx]
+		key := propertyStorageKey(class.Name, "private", property)
+		value, ok := obj.Props[key]
+		if !ok {
+			continue
+		}
+		info := obj.PropMeta[key]
+		if info.Name == "" {
+			info.Name = property
+		}
+		if !i.propertyAccessible(info) {
+			return key, value, info, false, true
+		}
+		return key, value, info, true, false
+	}
+	return "", NullValue(), PropertyMeta{}, false, false
+}
+
+func (i *Interpreter) visibleObjectProperty(obj *Object, property string) (Value, bool, bool) {
+	_, value, _, ok, inaccessible := i.objectProperty(obj, property)
+	return value, ok, inaccessible
+}
+
+func (i *Interpreter) objectClassLineage(obj *Object) []*ast.ClassDeclStmt {
+	if obj == nil {
+		return nil
+	}
+	class, ok := i.classByName(obj.ClassName)
+	if !ok {
+		return nil
+	}
+	return i.classLineage(class)
+}
+
+func (i *Interpreter) objectMethod(obj *Object, methodName string) (*ast.FunctionDeclStmt, bool) {
+	if obj == nil {
+		return nil, false
+	}
+	if current := i.currentClass(); current != "" {
+		if method, ok := obj.Methods[privateMemberKey(current, methodName)]; ok {
+			return method, true
+		}
+	}
+	if method, ok := obj.Methods[methodNameKey(methodName)]; ok {
+		return method, true
+	}
+	lineage := i.objectClassLineage(obj)
+	for idx := len(lineage) - 1; idx >= 0; idx-- {
+		if method, ok := obj.Methods[privateMemberKey(lineage[idx].Name, methodName)]; ok {
+			return method, true
+		}
+	}
+	return nil, false
+}
+
+func (i *Interpreter) staticMethod(methods map[string]*ast.FunctionDeclStmt, className, methodName string) (*ast.FunctionDeclStmt, bool) {
+	if current := i.currentClass(); current != "" {
+		if method, ok := methods[privateMemberKey(current, methodName)]; ok {
+			return method, true
+		}
+	}
+	if method, ok := methods[methodNameKey(methodName)]; ok {
+		return method, true
+	}
+	if class, ok := i.classByName(className); ok {
+		lineage := i.classLineage(class)
+		for idx := len(lineage) - 1; idx >= 0; idx-- {
+			if method, ok := methods[privateMemberKey(lineage[idx].Name, methodName)]; ok {
+				return method, true
+			}
+		}
+	}
+	return nil, false
 }
 
 func (i *Interpreter) callMagicGet(obj *Object, property string) (Value, error) {
@@ -4577,16 +4710,11 @@ func (i *Interpreter) initExceptionObject(obj *Object, args []ast.Expr, file str
 			previous = value
 		}
 	}
-	obj.Props["message"] = message
-	obj.PropMeta["message"] = PropertyMeta{Owner: "Exception", Visibility: "private"}
-	obj.Props["code"] = code
-	obj.PropMeta["code"] = PropertyMeta{Owner: "Exception", Visibility: "private"}
-	obj.Props["file"] = StringValue(file)
-	obj.PropMeta["file"] = PropertyMeta{Owner: "Exception", Visibility: "private"}
-	obj.Props["line"] = IntValue(int64(line))
-	obj.PropMeta["line"] = PropertyMeta{Owner: "Exception", Visibility: "private"}
-	obj.Props["previous"] = previous
-	obj.PropMeta["previous"] = PropertyMeta{Owner: "Exception", Visibility: "private"}
+	setExceptionProperty(obj, "message", message)
+	setExceptionProperty(obj, "code", code)
+	setExceptionProperty(obj, "file", StringValue(file))
+	setExceptionProperty(obj, "line", IntValue(int64(line)))
+	setExceptionProperty(obj, "previous", previous)
 	obj.ExceptionTrace = i.captureExceptionTrace()
 	return nil
 }
@@ -4664,10 +4792,20 @@ func exceptionTraceString(trace []ExceptionTraceFrame) string {
 }
 
 func exceptionProperty(obj *Object, name string, fallback Value) Value {
+	key := propertyStorageKey("Exception", "private", name)
+	if value, ok := obj.Props[key]; ok {
+		return value
+	}
 	if value, ok := obj.Props[name]; ok {
 		return value
 	}
 	return fallback
+}
+
+func setExceptionProperty(obj *Object, name string, value Value) {
+	key := propertyStorageKey("Exception", "private", name)
+	obj.Props[key] = value
+	obj.PropMeta[key] = PropertyMeta{Owner: "Exception", Name: name, Visibility: "private"}
 }
 
 func valueToInt(value Value) int64 {
@@ -4716,6 +4854,45 @@ func functionNameKey(name string) string {
 
 func methodNameKey(name string) string {
 	return strings.ToLower(name)
+}
+
+func methodStorageKey(method *ast.FunctionDeclStmt) string {
+	if method != nil && method.Visibility == "private" && method.Owner != "" {
+		return privateMemberKey(method.Owner, method.Name)
+	}
+	return methodNameKey(method.Name)
+}
+
+func methodMapHasName(methods map[string]*ast.FunctionDeclStmt, name string) bool {
+	key := methodNameKey(name)
+	for _, method := range methods {
+		if methodNameKey(method.Name) == key {
+			return true
+		}
+	}
+	return false
+}
+
+func privateMemberKey(owner, name string) string {
+	return "\x00" + strings.ToLower(owner) + "\x00" + strings.ToLower(name)
+}
+
+func propertyStorageKey(owner, visibility, name string) string {
+	if visibility == "private" && owner != "" {
+		return privateMemberKey(owner, name)
+	}
+	return name
+}
+
+func propertyNameForKey(key string, info PropertyMeta) string {
+	if info.Name != "" {
+		return info.Name
+	}
+	parts := strings.Split(key, "\x00")
+	if len(parts) == 3 && parts[0] == "" {
+		return parts[2]
+	}
+	return key
 }
 
 func classNameKey(name string) string {
@@ -4923,7 +5100,7 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 			}
 		}
 		i.statics[class.Name][prop.Name] = value
-		i.staticMeta[class.Name][prop.Name] = PropertyMeta{Owner: prop.Owner, Visibility: prop.Visibility, Static: true}
+		i.staticMeta[class.Name][prop.Name] = PropertyMeta{Owner: prop.Owner, Name: prop.Name, Visibility: prop.Visibility, Static: true}
 	}
 	if !class.Abstract {
 		for _, method := range i.methodsForClass(class) {
@@ -5162,7 +5339,7 @@ func (i *Interpreter) methodsForClass(class *ast.ClassDeclStmt) map[string]*ast.
 		}
 	}
 	for _, method := range class.Methods {
-		methods[methodNameKey(method.Name)] = method
+		methods[methodStorageKey(method)] = method
 	}
 	return methods
 }
@@ -5198,8 +5375,9 @@ func (i *Interpreter) instanceDefaults(class *ast.ClassDeclStmt) (map[string]Val
 				return nil, nil, err
 			}
 		}
-		props[prop.Name] = value
-		meta[prop.Name] = PropertyMeta{Owner: prop.Owner, Visibility: prop.Visibility}
+		key := propertyStorageKey(prop.Owner, prop.Visibility, prop.Name)
+		props[key] = value
+		meta[key] = PropertyMeta{Owner: prop.Owner, Name: prop.Name, Visibility: prop.Visibility}
 	}
 	return props, meta, nil
 }
@@ -5238,11 +5416,11 @@ func (i *Interpreter) checkMethodAccess(_ string, method *ast.FunctionDeclStmt) 
 }
 
 func (i *Interpreter) checkPropertyAccess(obj *Object, property string) error {
-	info, ok := obj.PropMeta[property]
-	if !ok {
+	_, _, info, ok, inaccessible := i.objectProperty(obj, property)
+	if !ok && !inaccessible {
 		return nil
 	}
-	if i.propertyAccessible(info) {
+	if !inaccessible {
 		return nil
 	}
 	return fmt.Errorf("cannot access %s property %s::$%s", info.Visibility, info.Owner, property)
@@ -5294,7 +5472,7 @@ func (i *Interpreter) findStaticProperty(className, property string) (Value, Pro
 			if meta, metaOK := i.staticMeta[className][property]; metaOK {
 				return value, meta, true
 			}
-			return value, PropertyMeta{Owner: className, Visibility: "public", Static: true}, true
+			return value, PropertyMeta{Owner: className, Name: property, Visibility: "public", Static: true}, true
 		}
 	}
 	if class, ok := i.classByName(className); ok && class.Parent != "" {

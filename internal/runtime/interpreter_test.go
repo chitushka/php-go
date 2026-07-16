@@ -692,6 +692,22 @@ func TestCanWidenInheritedMethodVisibility(t *testing.T) {
 	}
 }
 
+func TestPrivateParentMethodUsesDeclaringClassScope(t *testing.T) {
+	src := "<?php class Base { public function run() { return $this->secret(); } private function secret() { return 'base'; } } class Child extends Base { public function secret() { return 'child'; } } $c = new Child(); echo $c->run(); echo ':'; echo $c->secret();"
+	got := run(t, src)
+	if got != "base:child" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestPrivateParentPropertyUsesDeclaringClassScope(t *testing.T) {
+	src := "<?php class Base { private $value = 'base'; public function baseValue() { return $this->value; } public function setBase($value) { $this->value = $value; } } class Child extends Base { public $value = 'child'; public function childValue() { return $this->value; } } $c = new Child(); echo $c->baseValue(); echo ':'; echo $c->childValue(); echo ':'; echo $c->value; $c->setBase('new-base'); $c->value = 'new-child'; echo ':'; echo $c->baseValue(); echo ':'; echo $c->childValue(); echo ':'; echo $c->value;"
+	got := run(t, src)
+	if got != "base:child:child:new-base:new-child:new-child" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestCannotChangeInheritedMethodStaticModifier(t *testing.T) {
 	err := runErr(t, "<?php class Base { public static function value() { return 1; } } class Child extends Base { public function value() { return 2; } }")
 	if err == nil || err.Error() != "cannot change static modifier of inherited method Base::value in Child" {

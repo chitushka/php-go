@@ -18,6 +18,7 @@ type ExceptionTraceFrame struct {
 
 type PropertyMeta struct {
 	Owner      string
+	Name       string
 	Visibility string
 	Static     bool
 }
