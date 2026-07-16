@@ -663,6 +663,14 @@ func TestGetCalledClass(t *testing.T) {
 	}
 }
 
+func TestLateStaticForwardingCallsKeepCalledClass(t *testing.T) {
+	src := "<?php class Base { public static $name = 'base'; public static function who() { return get_called_class() . ':' . static::$name; } public static function __callStatic($name, $args) { return get_called_class() . ':' . $name . ':' . static::$name; } } class Child extends Base { public static $name = 'child'; public static function viaParent() { return parent::who(); } public static function viaSelf() { return self::who(); } public static function viaBase() { return Base::who(); } public static function missingParent() { return parent::missing(); } public static function missingSelf() { return self::missing(); } public static function missingBase() { return Base::missing(); } } echo Child::viaParent(); echo '|'; echo Child::viaSelf(); echo '|'; echo Child::viaBase(); echo '|'; echo Child::missingParent(); echo '|'; echo Child::missingSelf(); echo '|'; echo Child::missingBase();"
+	got := run(t, src)
+	if got != "Child:child|Child:child|Base:base|Child:missing:child|Child:missing:child|Base:missing:base" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestParentMethodCall(t *testing.T) {
 	src := "<?php class Base { protected function value() { return 4; } } class Child extends Base { public function value2() { return parent::value() * 2; } } $c = new Child(); echo $c->value2();"
 	got := run(t, src)

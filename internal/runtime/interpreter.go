@@ -3347,7 +3347,7 @@ func (i *Interpreter) callStaticName(staticClassName, methodName string, args []
 	method, ok := i.staticMethod(methods, className, methodName)
 	if !ok {
 		if i.hasPublicStaticMethod(methods, "__callStatic") {
-			return i.callMagicCallStatic(className, methods[methodNameKey("__callStatic")], methodName, args)
+			return i.callMagicCallStatic(i.staticCallCalledClass(staticClassName, className), methods[methodNameKey("__callStatic")], methodName, args)
 		}
 		return NullValue(), fmt.Errorf("undefined static method %s::%s", className, methodName)
 	}
@@ -3363,11 +3363,11 @@ func (i *Interpreter) callStaticName(staticClassName, methodName string, args []
 	}
 	if err := i.checkMethodAccess(className, method); err != nil {
 		if methodName != "__callStatic" && i.hasPublicStaticMethod(methods, "__callStatic") {
-			return i.callMagicCallStatic(className, methods[methodNameKey("__callStatic")], methodName, args)
+			return i.callMagicCallStatic(i.staticCallCalledClass(staticClassName, className), methods[methodNameKey("__callStatic")], methodName, args)
 		}
 		return NullValue(), err
 	}
-	return i.callFunction(method, args, nil, className)
+	return i.callFunction(method, args, nil, i.staticCallCalledClass(staticClassName, className))
 }
 
 func (i *Interpreter) callStaticNameValues(staticClassName, methodName string, args []Value) (Value, error) {
@@ -3383,7 +3383,7 @@ func (i *Interpreter) callStaticNameValues(staticClassName, methodName string, a
 	method, ok := i.staticMethod(methods, className, methodName)
 	if !ok {
 		if i.hasPublicStaticMethod(methods, "__callStatic") {
-			return i.callMagicCallStaticValues(className, methods[methodNameKey("__callStatic")], methodName, args)
+			return i.callMagicCallStaticValues(i.staticCallCalledClass(staticClassName, className), methods[methodNameKey("__callStatic")], methodName, args)
 		}
 		return NullValue(), fmt.Errorf("undefined static method %s::%s", className, methodName)
 	}
@@ -3399,11 +3399,21 @@ func (i *Interpreter) callStaticNameValues(staticClassName, methodName string, a
 	}
 	if err := i.checkMethodAccess(className, method); err != nil {
 		if methodName != "__callStatic" && i.hasPublicStaticMethod(methods, "__callStatic") {
-			return i.callMagicCallStaticValues(className, methods[methodNameKey("__callStatic")], methodName, args)
+			return i.callMagicCallStaticValues(i.staticCallCalledClass(staticClassName, className), methods[methodNameKey("__callStatic")], methodName, args)
 		}
 		return NullValue(), err
 	}
-	return i.callFunctionValues(method, args, nil, className)
+	return i.callFunctionValues(method, args, nil, i.staticCallCalledClass(staticClassName, className))
+}
+
+func (i *Interpreter) staticCallCalledClass(staticClassName, resolvedClassName string) string {
+	switch staticClassName {
+	case "self", "parent", "static":
+		if called := i.currentCalledClass(); called != "" {
+			return called
+		}
+	}
+	return resolvedClassName
 }
 
 func (i *Interpreter) execSwitch(n *ast.SwitchStmt) (*returnSignal, error) {
