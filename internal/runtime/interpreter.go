@@ -5188,13 +5188,17 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 		i.statics[class.Name][prop.Name] = value
 		i.staticMeta[class.Name][prop.Name] = PropertyMeta{Owner: prop.Owner, Name: prop.Name, Visibility: prop.Visibility, Static: true}
 	}
-	if !class.Abstract {
+	if class.Abstract {
+		if err := i.checkInterfaceImplementations(class, false); err != nil {
+			return err
+		}
+	} else {
 		for _, method := range i.methodsForClass(class) {
 			if method.Abstract {
 				return fmt.Errorf("class %s contains abstract methods and must be abstract", class.Name)
 			}
 		}
-		if err := i.checkInterfaceImplementations(class); err != nil {
+		if err := i.checkInterfaceImplementations(class, true); err != nil {
 			return err
 		}
 	}
@@ -5520,16 +5524,22 @@ func compatibleInterfacePrototype(interfaceName string, existing, candidate *ast
 	return nil, candidateErr
 }
 
-func (i *Interpreter) checkInterfaceImplementations(class *ast.ClassDeclStmt) error {
+func (i *Interpreter) checkInterfaceImplementations(class *ast.ClassDeclStmt, requireAll bool) error {
 	methods := i.methodsForClass(class)
-	for _, ifaceName := range class.Implements {
+	for _, ifaceName := range i.implementedInterfacesForClass(class) {
 		required, err := i.interfaceMethods(ifaceName)
 		if err != nil {
 			return err
 		}
 		for name, ifaceMethod := range required {
 			method, ok := methods[name]
-			if !ok || method.Abstract {
+			if !ok {
+				if requireAll {
+					return fmt.Errorf("class %s must implement interface method %s::%s", class.Name, ifaceName, ifaceMethod.Name)
+				}
+				continue
+			}
+			if requireAll && method.Abstract {
 				return fmt.Errorf("class %s must implement interface method %s::%s", class.Name, ifaceName, ifaceMethod.Name)
 			}
 			if method.Visibility != "" && method.Visibility != "public" {
@@ -5541,6 +5551,32 @@ func (i *Interpreter) checkInterfaceImplementations(class *ast.ClassDeclStmt) er
 		}
 	}
 	return nil
+}
+
+func (i *Interpreter) implementedInterfacesForClass(class *ast.ClassDeclStmt) []string {
+	seen := map[string]bool{}
+	var names []string
+	var collect func(*ast.ClassDeclStmt)
+	collect = func(current *ast.ClassDeclStmt) {
+		if current == nil {
+			return
+		}
+		if current.Parent != "" {
+			if parent, ok := i.classByName(current.Parent); ok {
+				collect(parent)
+			}
+		}
+		for _, ifaceName := range current.Implements {
+			key := classNameKey(ifaceName)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			names = append(names, ifaceName)
+		}
+	}
+	collect(class)
+	return names
 }
 
 func (i *Interpreter) interfaceMethods(name string) (map[string]*ast.FunctionDeclStmt, error) {

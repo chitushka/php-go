@@ -1147,6 +1147,37 @@ func TestInterfaceImplementationStaticModifierMustMatch(t *testing.T) {
 	}
 }
 
+func TestAbstractClassInterfaceDeclaredMethodsAreValidated(t *testing.T) {
+	src := "<?php interface Named { public function name(); } abstract class AbstractUser implements Named {} class User extends AbstractUser { public function name() { return 'Ada'; } } $u = new User(); echo $u->name();"
+	got := run(t, src)
+	if got != "Ada" {
+		t.Fatalf("got %q", got)
+	}
+	err := runErr(t, "<?php interface HiddenNamed { public function name(); } abstract class HiddenUser implements HiddenNamed { protected function name() {} }")
+	if err == nil || err.Error() != "class HiddenUser interface method name must be public" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	err = runErr(t, "<?php interface StaticNamed { public static function name(); } abstract class StaticUser implements StaticNamed { public function name() {} }")
+	if err == nil || err.Error() != "method StaticUser::name static modifier must match StaticNamed::name" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestConcreteSubclassMustImplementInheritedInterface(t *testing.T) {
+	err := runErr(t, "<?php interface InheritedNamed { public function name(); } abstract class InheritedAbstractUser implements InheritedNamed {} class MissingInheritedUser extends InheritedAbstractUser {}")
+	if err == nil || err.Error() != "class MissingInheritedUser must implement interface method InheritedNamed::name" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	err = runErr(t, "<?php interface InheritedPublicNamed { public function name(); } abstract class InheritedProtectedBase implements InheritedPublicNamed {} class InheritedProtectedUser extends InheritedProtectedBase { protected function name() {} }")
+	if err == nil || err.Error() != "class InheritedProtectedUser interface method name must be public" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	err = runErr(t, "<?php interface InheritedStaticNamed { public static function name(); } abstract class InheritedStaticBase implements InheritedStaticNamed {} class InheritedStaticUser extends InheritedStaticBase { public function name() {} }")
+	if err == nil || err.Error() != "method InheritedStaticUser::name static modifier must match InheritedStaticNamed::name" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestInterfaceExtendsMethodSignatureCompatibility(t *testing.T) {
 	src := "<?php interface Named { public function name($first); } interface DetailedNamed extends Named { public function name($first, $last = ''); } class User implements DetailedNamed { public function name($first, $last = '') { return $first . $last; } } $u = new User(); echo $u->name('Ada'); echo ':'; echo $u->name('Ada', ' Lovelace');"
 	got := run(t, src)
