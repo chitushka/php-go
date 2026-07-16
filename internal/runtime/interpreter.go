@@ -5043,8 +5043,14 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 	if class.Final && class.Abstract {
 		return fmt.Errorf("class %s cannot be both final and abstract", class.Name)
 	}
+	seenMethods := map[string]string{}
 	for _, method := range class.Methods {
 		method.Owner = class.Name
+		methodKey := methodNameKey(method.Name)
+		if previous, exists := seenMethods[methodKey]; exists {
+			return fmt.Errorf("cannot redeclare method %s::%s", class.Name, previous)
+		}
+		seenMethods[methodKey] = method.Name
 		if method.Visibility == "" {
 			method.Visibility = "public"
 		}
@@ -5058,8 +5064,13 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 			return fmt.Errorf("abstract method %s::%s cannot be private", class.Name, method.Name)
 		}
 	}
+	seenProperties := map[string]bool{}
 	for _, prop := range class.Properties {
 		prop.Owner = class.Name
+		if seenProperties[prop.Name] {
+			return fmt.Errorf("cannot redeclare property %s::$%s", class.Name, prop.Name)
+		}
+		seenProperties[prop.Name] = true
 		if prop.Visibility == "" {
 			prop.Visibility = "public"
 		}
@@ -5069,6 +5080,9 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 		if prop.Final {
 			return fmt.Errorf("property %s::$%s cannot be final", class.Name, prop.Name)
 		}
+	}
+	if err := validateClassConstantRedeclarations(class.Name, class.Constants, "class constant"); err != nil {
+		return err
 	}
 	if class.Parent != "" {
 		if err := i.autoloadClass(class.Parent); err != nil {
@@ -5264,6 +5278,9 @@ func (i *Interpreter) defineInterface(iface *ast.InterfaceDeclStmt) error {
 	if _, exists := i.classByName(iface.Name); exists {
 		return fmt.Errorf("cannot redeclare interface %s", iface.Name)
 	}
+	if err := validateClassConstantRedeclarations(iface.Name, iface.Constants, "interface constant"); err != nil {
+		return err
+	}
 	parentMethods := map[string]*ast.FunctionDeclStmt{}
 	for idx, parentName := range iface.Parents {
 		if err := i.autoloadClass(parentName); err != nil {
@@ -5290,8 +5307,14 @@ func (i *Interpreter) defineInterface(iface *ast.InterfaceDeclStmt) error {
 			parentMethods[name] = method
 		}
 	}
+	seenMethods := map[string]string{}
 	for _, method := range iface.Methods {
 		method.Owner = iface.Name
+		methodKey := methodNameKey(method.Name)
+		if previous, exists := seenMethods[methodKey]; exists {
+			return fmt.Errorf("cannot redeclare method %s::%s", iface.Name, previous)
+		}
+		seenMethods[methodKey] = method.Name
 		if method.Visibility != "" && method.Visibility != "public" {
 			return fmt.Errorf("interface method %s::%s must be public", iface.Name, method.Name)
 		}
@@ -5320,6 +5343,18 @@ func (i *Interpreter) defineInterface(iface *ast.InterfaceDeclStmt) error {
 			return err
 		}
 		i.constants[iface.Name][constant.Name] = value
+	}
+	return nil
+}
+
+func validateClassConstantRedeclarations(owner string, constants []*ast.ClassConstant, label string) error {
+	seenConstants := map[string]bool{}
+	for _, constant := range constants {
+		constant.Owner = owner
+		if seenConstants[constant.Name] {
+			return fmt.Errorf("cannot redeclare %s %s::%s", label, owner, constant.Name)
+		}
+		seenConstants[constant.Name] = true
 	}
 	return nil
 }

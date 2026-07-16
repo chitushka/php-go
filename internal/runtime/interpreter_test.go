@@ -600,6 +600,40 @@ func TestVisibilityModifiersAreAccepted(t *testing.T) {
 	}
 }
 
+func TestClassMemberRedeclarationsAreRejected(t *testing.T) {
+	cases := []struct {
+		src string
+		err string
+	}{
+		{
+			src: "<?php class DuplicateMethod { public function value() {} public function VALUE() {} }",
+			err: "cannot redeclare method DuplicateMethod::value",
+		},
+		{
+			src: "<?php class DuplicateProperty { public $value; private $value; }",
+			err: "cannot redeclare property DuplicateProperty::$value",
+		},
+		{
+			src: "<?php class DuplicateClassConstant { const VALUE = 1; const VALUE = 2; }",
+			err: "cannot redeclare class constant DuplicateClassConstant::VALUE",
+		},
+		{
+			src: "<?php interface DuplicateInterfaceMethod { public function value(); public function VALUE(); }",
+			err: "cannot redeclare method DuplicateInterfaceMethod::value",
+		},
+		{
+			src: "<?php interface DuplicateInterfaceConstant { const VALUE = 1; const VALUE = 2; }",
+			err: "cannot redeclare interface constant DuplicateInterfaceConstant::VALUE",
+		},
+	}
+	for _, tc := range cases {
+		err := runErr(t, tc.src)
+		if err == nil || err.Error() != tc.err {
+			t.Fatalf("for %q got %v", tc.src, err)
+		}
+	}
+}
+
 func TestPrivatePropertyAccessDeniedOutsideClass(t *testing.T) {
 	err := runErr(t, "<?php class Sample { private $a = 2; } $s = new Sample(); echo $s->a;")
 	if err == nil || err.Error() != "cannot access private property Sample::$a" {
