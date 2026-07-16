@@ -660,6 +660,32 @@ func TestClassConstantExpressionsAreValidated(t *testing.T) {
 	}
 }
 
+func TestDuplicateInterfaceDeclarationsAreRejected(t *testing.T) {
+	cases := []struct {
+		src string
+		err string
+	}{
+		{
+			src: "<?php interface DuplicateContract {} class DuplicateUser implements DuplicateContract, duplicatecontract {}",
+			err: "class DuplicateUser cannot implement interface DuplicateContract more than once",
+		},
+		{
+			src: "<?php interface ParentContract {} class ParentUser implements ParentContract {} class ChildUser extends ParentUser implements ParentContract {}",
+			err: "class ChildUser cannot implement already implemented interface ParentContract",
+		},
+		{
+			src: "<?php interface DuplicateParentContract {} interface DuplicateChildContract extends DuplicateParentContract, duplicateparentcontract {}",
+			err: "interface DuplicateChildContract cannot extend interface DuplicateParentContract more than once",
+		},
+	}
+	for _, tc := range cases {
+		err := runErr(t, tc.src)
+		if err == nil || err.Error() != tc.err {
+			t.Fatalf("for %q got %v", tc.src, err)
+		}
+	}
+}
+
 func TestPrivatePropertyAccessDeniedOutsideClass(t *testing.T) {
 	err := runErr(t, "<?php class Sample { private $a = 2; } $s = new Sample(); echo $s->a;")
 	if err == nil || err.Error() != "cannot access private property Sample::$a" {

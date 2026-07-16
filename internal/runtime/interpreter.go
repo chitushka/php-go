@@ -5118,6 +5118,7 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 			}
 		}
 	}
+	seenInterfaces := map[string]string{}
 	for idx, ifaceName := range class.Implements {
 		if err := i.autoloadClass(ifaceName); err != nil {
 			return err
@@ -5126,6 +5127,13 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 		if !ok {
 			return fmt.Errorf("undefined interface %s", ifaceName)
 		}
+		if previous, exists := seenInterfaces[classNameKey(iface.Name)]; exists {
+			return fmt.Errorf("class %s cannot implement interface %s more than once", class.Name, previous)
+		}
+		if class.Parent != "" && i.classImplementsInterface(class.Parent, iface.Name) {
+			return fmt.Errorf("class %s cannot implement already implemented interface %s", class.Name, iface.Name)
+		}
+		seenInterfaces[classNameKey(iface.Name)] = iface.Name
 		class.Implements[idx] = iface.Name
 	}
 	i.classes[classNameKey(class.Name)] = class
@@ -5287,6 +5295,7 @@ func (i *Interpreter) defineInterface(iface *ast.InterfaceDeclStmt) error {
 		return err
 	}
 	parentMethods := map[string]*ast.FunctionDeclStmt{}
+	seenParents := map[string]string{}
 	for idx, parentName := range iface.Parents {
 		if err := i.autoloadClass(parentName); err != nil {
 			return err
@@ -5295,6 +5304,10 @@ func (i *Interpreter) defineInterface(iface *ast.InterfaceDeclStmt) error {
 		if !ok {
 			return fmt.Errorf("undefined parent interface %s", parentName)
 		}
+		if previous, exists := seenParents[classNameKey(parent.Name)]; exists {
+			return fmt.Errorf("interface %s cannot extend interface %s more than once", iface.Name, previous)
+		}
+		seenParents[classNameKey(parent.Name)] = parent.Name
 		iface.Parents[idx] = parent.Name
 		methods, err := i.interfaceMethods(parent.Name)
 		if err != nil {
