@@ -473,6 +473,7 @@ func (*DynamicStaticCallExpr) exprNode() {}
 type InstanceOfExpr struct {
 	Left      Expr
 	ClassName string
+	ClassExpr Expr
 }
 
 func (*InstanceOfExpr) exprNode() {}

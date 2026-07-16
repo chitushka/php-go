@@ -931,6 +931,22 @@ func TestInstanceOfInterface(t *testing.T) {
 	}
 }
 
+func TestInstanceOfDynamicClassName(t *testing.T) {
+	src := "<?php interface NamedDyn {} class BaseDyn {} class UserDyn extends BaseDyn implements NamedDyn {} $u = new UserDyn(); $class = 'BaseDyn'; $iface = 'NamedDyn'; $missing = 'MissingDyn'; echo $u instanceof $class; echo ':'; echo $u instanceof $iface; echo ':'; echo $u instanceof $missing; $holder = 'class'; echo ':'; echo $u instanceof $$holder;"
+	got := run(t, src)
+	if got != "1:1::1" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestInstanceOfObjectClassReference(t *testing.T) {
+	src := "<?php class BaseObj {} class ChildObj extends BaseObj {} $child = new ChildObj(); $base = new BaseObj(); echo $child instanceof $base; echo ':'; echo $base instanceof $child;"
+	got := run(t, src)
+	if got != "1:" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestMagicGetAndSet(t *testing.T) {
 	src := "<?php class Bag { private $value = 'old'; public function __set($name, $value) { $this->value = $value; } public function __get($name) { return $this->value; } } $b = new Bag(); $b->item = 'new'; echo $b->item;"
 	got := run(t, src)

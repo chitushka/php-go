@@ -730,7 +730,7 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 		if err != nil {
 			return NullValue(), err
 		}
-		className, err := i.resolveClassNameAutoload(n.ClassName)
+		className, err := i.instanceOfClassName(n)
 		if err != nil {
 			return NullValue(), err
 		}
@@ -791,6 +791,24 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 		return i.callDynamicStatic(n)
 	}
 	return NullValue(), fmt.Errorf("unsupported expression %T", e)
+}
+
+func (i *Interpreter) instanceOfClassName(n *ast.InstanceOfExpr) (string, error) {
+	if n.ClassExpr == nil {
+		return i.resolveClassNameAutoload(n.ClassName)
+	}
+	value, err := i.eval(n.ClassExpr)
+	if err != nil {
+		return "", err
+	}
+	if value.Kind == ObjectKind && value.O != nil {
+		return value.O.ClassName, nil
+	}
+	name := value.String()
+	if name == "" {
+		return "", fmt.Errorf("instanceof class name must not be empty")
+	}
+	return i.resolveClassNameAutoload(name)
 }
 
 func (i *Interpreter) evalBacktick(command string) (Value, error) {

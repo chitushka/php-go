@@ -1560,6 +1560,12 @@ func (p *Parser) parseInfix(left ast.Expr) ast.Expr {
 			case lexer.Static:
 				expr.ClassName = "static"
 			}
+		case lexer.Var:
+			p.next()
+			expr.ClassExpr = &ast.Ident{Name: p.cur.Literal}
+		case lexer.VarVar:
+			p.next()
+			expr.ClassExpr = &ast.VariableVariable{Name: p.cur.Literal}
 		default:
 			p.errors = append(p.errors, fmt.Sprintf("expected class name after instanceof, got %s", p.peek.Type))
 		}
