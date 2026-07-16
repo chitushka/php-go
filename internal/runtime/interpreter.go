@@ -5195,6 +5195,13 @@ func validateMagicMethodDeclaration(className string, method *ast.FunctionDeclSt
 		if method.Static {
 			return fmt.Errorf("magic method %s::%s must not be static", className, name)
 		}
+	case "__sleep", "__wakeup", "__tostring":
+		if method.Visibility != "public" {
+			return fmt.Errorf("magic method %s::%s must be public", className, name)
+		}
+		if method.Static {
+			return fmt.Errorf("magic method %s::%s must not be static", className, name)
+		}
 	case "__call":
 		if method.Visibility != "public" {
 			return fmt.Errorf("magic method %s::__call must be public", className)
@@ -5222,6 +5229,8 @@ func magicMethodParamCount(name string) (int, bool) {
 		return 1, true
 	case "__set", "__call", "__callStatic":
 		return 2, true
+	case "__sleep", "__wakeup", "__toString":
+		return 0, true
 	default:
 		return 0, false
 	}
@@ -5241,6 +5250,12 @@ func magicMethodName(name string) string {
 		return "__call"
 	case "__callstatic":
 		return "__callStatic"
+	case "__sleep":
+		return "__sleep"
+	case "__wakeup":
+		return "__wakeup"
+	case "__tostring":
+		return "__toString"
 	default:
 		return name
 	}

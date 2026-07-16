@@ -788,6 +788,44 @@ func TestMagicMethodParameterCountsAreValidated(t *testing.T) {
 	}
 }
 
+func TestSerializationAndStringMagicDeclarationsAreValidated(t *testing.T) {
+	cases := []struct {
+		src string
+		err string
+	}{
+		{
+			src: "<?php class PrivateSleepMagic { private function __sleep() {} }",
+			err: "magic method PrivateSleepMagic::__sleep must be public",
+		},
+		{
+			src: "<?php class StaticWakeupMagic { public static function __wakeup() {} }",
+			err: "magic method StaticWakeupMagic::__wakeup must not be static",
+		},
+		{
+			src: "<?php class BadSleepMagicArgs { public function __sleep($name) {} }",
+			err: "magic method BadSleepMagicArgs::__sleep must take exactly 0 arguments",
+		},
+		{
+			src: "<?php class PrivateToStringMagic { private function __toString() {} }",
+			err: "magic method PrivateToStringMagic::__toString must be public",
+		},
+		{
+			src: "<?php class StaticToStringMagic { public static function __toString() {} }",
+			err: "magic method StaticToStringMagic::__toString must not be static",
+		},
+		{
+			src: "<?php class BadToStringMagicArgs { public function __toString($name) {} }",
+			err: "magic method BadToStringMagicArgs::__toString must take exactly 0 arguments",
+		},
+	}
+	for _, tc := range cases {
+		err := runErr(t, tc.src)
+		if err == nil || err.Error() != tc.err {
+			t.Fatalf("for %q got %v", tc.src, err)
+		}
+	}
+}
+
 func TestPrivatePropertyAccessDeniedOutsideClass(t *testing.T) {
 	err := runErr(t, "<?php class Sample { private $a = 2; } $s = new Sample(); echo $s->a;")
 	if err == nil || err.Error() != "cannot access private property Sample::$a" {
