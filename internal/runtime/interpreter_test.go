@@ -716,6 +716,40 @@ func TestMagicCallDeclarationsAreValidated(t *testing.T) {
 	}
 }
 
+func TestPropertyMagicDeclarationsAreValidated(t *testing.T) {
+	cases := []struct {
+		src string
+		err string
+	}{
+		{
+			src: "<?php class PrivateGetMagic { private function __get($name) {} }",
+			err: "magic method PrivateGetMagic::__get must be public",
+		},
+		{
+			src: "<?php class StaticGetMagic { public static function __get($name) {} }",
+			err: "magic method StaticGetMagic::__get must not be static",
+		},
+		{
+			src: "<?php class PrivateSetMagic { private function __set($name, $value) {} }",
+			err: "magic method PrivateSetMagic::__set must be public",
+		},
+		{
+			src: "<?php class StaticIssetMagic { public static function __isset($name) {} }",
+			err: "magic method StaticIssetMagic::__isset must not be static",
+		},
+		{
+			src: "<?php class PrivateUnsetMagic { private function __unset($name) {} }",
+			err: "magic method PrivateUnsetMagic::__unset must be public",
+		},
+	}
+	for _, tc := range cases {
+		err := runErr(t, tc.src)
+		if err == nil || err.Error() != tc.err {
+			t.Fatalf("for %q got %v", tc.src, err)
+		}
+	}
+}
+
 func TestPrivatePropertyAccessDeniedOutsideClass(t *testing.T) {
 	err := runErr(t, "<?php class Sample { private $a = 2; } $s = new Sample(); echo $s->a;")
 	if err == nil || err.Error() != "cannot access private property Sample::$a" {

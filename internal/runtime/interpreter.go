@@ -5187,6 +5187,13 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 
 func validateMagicMethodDeclaration(className string, method *ast.FunctionDeclStmt) error {
 	switch strings.ToLower(method.Name) {
+	case "__get", "__set", "__isset", "__unset":
+		if method.Visibility != "public" {
+			return fmt.Errorf("magic method %s::%s must be public", className, magicMethodName(method.Name))
+		}
+		if method.Static {
+			return fmt.Errorf("magic method %s::%s must not be static", className, magicMethodName(method.Name))
+		}
 	case "__call":
 		if method.Visibility != "public" {
 			return fmt.Errorf("magic method %s::__call must be public", className)
@@ -5203,6 +5210,25 @@ func validateMagicMethodDeclaration(className string, method *ast.FunctionDeclSt
 		}
 	}
 	return nil
+}
+
+func magicMethodName(name string) string {
+	switch strings.ToLower(name) {
+	case "__get":
+		return "__get"
+	case "__set":
+		return "__set"
+	case "__isset":
+		return "__isset"
+	case "__unset":
+		return "__unset"
+	case "__call":
+		return "__call"
+	case "__callstatic":
+		return "__callStatic"
+	default:
+		return name
+	}
 }
 
 func validatePropertyOverrideCompatibility(className string, prop, parentProp *ast.ClassProperty) error {
