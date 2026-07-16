@@ -5178,6 +5178,13 @@ func validateMethodSignatureCompatibility(className string, method, prototype *a
 	return nil
 }
 
+func validateInterfaceMethodCompatibility(className string, method, prototype *ast.FunctionDeclStmt) error {
+	if method.Static != prototype.Static {
+		return fmt.Errorf("method %s::%s static modifier must match %s::%s", className, method.Name, prototype.Owner, prototype.Name)
+	}
+	return validateMethodSignatureCompatibility(className, method, prototype)
+}
+
 func requiredParamCount(fn *ast.FunctionDeclStmt) int {
 	required := 0
 	for _, param := range fn.Params {
@@ -5266,7 +5273,7 @@ func (i *Interpreter) defineInterface(iface *ast.InterfaceDeclStmt) error {
 			return err
 		}
 		if parentMethod, ok := parentMethods[methodNameKey(method.Name)]; ok {
-			if err := validateMethodSignatureCompatibility(iface.Name, method, parentMethod); err != nil {
+			if err := validateInterfaceMethodCompatibility(iface.Name, method, parentMethod); err != nil {
 				return err
 			}
 		}
@@ -5287,14 +5294,14 @@ func (i *Interpreter) defineInterface(iface *ast.InterfaceDeclStmt) error {
 }
 
 func compatibleInterfacePrototype(interfaceName string, existing, candidate *ast.FunctionDeclStmt) (*ast.FunctionDeclStmt, error) {
-	candidateErr := validateMethodSignatureCompatibility(interfaceName, candidate, existing)
+	candidateErr := validateInterfaceMethodCompatibility(interfaceName, candidate, existing)
 	if candidateErr == nil {
-		if validateMethodSignatureCompatibility(interfaceName, existing, candidate) == nil {
+		if validateInterfaceMethodCompatibility(interfaceName, existing, candidate) == nil {
 			return existing, nil
 		}
 		return candidate, nil
 	}
-	if validateMethodSignatureCompatibility(interfaceName, existing, candidate) == nil {
+	if validateInterfaceMethodCompatibility(interfaceName, existing, candidate) == nil {
 		return existing, nil
 	}
 	return nil, candidateErr
@@ -5315,7 +5322,7 @@ func (i *Interpreter) checkInterfaceImplementations(class *ast.ClassDeclStmt) er
 			if method.Visibility != "" && method.Visibility != "public" {
 				return fmt.Errorf("class %s interface method %s must be public", class.Name, name)
 			}
-			if err := validateMethodSignatureCompatibility(class.Name, method, ifaceMethod); err != nil {
+			if err := validateInterfaceMethodCompatibility(class.Name, method, ifaceMethod); err != nil {
 				return err
 			}
 		}

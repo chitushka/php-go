@@ -796,6 +796,21 @@ func TestInterfaceImplementationCanAddOptionalParameter(t *testing.T) {
 	}
 }
 
+func TestStaticInterfaceImplementation(t *testing.T) {
+	src := "<?php interface Named { public static function name(); } class User implements Named { public static function name() { return 'Ada'; } } echo User::name();"
+	got := run(t, src)
+	if got != "Ada" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestInterfaceImplementationStaticModifierMustMatch(t *testing.T) {
+	err := runErr(t, "<?php interface Named { public static function name(); } class User implements Named { public function name() { return 'Ada'; } }")
+	if err == nil || err.Error() != "method User::name static modifier must match Named::name" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestInterfaceExtendsMethodSignatureCompatibility(t *testing.T) {
 	src := "<?php interface Named { public function name($first); } interface DetailedNamed extends Named { public function name($first, $last = ''); } class User implements DetailedNamed { public function name($first, $last = '') { return $first . $last; } } $u = new User(); echo $u->name('Ada'); echo ':'; echo $u->name('Ada', ' Lovelace');"
 	got := run(t, src)
@@ -807,6 +822,13 @@ func TestInterfaceExtendsMethodSignatureCompatibility(t *testing.T) {
 func TestInterfaceExtendsCannotAddRequiredMethodParameter(t *testing.T) {
 	err := runErr(t, "<?php interface Named { public function name($first); } interface DetailedNamed extends Named { public function name($first, $last); }")
 	if err == nil || err.Error() != "method DetailedNamed::name cannot require 2 parameters to match Named::name requiring 1" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestInterfaceExtendsMethodStaticModifierMustMatch(t *testing.T) {
+	err := runErr(t, "<?php interface Named { public static function name(); } interface DetailedNamed extends Named { public function name(); }")
+	if err == nil || err.Error() != "method DetailedNamed::name static modifier must match Named::name" {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
