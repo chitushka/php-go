@@ -5186,13 +5186,14 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 }
 
 func validateMagicMethodDeclaration(className string, method *ast.FunctionDeclStmt) error {
+	name := magicMethodName(method.Name)
 	switch strings.ToLower(method.Name) {
 	case "__get", "__set", "__isset", "__unset":
 		if method.Visibility != "public" {
-			return fmt.Errorf("magic method %s::%s must be public", className, magicMethodName(method.Name))
+			return fmt.Errorf("magic method %s::%s must be public", className, name)
 		}
 		if method.Static {
-			return fmt.Errorf("magic method %s::%s must not be static", className, magicMethodName(method.Name))
+			return fmt.Errorf("magic method %s::%s must not be static", className, name)
 		}
 	case "__call":
 		if method.Visibility != "public" {
@@ -5209,7 +5210,21 @@ func validateMagicMethodDeclaration(className string, method *ast.FunctionDeclSt
 			return fmt.Errorf("magic method %s::__callStatic must be static", className)
 		}
 	}
+	if expected, ok := magicMethodParamCount(name); ok && len(method.Params) != expected {
+		return fmt.Errorf("magic method %s::%s must take exactly %d arguments", className, name, expected)
+	}
 	return nil
+}
+
+func magicMethodParamCount(name string) (int, bool) {
+	switch name {
+	case "__get", "__isset", "__unset":
+		return 1, true
+	case "__set", "__call", "__callStatic":
+		return 2, true
+	default:
+		return 0, false
+	}
 }
 
 func magicMethodName(name string) string {

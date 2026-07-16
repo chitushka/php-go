@@ -750,6 +750,44 @@ func TestPropertyMagicDeclarationsAreValidated(t *testing.T) {
 	}
 }
 
+func TestMagicMethodParameterCountsAreValidated(t *testing.T) {
+	cases := []struct {
+		src string
+		err string
+	}{
+		{
+			src: "<?php class BadGetMagicArgs { public function __get() {} }",
+			err: "magic method BadGetMagicArgs::__get must take exactly 1 arguments",
+		},
+		{
+			src: "<?php class BadSetMagicArgs { public function __set($name) {} }",
+			err: "magic method BadSetMagicArgs::__set must take exactly 2 arguments",
+		},
+		{
+			src: "<?php class BadIssetMagicArgs { public function __isset($name, $extra) {} }",
+			err: "magic method BadIssetMagicArgs::__isset must take exactly 1 arguments",
+		},
+		{
+			src: "<?php class BadUnsetMagicArgs { public function __unset() {} }",
+			err: "magic method BadUnsetMagicArgs::__unset must take exactly 1 arguments",
+		},
+		{
+			src: "<?php class BadCallMagicArgs { public function __call($name) {} }",
+			err: "magic method BadCallMagicArgs::__call must take exactly 2 arguments",
+		},
+		{
+			src: "<?php class BadCallStaticMagicArgs { public static function __callStatic($name) {} }",
+			err: "magic method BadCallStaticMagicArgs::__callStatic must take exactly 2 arguments",
+		},
+	}
+	for _, tc := range cases {
+		err := runErr(t, tc.src)
+		if err == nil || err.Error() != tc.err {
+			t.Fatalf("for %q got %v", tc.src, err)
+		}
+	}
+}
+
 func TestPrivatePropertyAccessDeniedOutsideClass(t *testing.T) {
 	err := runErr(t, "<?php class Sample { private $a = 2; } $s = new Sample(); echo $s->a;")
 	if err == nil || err.Error() != "cannot access private property Sample::$a" {
