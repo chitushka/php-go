@@ -634,6 +634,32 @@ func TestClassMemberRedeclarationsAreRejected(t *testing.T) {
 	}
 }
 
+func TestClassConstantExpressionsAreValidated(t *testing.T) {
+	cases := []struct {
+		src string
+		err string
+	}{
+		{
+			src: "<?php $runtime = 1; class BadPropertyDefault { public $value = $runtime; }",
+			err: "property BadPropertyDefault::$value default must be a constant expression",
+		},
+		{
+			src: "<?php class BadClassConstantValue { const VALUE = strlen('x'); }",
+			err: "class constant BadClassConstantValue::VALUE value must be a constant expression",
+		},
+		{
+			src: "<?php interface BadInterfaceConstantValue { const VALUE = strlen('x'); }",
+			err: "interface constant BadInterfaceConstantValue::VALUE value must be a constant expression",
+		},
+	}
+	for _, tc := range cases {
+		err := runErr(t, tc.src)
+		if err == nil || err.Error() != tc.err {
+			t.Fatalf("for %q got %v", tc.src, err)
+		}
+	}
+}
+
 func TestPrivatePropertyAccessDeniedOutsideClass(t *testing.T) {
 	err := runErr(t, "<?php class Sample { private $a = 2; } $s = new Sample(); echo $s->a;")
 	if err == nil || err.Error() != "cannot access private property Sample::$a" {

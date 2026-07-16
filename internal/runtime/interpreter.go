@@ -5080,8 +5080,13 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 		if prop.Final {
 			return fmt.Errorf("property %s::$%s cannot be final", class.Name, prop.Name)
 		}
+		if prop.Default != nil {
+			if err := validateDefaultExpression(prop.Default); err != nil {
+				return fmt.Errorf("property %s::$%s default must be a constant expression", class.Name, prop.Name)
+			}
+		}
 	}
-	if err := validateClassConstantRedeclarations(class.Name, class.Constants, "class constant"); err != nil {
+	if err := validateClassConstants(class.Name, class.Constants, "class constant"); err != nil {
 		return err
 	}
 	if class.Parent != "" {
@@ -5278,7 +5283,7 @@ func (i *Interpreter) defineInterface(iface *ast.InterfaceDeclStmt) error {
 	if _, exists := i.classByName(iface.Name); exists {
 		return fmt.Errorf("cannot redeclare interface %s", iface.Name)
 	}
-	if err := validateClassConstantRedeclarations(iface.Name, iface.Constants, "interface constant"); err != nil {
+	if err := validateClassConstants(iface.Name, iface.Constants, "interface constant"); err != nil {
 		return err
 	}
 	parentMethods := map[string]*ast.FunctionDeclStmt{}
@@ -5347,7 +5352,7 @@ func (i *Interpreter) defineInterface(iface *ast.InterfaceDeclStmt) error {
 	return nil
 }
 
-func validateClassConstantRedeclarations(owner string, constants []*ast.ClassConstant, label string) error {
+func validateClassConstants(owner string, constants []*ast.ClassConstant, label string) error {
 	seenConstants := map[string]bool{}
 	for _, constant := range constants {
 		constant.Owner = owner
@@ -5355,6 +5360,9 @@ func validateClassConstantRedeclarations(owner string, constants []*ast.ClassCon
 			return fmt.Errorf("cannot redeclare %s %s::%s", label, owner, constant.Name)
 		}
 		seenConstants[constant.Name] = true
+		if err := validateDefaultExpression(constant.Value); err != nil {
+			return fmt.Errorf("%s %s::%s value must be a constant expression", label, owner, constant.Name)
+		}
 	}
 	return nil
 }
