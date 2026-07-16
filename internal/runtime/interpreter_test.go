@@ -686,6 +686,36 @@ func TestDuplicateInterfaceDeclarationsAreRejected(t *testing.T) {
 	}
 }
 
+func TestMagicCallDeclarationsAreValidated(t *testing.T) {
+	cases := []struct {
+		src string
+		err string
+	}{
+		{
+			src: "<?php class PrivateCallMagic { private function __call($name, $args) {} }",
+			err: "magic method PrivateCallMagic::__call must be public",
+		},
+		{
+			src: "<?php class StaticCallMagic { public static function __call($name, $args) {} }",
+			err: "magic method StaticCallMagic::__call must not be static",
+		},
+		{
+			src: "<?php class PrivateCallStaticMagic { private static function __callStatic($name, $args) {} }",
+			err: "magic method PrivateCallStaticMagic::__callStatic must be public",
+		},
+		{
+			src: "<?php class NonStaticCallStaticMagic { public function __callStatic($name, $args) {} }",
+			err: "magic method NonStaticCallStaticMagic::__callStatic must be static",
+		},
+	}
+	for _, tc := range cases {
+		err := runErr(t, tc.src)
+		if err == nil || err.Error() != tc.err {
+			t.Fatalf("for %q got %v", tc.src, err)
+		}
+	}
+}
+
 func TestPrivatePropertyAccessDeniedOutsideClass(t *testing.T) {
 	err := runErr(t, "<?php class Sample { private $a = 2; } $s = new Sample(); echo $s->a;")
 	if err == nil || err.Error() != "cannot access private property Sample::$a" {

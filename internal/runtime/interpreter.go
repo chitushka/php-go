@@ -5054,6 +5054,9 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 		if method.Visibility == "" {
 			method.Visibility = "public"
 		}
+		if err := validateMagicMethodDeclaration(class.Name, method); err != nil {
+			return err
+		}
 		if err := validateFunctionCompatibility(method, "method "+class.Name+"::"+method.Name); err != nil {
 			return err
 		}
@@ -5177,6 +5180,26 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 		}
 		if err := i.checkInterfaceImplementations(class); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func validateMagicMethodDeclaration(className string, method *ast.FunctionDeclStmt) error {
+	switch strings.ToLower(method.Name) {
+	case "__call":
+		if method.Visibility != "public" {
+			return fmt.Errorf("magic method %s::__call must be public", className)
+		}
+		if method.Static {
+			return fmt.Errorf("magic method %s::__call must not be static", className)
+		}
+	case "__callstatic":
+		if method.Visibility != "public" {
+			return fmt.Errorf("magic method %s::__callStatic must be public", className)
+		}
+		if !method.Static {
+			return fmt.Errorf("magic method %s::__callStatic must be static", className)
 		}
 	}
 	return nil
