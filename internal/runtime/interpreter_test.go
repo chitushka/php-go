@@ -484,7 +484,7 @@ func TestIsCallableBuiltinForOOPValues(t *testing.T) {
 }
 
 func TestInvokableObjectCallAndIsCallable(t *testing.T) {
-	src := "<?php class InvokableBox { public function __invoke($prefix, &$value) { $value = $value . ':changed'; return $prefix . ':' . $value; } } class HiddenInvoke { private function __invoke() {} } $box = new InvokableBox(); $value = 'start'; echo $box('go', $value); echo ':'; echo $value; echo ':'; echo is_callable($box) ? 'callable' : 'no'; echo ':'; $hidden = new HiddenInvoke(); echo is_callable($hidden) ? 'hidden' : 'no'; echo ':'; echo is_callable($box, false, $name) ? $name : 'no';"
+	src := "<?php class InvokableBox { public function __invoke($prefix, &$value) { $value = $value . ':changed'; return $prefix . ':' . $value; } } class PlainObject {} $box = new InvokableBox(); $value = 'start'; echo $box('go', $value); echo ':'; echo $value; echo ':'; echo is_callable($box) ? 'callable' : 'no'; echo ':'; $plain = new PlainObject(); echo is_callable($plain) ? 'plain' : 'no'; echo ':'; echo is_callable($box, false, $name) ? $name : 'no';"
 	got := run(t, src)
 	if got != "go:start:changed:start:changed:callable:no:InvokableBox::__invoke" {
 		t.Fatalf("got %q", got)
@@ -864,6 +864,28 @@ func TestConstructorAndDestructorDeclarationsAreValidated(t *testing.T) {
 		{
 			src: "<?php class BadDestructMagicArgs { public function __destruct($name) {} }",
 			err: "magic method BadDestructMagicArgs::__destruct must take exactly 0 arguments",
+		},
+	}
+	for _, tc := range cases {
+		err := runErr(t, tc.src)
+		if err == nil || err.Error() != tc.err {
+			t.Fatalf("for %q got %v", tc.src, err)
+		}
+	}
+}
+
+func TestInvokeMagicDeclarationIsValidated(t *testing.T) {
+	cases := []struct {
+		src string
+		err string
+	}{
+		{
+			src: "<?php class PrivateInvokeMagic { private function __invoke() {} }",
+			err: "magic method PrivateInvokeMagic::__invoke must be public",
+		},
+		{
+			src: "<?php class StaticInvokeMagic { public static function __invoke() {} }",
+			err: "magic method StaticInvokeMagic::__invoke must not be static",
 		},
 	}
 	for _, tc := range cases {

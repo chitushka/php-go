@@ -9,9 +9,7 @@ class InvokableBox {
     }
 }
 
-class HiddenInvoke {
-    private function __invoke() {}
-}
+class PlainObject {}
 
 $box = new InvokableBox();
 $value = 'start';
@@ -22,8 +20,8 @@ echo $value;
 echo ':';
 echo is_callable($box) ? 'callable' : 'no';
 echo ':';
-$hidden = new HiddenInvoke();
-echo is_callable($hidden) ? 'hidden' : 'no';
+$plain = new PlainObject();
+echo is_callable($plain) ? 'plain' : 'no';
 echo ':';
 echo is_callable($box, false, $name) ? $name : 'no';
 --EXPECT--

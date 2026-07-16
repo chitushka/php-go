@@ -5214,6 +5214,13 @@ func validateMagicMethodDeclaration(className string, method *ast.FunctionDeclSt
 		if method.Static {
 			return fmt.Errorf("magic method %s::__destruct must not be static", className)
 		}
+	case "__invoke":
+		if method.Visibility != "public" {
+			return fmt.Errorf("magic method %s::__invoke must be public", className)
+		}
+		if method.Static {
+			return fmt.Errorf("magic method %s::__invoke must not be static", className)
+		}
 	case "__call":
 		if method.Visibility != "public" {
 			return fmt.Errorf("magic method %s::__call must be public", className)
@@ -5278,6 +5285,8 @@ func magicMethodName(name string) string {
 		return "__construct"
 	case "__destruct":
 		return "__destruct"
+	case "__invoke":
+		return "__invoke"
 	default:
 		return name
 	}
