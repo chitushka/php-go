@@ -26,6 +26,7 @@ type Interpreter struct {
 	classAliases                map[string]classAlias
 	interfaces                  map[string]*ast.InterfaceDeclStmt
 	constants                   map[string]map[string]Value
+	declaredClassNames          map[string]string
 	runtimeConstants            map[string]Value
 	runtimeInsensitiveConstants map[string]Value
 	staticVars                  map[string]map[string]*variableSlot
@@ -66,6 +67,7 @@ func NewInterpreterWithBaseDir(baseDir string) *Interpreter {
 		classAliases:                map[string]classAlias{},
 		interfaces:                  map[string]*ast.InterfaceDeclStmt{},
 		constants:                   map[string]map[string]Value{},
+		declaredClassNames:          map[string]string{classNameKey("Exception"): "Exception"},
 		runtimeConstants:            map[string]Value{},
 		runtimeInsensitiveConstants: map[string]Value{},
 		staticVars:                  map[string]map[string]*variableSlot{},
@@ -110,6 +112,11 @@ func (i *Interpreter) Run(p *ast.Program) error {
 }
 
 func (i *Interpreter) runProgram(p *ast.Program, shutdown bool) error {
+	for _, s := range p.Statements {
+		if class, ok := s.(*ast.ClassDeclStmt); ok {
+			i.declaredClassNames[classNameKey(class.Name)] = class.Name
+		}
+	}
 	for _, s := range p.Statements {
 		if fn, ok := s.(*ast.FunctionDeclStmt); ok {
 			if err := i.defineFunction(fn); err != nil {
@@ -3080,6 +3087,9 @@ func (i *Interpreter) newObject(n *ast.NewExpr) (Value, error) {
 	}
 	class, ok := i.classByName(className)
 	if !ok {
+		if iface, interfaceOK := i.interfaceByName(className); interfaceOK {
+			return NullValue(), fmt.Errorf("cannot instantiate interface %s", iface.Name)
+		}
 		return NullValue(), fmt.Errorf("undefined class %s", className)
 	}
 	if class.Abstract {
@@ -4958,6 +4968,14 @@ func (i *Interpreter) classByName(name string) (*ast.ClassDeclStmt, bool) {
 	return nil, false
 }
 
+func (i *Interpreter) knownClassName(name string) (string, bool) {
+	if class, ok := i.classByName(name); ok {
+		return class.Name, true
+	}
+	name, ok := i.declaredClassNames[classNameKey(name)]
+	return name, ok
+}
+
 func (i *Interpreter) interfaceByName(name string) (*ast.InterfaceDeclStmt, bool) {
 	iface, ok := i.interfaces[classNameKey(name)]
 	return iface, ok
@@ -5118,6 +5136,9 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 		}
 		parent, ok := i.classByName(class.Parent)
 		if !ok {
+			if iface, interfaceOK := i.interfaceByName(class.Parent); interfaceOK {
+				return fmt.Errorf("class %s cannot extend interface %s", class.Name, iface.Name)
+			}
 			return fmt.Errorf("undefined parent class %s", class.Parent)
 		}
 		class.Parent = parent.Name
@@ -5148,6 +5169,9 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 		}
 		iface, ok := i.interfaceByName(ifaceName)
 		if !ok {
+			if implementedClass, classOK := i.knownClassName(ifaceName); classOK {
+				return fmt.Errorf("class %s cannot implement class %s", class.Name, implementedClass)
+			}
 			return fmt.Errorf("undefined interface %s", ifaceName)
 		}
 		if previous, exists := seenInterfaces[classNameKey(iface.Name)]; exists {
@@ -5443,6 +5467,9 @@ func (i *Interpreter) defineInterface(iface *ast.InterfaceDeclStmt) error {
 		}
 		parent, ok := i.interfaceByName(parentName)
 		if !ok {
+			if parentClass, classOK := i.knownClassName(parentName); classOK {
+				return fmt.Errorf("interface %s cannot extend class %s", iface.Name, parentClass)
+			}
 			return fmt.Errorf("undefined parent interface %s", parentName)
 		}
 		if previous, exists := seenParents[classNameKey(parent.Name)]; exists {

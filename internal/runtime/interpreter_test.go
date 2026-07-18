@@ -1170,6 +1170,41 @@ func TestInterfaceImplementationStaticModifierMustMatch(t *testing.T) {
 	}
 }
 
+func TestClassInterfaceKindErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		err  string
+	}{
+		{
+			name: "new interface",
+			src:  "<?php interface Contract {} new Contract();",
+			err:  "cannot instantiate interface Contract",
+		},
+		{
+			name: "class extends interface",
+			src:  "<?php interface Contract {} class User extends Contract {}",
+			err:  "class User cannot extend interface Contract",
+		},
+		{
+			name: "class implements class",
+			src:  "<?php class Base {} class User implements Base {}",
+			err:  "class User cannot implement class Base",
+		},
+		{
+			name: "interface extends class",
+			src:  "<?php class Base {} interface User extends Base {}",
+			err:  "interface User cannot extend class Base",
+		},
+	}
+	for _, tt := range tests {
+		err := runErr(t, tt.src)
+		if err == nil || err.Error() != tt.err {
+			t.Fatalf("%s: unexpected error: %v", tt.name, err)
+		}
+	}
+}
+
 func TestAbstractClassInterfaceDeclaredMethodsAreValidated(t *testing.T) {
 	src := "<?php interface Named { public function name(); } abstract class AbstractUser implements Named {} class User extends AbstractUser { public function name() { return 'Ada'; } } $u = new User(); echo $u->name();"
 	got := run(t, src)
