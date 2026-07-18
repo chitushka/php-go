@@ -2327,6 +2327,63 @@ func TestIndexAssignmentNonArrayWarningUsesErrorPolicy(t *testing.T) {
 	}
 }
 
+func TestPropertyAssignmentNonObjectWarningUsesErrorPolicy(t *testing.T) {
+	p := parser.New(lexer.New("<?php $x = 1; $n = null; $x->name = 'bad'; $n->name = 'bad'; echo $x; echo ':'; echo ($n === null ? 'null' : 'bad'); echo ':after';"))
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i := runtime.NewInterpreter()
+	if err := i.Run(program); err != nil {
+		t.Fatalf("runtime error: %v", err)
+	}
+	if got := i.Out.String(); got != "1:null:after" {
+		t.Fatalf("got %q", got)
+	}
+	diagnostics := i.Diagnostics()
+	if len(diagnostics) != 2 {
+		t.Fatalf("unexpected diagnostics: %#v", diagnostics)
+	}
+	for idx, diagnostic := range diagnostics {
+		if diagnostic.Severity != runtime.Warning || diagnostic.Message != "cannot assign property name on non-object" {
+			t.Fatalf("unexpected diagnostic %d: %#v", idx, diagnostic)
+		}
+	}
+
+	p = parser.New(lexer.New("<?php $x = 1; $x->name = 'bad'; echo 'bad';"))
+	program = p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i = runtime.NewInterpreter()
+	i.SetErrorPolicy(runtime.StrictErrorPolicy())
+	err := i.Run(program)
+	runtimeErr, ok := err.(*runtime.RuntimeError)
+	if !ok || runtimeErr.Severity != runtime.Warning || runtimeErr.Message != "cannot assign property name on non-object" {
+		t.Fatalf("expected strict property assignment warning runtime error, got %#v", err)
+	}
+	if got := i.Out.String(); got != "" {
+		t.Fatalf("expected strict property assignment warning to halt before output, got %q", got)
+	}
+
+	p = parser.New(lexer.New("<?php $x = 1; $x->name = 'bad'; echo $x; echo ':after';"))
+	program = p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i = runtime.NewInterpreter()
+	i.SetErrorPolicy(runtime.StrictErrorPolicy().Ignore(runtime.Warning))
+	if err := i.Run(program); err != nil {
+		t.Fatalf("runtime error: %v", err)
+	}
+	if got := i.Out.String(); got != "1:after" {
+		t.Fatalf("got %q", got)
+	}
+	if diagnostics := i.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("expected ignored property assignment warning to be omitted, got %#v", diagnostics)
+	}
+}
+
 func TestForeachNonArrayWarningUsesErrorPolicy(t *testing.T) {
 	p := parser.New(lexer.New("<?php foreach (1 as $value) { echo 'bad'; } echo 'after';"))
 	program := p.ParseProgram()

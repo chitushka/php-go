@@ -1195,6 +1195,10 @@ func (i *Interpreter) recoverableErrorf(format string, args ...any) error {
 	return i.emitDiagnostic(RecoverableError, fmt.Sprintf(format, args...))
 }
 
+func (i *Interpreter) warningf(format string, args ...any) error {
+	return i.emitDiagnostic(Warning, fmt.Sprintf(format, args...))
+}
+
 func (i *Interpreter) noticef(format string, args ...any) error {
 	return i.emitDiagnostic(Notice, fmt.Sprintf(format, args...))
 }
@@ -4324,7 +4328,7 @@ func (i *Interpreter) assignProperty(object ast.Expr, property string, value Val
 		return err
 	}
 	if obj.Kind != ObjectKind || obj.O == nil {
-		return fmt.Errorf("cannot assign property %s on non-object", property)
+		return i.warningf("cannot assign property %s on non-object", property)
 	}
 	key, _, info, ok, inaccessible := i.objectProperty(obj.O, property)
 	if inaccessible {
