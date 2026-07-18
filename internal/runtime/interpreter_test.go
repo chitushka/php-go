@@ -3,6 +3,7 @@ package runtime_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"php-src-go/internal/lexer"
@@ -2429,6 +2430,62 @@ func TestIssetEmptyWarningUsesErrorPolicy(t *testing.T) {
 	}
 	if diagnostics := i.Diagnostics(); len(diagnostics) != 0 {
 		t.Fatalf("expected ignored isset/empty warning to be omitted, got %#v", diagnostics)
+	}
+}
+
+func TestPregMatchCaptureWarningUsesErrorPolicy(t *testing.T) {
+	p := parser.New(lexer.New("<?php $a = preg_match('/x/', 'x', 'not-writable'); $b = preg_match('/x/', 'x', $matches, 'extra'); $c = preg_match('/[/', 'x', $matches); echo ($a === null ? 'null' : 'bad'); echo ':'; echo ($b === null ? 'null' : 'bad'); echo ':'; echo ($c === false ? 'false' : 'bad'); echo ':after';"))
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i := runtime.NewInterpreter()
+	if err := i.Run(program); err != nil {
+		t.Fatalf("runtime error: %v", err)
+	}
+	if got := i.Out.String(); got != "null:null:false:after" {
+		t.Fatalf("got %q", got)
+	}
+	diagnostics := i.Diagnostics()
+	if len(diagnostics) != 3 ||
+		diagnostics[0].Severity != runtime.Warning ||
+		diagnostics[0].Message != "preg_match matches argument must be writable" ||
+		diagnostics[1].Message != "preg_match expects 3 arguments, got 4" ||
+		!strings.Contains(diagnostics[2].Message, "missing closing ]") {
+		t.Fatalf("unexpected diagnostics: %#v", diagnostics)
+	}
+
+	p = parser.New(lexer.New("<?php preg_match('/x/', 'x', 'not-writable'); echo 'bad';"))
+	program = p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i = runtime.NewInterpreter()
+	i.SetErrorPolicy(runtime.StrictErrorPolicy())
+	err := i.Run(program)
+	runtimeErr, ok := err.(*runtime.RuntimeError)
+	if !ok || runtimeErr.Severity != runtime.Warning || runtimeErr.Message != "preg_match matches argument must be writable" {
+		t.Fatalf("expected strict preg_match warning runtime error, got %#v", err)
+	}
+	if got := i.Out.String(); got != "" {
+		t.Fatalf("expected strict preg_match warning to halt before output, got %q", got)
+	}
+
+	p = parser.New(lexer.New("<?php $value = preg_match('/[/', 'x', $matches); echo ($value === false ? 'false' : 'bad'); echo ':after';"))
+	program = p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i = runtime.NewInterpreter()
+	i.SetErrorPolicy(runtime.StrictErrorPolicy().Ignore(runtime.Warning))
+	if err := i.Run(program); err != nil {
+		t.Fatalf("runtime error: %v", err)
+	}
+	if got := i.Out.String(); got != "false:after" {
+		t.Fatalf("got %q", got)
+	}
+	if diagnostics := i.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("expected ignored preg_match warning to be omitted, got %#v", diagnostics)
 	}
 }
 

@@ -2854,7 +2854,8 @@ func (i *Interpreter) fetchStaticProperty(className, property string) (Value, er
 
 func (i *Interpreter) callPregMatchWithCaptures(c *ast.CallExpr) (Value, error) {
 	if len(c.Args) < 3 || len(c.Args) > 3 {
-		return NullValue(), fmt.Errorf("preg_match expects 3 arguments, got %d", len(c.Args))
+		value, _, err := i.builtinWarningf(NullValue(), true, "preg_match expects 3 arguments, got %d", len(c.Args))
+		return value, err
 	}
 	pattern, err := i.eval(c.Args[0])
 	if err != nil {
@@ -2866,13 +2867,15 @@ func (i *Interpreter) callPregMatchWithCaptures(c *ast.CallExpr) (Value, error) 
 	}
 	re, err := regexp.Compile(runtimeRegexPattern(pattern.String()))
 	if err != nil {
-		return NullValue(), err
+		value, _, warnErr := i.handleBuiltinWarning(err, BoolValue(false), true)
+		return value, warnErr
 	}
 	arr := NewArray()
 	matches := re.FindStringSubmatch(subject.String())
 	if matches == nil {
 		if err := i.assignBuiltinResult(c.Args[2], ArrayValue(arr)); err != nil {
-			return NullValue(), err
+			value, _, warnErr := i.handleBuiltinWarning(err, NullValue(), true)
+			return value, warnErr
 		}
 		return IntValue(0), nil
 	}
@@ -2880,7 +2883,8 @@ func (i *Interpreter) callPregMatchWithCaptures(c *ast.CallExpr) (Value, error) 
 		arr.Append(StringValue(match))
 	}
 	if err := i.assignBuiltinResult(c.Args[2], ArrayValue(arr)); err != nil {
-		return NullValue(), err
+		value, _, warnErr := i.handleBuiltinWarning(err, NullValue(), true)
+		return value, warnErr
 	}
 	return IntValue(1), nil
 }
