@@ -2320,6 +2320,62 @@ func TestForeachNonArrayWarningUsesErrorPolicy(t *testing.T) {
 	}
 }
 
+func TestReadAccessNoticeUsesErrorPolicy(t *testing.T) {
+	p := parser.New(lexer.New("<?php $x = 1; $idx = $x['key']; $prop = $x->name; echo ($idx === null ? 'null' : 'bad'); echo ':'; echo ($prop === null ? 'null' : 'bad'); echo ':after';"))
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i := runtime.NewInterpreter()
+	if err := i.Run(program); err != nil {
+		t.Fatalf("runtime error: %v", err)
+	}
+	if got := i.Out.String(); got != "null:null:after" {
+		t.Fatalf("got %q", got)
+	}
+	diagnostics := i.Diagnostics()
+	if len(diagnostics) != 2 ||
+		diagnostics[0].Severity != runtime.Notice ||
+		diagnostics[0].Message != "cannot use index on 1" ||
+		diagnostics[1].Severity != runtime.Notice ||
+		diagnostics[1].Message != "cannot fetch property name on non-object" {
+		t.Fatalf("unexpected diagnostics: %#v", diagnostics)
+	}
+
+	p = parser.New(lexer.New("<?php $x = 1; $idx = $x['key']; echo 'bad';"))
+	program = p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i = runtime.NewInterpreter()
+	i.SetErrorPolicy(runtime.StrictErrorPolicy())
+	err := i.Run(program)
+	runtimeErr, ok := err.(*runtime.RuntimeError)
+	if !ok || runtimeErr.Severity != runtime.Notice || runtimeErr.Message != "cannot use index on 1" {
+		t.Fatalf("expected strict read access notice runtime error, got %#v", err)
+	}
+	if got := i.Out.String(); got != "" {
+		t.Fatalf("expected strict read access notice to halt before output, got %q", got)
+	}
+
+	p = parser.New(lexer.New("<?php $x = 1; $prop = $x->name; echo ($prop === null ? 'null' : 'bad'); echo ':after';"))
+	program = p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i = runtime.NewInterpreter()
+	i.SetErrorPolicy(runtime.StrictErrorPolicy().Ignore(runtime.Notice))
+	if err := i.Run(program); err != nil {
+		t.Fatalf("runtime error: %v", err)
+	}
+	if got := i.Out.String(); got != "null:after" {
+		t.Fatalf("got %q", got)
+	}
+	if diagnostics := i.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("expected ignored read access notice to be omitted, got %#v", diagnostics)
+	}
+}
+
 func TestRegistryBuiltinWarningUsesErrorPolicy(t *testing.T) {
 	p := parser.New(lexer.New("<?php $value = strlen(); echo ($value === null ? 'null' : 'bad'); echo ':after';"))
 	program := p.ParseProgram()

@@ -1182,6 +1182,10 @@ func (i *Interpreter) recoverableErrorf(format string, args ...any) error {
 	return i.emitDiagnostic(RecoverableError, fmt.Sprintf(format, args...))
 }
 
+func (i *Interpreter) noticef(format string, args ...any) error {
+	return i.emitDiagnostic(Notice, fmt.Sprintf(format, args...))
+}
+
 func isCallableWarning(err error) bool {
 	if err == nil {
 		return false
@@ -2784,7 +2788,10 @@ func (i *Interpreter) fetchProperty(object ast.Expr, property string) (Value, er
 		return NullValue(), err
 	}
 	if obj.Kind != ObjectKind || obj.O == nil {
-		return NullValue(), fmt.Errorf("cannot fetch property %s on non-object", property)
+		if err := i.noticef("cannot fetch property %s on non-object", property); err != nil {
+			return NullValue(), err
+		}
+		return NullValue(), nil
 	}
 	_, value, info, ok, inaccessible := i.objectProperty(obj.O, property)
 	if inaccessible {
@@ -3763,7 +3770,10 @@ func (i *Interpreter) evalIndex(n *ast.IndexExpr) (Value, error) {
 		}
 		return StringValue(left.S[offset : offset+1]), nil
 	default:
-		return NullValue(), fmt.Errorf("cannot use index on %s", left.String())
+		if err := i.noticef("cannot use index on %s", left.String()); err != nil {
+			return NullValue(), err
+		}
+		return NullValue(), nil
 	}
 }
 
