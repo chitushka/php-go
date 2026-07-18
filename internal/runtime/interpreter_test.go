@@ -2270,6 +2270,63 @@ func TestListAssignmentNonArrayWarningUsesErrorPolicy(t *testing.T) {
 	}
 }
 
+func TestIndexAssignmentNonArrayWarningUsesErrorPolicy(t *testing.T) {
+	p := parser.New(lexer.New("<?php $x = 1; $name = 'y'; $y = 'scalar'; $nested = array('a' => 1); $x['key'] = 'bad'; $$name['key'] = 'bad'; $nested['a']['b'] = 'bad'; echo $x; echo ':'; echo $y; echo ':'; echo $nested['a']; echo ':after';"))
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i := runtime.NewInterpreter()
+	if err := i.Run(program); err != nil {
+		t.Fatalf("runtime error: %v", err)
+	}
+	if got := i.Out.String(); got != "1:scalar:1:after" {
+		t.Fatalf("got %q", got)
+	}
+	diagnostics := i.Diagnostics()
+	if len(diagnostics) != 3 {
+		t.Fatalf("unexpected diagnostics: %#v", diagnostics)
+	}
+	for idx, diagnostic := range diagnostics {
+		if diagnostic.Severity != runtime.Warning || diagnostic.Message != "cannot assign index on non-array" {
+			t.Fatalf("unexpected diagnostic %d: %#v", idx, diagnostic)
+		}
+	}
+
+	p = parser.New(lexer.New("<?php $x = 1; $x['key'] = 'bad'; echo 'bad';"))
+	program = p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i = runtime.NewInterpreter()
+	i.SetErrorPolicy(runtime.StrictErrorPolicy())
+	err := i.Run(program)
+	runtimeErr, ok := err.(*runtime.RuntimeError)
+	if !ok || runtimeErr.Severity != runtime.Warning || runtimeErr.Message != "cannot assign index on non-array" {
+		t.Fatalf("expected strict index assignment warning runtime error, got %#v", err)
+	}
+	if got := i.Out.String(); got != "" {
+		t.Fatalf("expected strict index assignment warning to halt before output, got %q", got)
+	}
+
+	p = parser.New(lexer.New("<?php $x = 1; $x['key'] = 'bad'; echo $x; echo ':after';"))
+	program = p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i = runtime.NewInterpreter()
+	i.SetErrorPolicy(runtime.StrictErrorPolicy().Ignore(runtime.Warning))
+	if err := i.Run(program); err != nil {
+		t.Fatalf("runtime error: %v", err)
+	}
+	if got := i.Out.String(); got != "1:after" {
+		t.Fatalf("got %q", got)
+	}
+	if diagnostics := i.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("expected ignored index assignment warning to be omitted, got %#v", diagnostics)
+	}
+}
+
 func TestForeachNonArrayWarningUsesErrorPolicy(t *testing.T) {
 	p := parser.New(lexer.New("<?php foreach (1 as $value) { echo 'bad'; } echo 'after';"))
 	program := p.ParseProgram()

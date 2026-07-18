@@ -4196,6 +4196,9 @@ func (i *Interpreter) assignIndex(target *ast.IndexExpr, value Value) error {
 	if err != nil {
 		return err
 	}
+	if arr == nil {
+		return nil
+	}
 	if appendValue {
 		arr.Append(value)
 	} else {
@@ -4214,7 +4217,7 @@ func (i *Interpreter) ensureWritableArray(target ast.Expr) (*Array, error) {
 			return arr, nil
 		}
 		if current.Kind != ArrayKind || current.A == nil {
-			return nil, fmt.Errorf("cannot assign index on non-array")
+			return i.warnCannotAssignIndexOnNonArray()
 		}
 		return current.A, nil
 	case *ast.VariableVariable:
@@ -4226,7 +4229,7 @@ func (i *Interpreter) ensureWritableArray(target ast.Expr) (*Array, error) {
 			return arr, nil
 		}
 		if current.Kind != ArrayKind || current.A == nil {
-			return nil, fmt.Errorf("cannot assign index on non-array")
+			return i.warnCannotAssignIndexOnNonArray()
 		}
 		return current.A, nil
 	case *ast.IndexExpr:
@@ -4236,6 +4239,9 @@ func (i *Interpreter) ensureWritableArray(target ast.Expr) (*Array, error) {
 		parent, err := i.ensureWritableArray(n.Left)
 		if err != nil {
 			return nil, err
+		}
+		if parent == nil {
+			return nil, nil
 		}
 		index, err := i.eval(n.Index)
 		if err != nil {
@@ -4249,7 +4255,7 @@ func (i *Interpreter) ensureWritableArray(target ast.Expr) (*Array, error) {
 			return arr, nil
 		}
 		if current.Kind != ArrayKind || current.A == nil {
-			return nil, fmt.Errorf("cannot assign index on non-array")
+			return i.warnCannotAssignIndexOnNonArray()
 		}
 		return current.A, nil
 	default:
@@ -4258,10 +4264,17 @@ func (i *Interpreter) ensureWritableArray(target ast.Expr) (*Array, error) {
 			return nil, err
 		}
 		if value.Kind != ArrayKind || value.A == nil {
-			return nil, fmt.Errorf("cannot assign index on non-array")
+			return i.warnCannotAssignIndexOnNonArray()
 		}
 		return value.A, nil
 	}
+}
+
+func (i *Interpreter) warnCannotAssignIndexOnNonArray() (*Array, error) {
+	if err := i.emitDiagnostic(Warning, "cannot assign index on non-array"); err != nil {
+		return nil, err
+	}
+	return nil, nil
 }
 
 func (i *Interpreter) assignTarget(target ast.Expr, value Value) error {
