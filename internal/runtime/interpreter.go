@@ -496,7 +496,10 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 			return nil, err
 		}
 		if src.Kind != ArrayKind || src.A == nil {
-			return nil, fmt.Errorf("foreach source must be array")
+			if err := i.emitDiagnostic(Warning, "foreach source must be array"); err != nil {
+				return nil, err
+			}
+			return nil, nil
 		}
 		for _, entry := range src.A.Entries {
 			if n.KeyVar != "" {
