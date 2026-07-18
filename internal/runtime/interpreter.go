@@ -4083,6 +4083,10 @@ func (i *Interpreter) unsetStaticProperty(className, property string) error {
 	if _, info, ok := i.findStaticProperty(resolved, property); ok {
 		owner = info.Owner
 	}
+	if _, _, slotOwner, key, ok := i.findStaticPropertySlot(resolved, property); ok {
+		owner = slotOwner
+		property = key
+	}
 	if props, ok := i.statics[owner]; ok {
 		delete(props, property)
 	}
@@ -5221,8 +5225,9 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 				return err
 			}
 		}
-		i.statics[class.Name][prop.Name] = value
-		i.staticMeta[class.Name][prop.Name] = PropertyMeta{Owner: prop.Owner, Name: prop.Name, Visibility: prop.Visibility, Static: true}
+		key := propertyStorageKey(prop.Owner, prop.Visibility, prop.Name)
+		i.statics[class.Name][key] = value
+		i.staticMeta[class.Name][key] = PropertyMeta{Owner: prop.Owner, Name: prop.Name, Visibility: prop.Visibility, Static: true}
 	}
 	if class.Abstract {
 		if err := i.checkInterfaceImplementations(class, false); err != nil {
@@ -5716,13 +5721,15 @@ func (i *Interpreter) setStaticProperty(className, property string, value Value)
 		className = resolved
 	}
 	owner := className
-	if _, info, ok := i.findStaticProperty(className, property); ok {
-		owner = info.Owner
+	key := property
+	if _, _, slotOwner, slotKey, ok := i.findStaticPropertySlot(className, property); ok {
+		owner = slotOwner
+		key = slotKey
 	}
 	if _, ok := i.statics[owner]; !ok {
 		i.statics[owner] = map[string]Value{}
 	}
-	i.statics[owner][property] = value
+	i.statics[owner][key] = value
 }
 
 func (i *Interpreter) checkMethodAccess(_ string, method *ast.FunctionDeclStmt) error {
@@ -5784,18 +5791,26 @@ func (i *Interpreter) propertyAccessible(info PropertyMeta) bool {
 }
 
 func (i *Interpreter) findStaticProperty(className, property string) (Value, PropertyMeta, bool) {
+	value, meta, _, _, ok := i.findStaticPropertySlot(className, property)
+	return value, meta, ok
+}
+
+func (i *Interpreter) findStaticPropertySlot(className, property string) (Value, PropertyMeta, string, string, bool) {
 	if props, ok := i.statics[className]; ok {
-		if value, exists := props[property]; exists {
-			if meta, metaOK := i.staticMeta[className][property]; metaOK {
-				return value, meta, true
+		privateKey := propertyStorageKey(className, "private", property)
+		for _, key := range []string{property, privateKey} {
+			if value, exists := props[key]; exists {
+				if meta, metaOK := i.staticMeta[className][key]; metaOK {
+					return value, meta, className, key, true
+				}
+				return value, PropertyMeta{Owner: className, Name: property, Visibility: "public", Static: true}, className, key, true
 			}
-			return value, PropertyMeta{Owner: className, Name: property, Visibility: "public", Static: true}, true
 		}
 	}
 	if class, ok := i.classByName(className); ok && class.Parent != "" {
-		return i.findStaticProperty(class.Parent, property)
+		return i.findStaticPropertySlot(class.Parent, property)
 	}
-	return NullValue(), PropertyMeta{}, false
+	return NullValue(), PropertyMeta{}, "", "", false
 }
 
 func (i *Interpreter) getClassConstant(className, name string) (Value, error) {

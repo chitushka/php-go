@@ -1215,6 +1215,14 @@ func TestSelfStaticAccess(t *testing.T) {
 	}
 }
 
+func TestPrivateStaticParentPropertyUsesDeclaringClassScope(t *testing.T) {
+	src := "<?php class Base { private static $value = 'base'; public static function baseValue() { return self::$value; } public static function setBase($value) { self::$value = $value; } } class Child extends Base { private static $value = 'child'; public static function childValue() { return self::$value; } public static function setChild($value) { self::$value = $value; } } echo Base::baseValue(); echo ':'; echo Child::baseValue(); echo ':'; echo Child::childValue(); Child::setChild('new-child'); Base::setBase('new-base'); echo ':'; echo Base::baseValue(); echo ':'; echo Child::baseValue(); echo ':'; echo Child::childValue();"
+	got := run(t, src)
+	if got != "base:base:child:new-base:new-base:new-child" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestLateStaticAccess(t *testing.T) {
 	src := "<?php class Base { public static $name = 'base'; public static function name() { return static::$name; } } class Child extends Base { public static $name = 'child'; } echo Child::name();"
 	got := run(t, src)
