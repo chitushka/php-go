@@ -44,6 +44,7 @@ type Interpreter struct {
 	fileStack                   []string
 	objects                     []*Object
 	destructed                  map[*Object]bool
+	diagnostics                 []Diagnostic
 	Out                         bytes.Buffer
 }
 
@@ -111,6 +112,12 @@ func (i *Interpreter) SetEntryFile(path string) {
 
 func (i *Interpreter) SetIncludePath(path string) {
 	i.includePath = splitIncludePath(path)
+}
+
+func (i *Interpreter) Diagnostics() []Diagnostic {
+	out := make([]Diagnostic, len(i.diagnostics))
+	copy(out, i.diagnostics)
+	return out
 }
 
 func (i *Interpreter) Run(p *ast.Program) error {
@@ -590,7 +597,7 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 			return nil, err
 		}
 		if path.Kind != String {
-			return nil, fmt.Errorf("include/require path must be string")
+			return nil, newRuntimeError(FatalError, "include/require path must be string")
 		}
 		if _, err := i.include(path.S, n.Require, n.Once); err != nil {
 			return nil, err
@@ -685,7 +692,7 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 			return NullValue(), err
 		}
 		if path.Kind != String {
-			return NullValue(), fmt.Errorf("include/require path must be string")
+			return NullValue(), newRuntimeError(FatalError, "include/require path must be string")
 		}
 		return i.include(path.S, n.Require, n.Once)
 	case *ast.IncDecExpr:
@@ -6275,13 +6282,18 @@ func (i *Interpreter) include(path string, require bool, once bool) (Value, erro
 		if require {
 			kind = "require"
 		}
-		return NullValue(), fmt.Errorf("%s failed for %q: %w", kind, path, err)
+		message := fmt.Sprintf("%s failed for %q: %v", kind, path, err)
+		if !require {
+			i.warn(message)
+			return BoolValue(false), nil
+		}
+		return NullValue(), newRuntimeError(FatalError, message)
 	}
 
 	p := parser.New(lexer.New(string(data)))
 	program := p.ParseProgram()
 	if len(p.Errors()) > 0 {
-		return NullValue(), fmt.Errorf("parse errors in %s: %v", resolved, p.Errors())
+		return NullValue(), newRuntimeError(ParseError, fmt.Sprintf("parse errors in %s: %v", resolved, p.Errors()))
 	}
 
 	if once {
@@ -6299,6 +6311,10 @@ func (i *Interpreter) include(path string, require bool, once bool) (Value, erro
 		return IntValue(1), nil
 	}
 	return value, nil
+}
+
+func (i *Interpreter) warn(message string) {
+	i.diagnostics = append(i.diagnostics, Diagnostic{Severity: Warning, Message: message})
 }
 
 func (i *Interpreter) resolveIncludePath(path string) string {

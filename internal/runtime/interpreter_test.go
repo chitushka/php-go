@@ -398,6 +398,38 @@ func TestIncludePathResolution(t *testing.T) {
 	}
 }
 
+func TestMissingIncludeWarnsAndRequireFailsFatally(t *testing.T) {
+	dir := t.TempDir()
+	p := parser.New(lexer.New("<?php $value = include 'missing.php'; echo ($value === false ? 'false' : 'bad'); echo ':after';"))
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i := runtime.NewInterpreterWithBaseDir(dir)
+	if err := i.Run(program); err != nil {
+		t.Fatalf("runtime error: %v", err)
+	}
+	if got := i.Out.String(); got != "false:after" {
+		t.Fatalf("got %q", got)
+	}
+	diagnostics := i.Diagnostics()
+	if len(diagnostics) != 1 || diagnostics[0].Severity != runtime.Warning {
+		t.Fatalf("unexpected diagnostics: %#v", diagnostics)
+	}
+
+	p = parser.New(lexer.New("<?php require 'missing.php'; echo 'bad';"))
+	program = p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i = runtime.NewInterpreterWithBaseDir(dir)
+	err := i.Run(program)
+	runtimeErr, ok := err.(*runtime.RuntimeError)
+	if !ok || runtimeErr.Severity != runtime.FatalError {
+		t.Fatalf("expected fatal runtime error, got %#v", err)
+	}
+}
+
 func TestIncludeOnceAndRequireOnceShareIncludedFiles(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "once.php"), []byte("<?php echo 'I'; $count = $count + 1;"), 0644); err != nil {
