@@ -900,17 +900,18 @@ func (p *Parser) parseClassDeclWithLeadingModifier(mod string) ast.Stmt {
 }
 
 func (p *Parser) parseClassDecl(final bool, abstract bool) ast.Stmt {
-	if !p.expectPeek(lexer.Ident) {
+	name, ok := p.parseDeclarationClassName()
+	if !ok {
 		return nil
 	}
-	name := p.resolveDeclarationName(p.cur.Literal)
 	parent := ""
 	if p.peek.Type == lexer.Extends {
 		p.next()
-		if !p.expectPeek(lexer.Ident) {
+		parsedParent, ok := p.parseClassReferenceName()
+		if !ok {
 			return nil
 		}
-		parent = p.resolveClassName(p.cur.Literal)
+		parent = parsedParent
 	}
 	implements := p.parseImplementsList()
 	if !p.expectPeek(lexer.LBrace) {
@@ -946,10 +947,11 @@ func (p *Parser) parseImplementsList() []string {
 	}
 	p.next()
 	for {
-		if !p.expectPeek(lexer.Ident) {
+		name, ok := p.parseClassReferenceName()
+		if !ok {
 			return names
 		}
-		names = append(names, p.resolveClassName(p.cur.Literal))
+		names = append(names, name)
 		if p.peek.Type != lexer.Comma {
 			break
 		}
@@ -959,18 +961,19 @@ func (p *Parser) parseImplementsList() []string {
 }
 
 func (p *Parser) parseInterfaceDecl() ast.Stmt {
-	if !p.expectPeek(lexer.Ident) {
+	name, ok := p.parseDeclarationClassName()
+	if !ok {
 		return nil
 	}
-	name := p.resolveDeclarationName(p.cur.Literal)
 	var parents []string
 	if p.peek.Type == lexer.Extends {
 		p.next()
 		for {
-			if !p.expectPeek(lexer.Ident) {
+			parent, ok := p.parseClassReferenceName()
+			if !ok {
 				return nil
 			}
-			parents = append(parents, p.resolveClassName(p.cur.Literal))
+			parents = append(parents, parent)
 			if p.peek.Type != lexer.Comma {
 				break
 			}
@@ -999,6 +1002,38 @@ func (p *Parser) parseInterfaceDecl() ast.Stmt {
 		p.next()
 	}
 	return iface
+}
+
+func (p *Parser) parseDeclarationClassName() (string, bool) {
+	if isReservedClassNameToken(p.peek.Type) {
+		p.next()
+		p.errors = append(p.errors, reservedClassNameError(p.cur.Literal))
+		return "", false
+	}
+	if !p.expectPeek(lexer.Ident) {
+		return "", false
+	}
+	return p.resolveDeclarationName(p.cur.Literal), true
+}
+
+func (p *Parser) parseClassReferenceName() (string, bool) {
+	if isReservedClassNameToken(p.peek.Type) {
+		p.next()
+		p.errors = append(p.errors, reservedClassNameError(p.cur.Literal))
+		return "", false
+	}
+	if !p.expectPeek(lexer.Ident) {
+		return "", false
+	}
+	return p.resolveClassName(p.cur.Literal), true
+}
+
+func isReservedClassNameToken(token lexer.TokenType) bool {
+	return token == lexer.Self || token == lexer.Parent || token == lexer.Static
+}
+
+func reservedClassNameError(name string) string {
+	return fmt.Sprintf("cannot use '%s' as class name as it is reserved", strings.ToLower(name))
 }
 
 func (p *Parser) parseMemberModifiers() (string, bool, bool, bool) {

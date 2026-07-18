@@ -51,6 +51,47 @@ func TestVariablesAndIf(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestReservedClassNamesAreRejected(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		err  string
+	}{
+		{
+			name: "class self",
+			src:  "<?php class self {}",
+			err:  "cannot use 'self' as class name as it is reserved",
+		},
+		{
+			name: "interface parent",
+			src:  "<?php interface parent {}",
+			err:  "cannot use 'parent' as class name as it is reserved",
+		},
+		{
+			name: "extends static",
+			src:  "<?php class Child extends static {}",
+			err:  "cannot use 'static' as class name as it is reserved",
+		},
+		{
+			name: "implements self",
+			src:  "<?php class User implements self {}",
+			err:  "cannot use 'self' as class name as it is reserved",
+		},
+		{
+			name: "interface extends parent",
+			src:  "<?php interface User extends parent {}",
+			err:  "cannot use 'parent' as class name as it is reserved",
+		},
+	}
+	for _, tt := range tests {
+		errs := parseErrors(tt.src)
+		if len(errs) != 1 || errs[0] != tt.err {
+			t.Fatalf("%s: got parse errors %v", tt.name, errs)
+		}
+	}
+}
+
 func TestWhile(t *testing.T) {
 	if got := run(t, "<?php $i = 0; while ($i < 3) { echo $i; $i = $i + 1; }"); got != "012" {
 		t.Fatalf("got %q", got)
