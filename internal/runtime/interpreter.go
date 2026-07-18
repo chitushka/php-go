@@ -3108,7 +3108,6 @@ func (i *Interpreter) newObject(n *ast.NewExpr) (Value, error) {
 		return NullValue(), err
 	}
 	obj := NewObject(class.Name, i.methodsForClass(class), props, meta)
-	i.trackObject(obj)
 	if constructor, ok := i.constructorForClass(class); ok {
 		if err := i.checkMethodAccess(class.Name, constructor); err != nil {
 			return NullValue(), err
@@ -3123,6 +3122,7 @@ func (i *Interpreter) newObject(n *ast.NewExpr) (Value, error) {
 	} else if len(n.Args) != 0 {
 		return NullValue(), fmt.Errorf("class %s has no constructor", className)
 	}
+	i.trackObject(obj)
 	return ObjectValue(obj), nil
 }
 

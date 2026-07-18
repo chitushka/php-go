@@ -486,6 +486,14 @@ func TestIncludedObjectDestructorRunsAtMainShutdown(t *testing.T) {
 	}
 }
 
+func TestDestructorDoesNotRunWhenConstructorThrows(t *testing.T) {
+	src := "<?php class Bad { function __construct() { throw new Exception('boom'); } function __destruct() { echo ':destruct'; } } try { new Bad(); } catch (Exception $e) { echo 'caught'; } echo ':done';"
+	got := run(t, src)
+	if got != "caught:done" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestObjectPropertyAssignmentOutsideClass(t *testing.T) {
 	src := "<?php class Box { function get() { return $this->value; } } $box = new Box(); $box->value = 4; echo $box->value; echo $box->get();"
 	got := run(t, src)
