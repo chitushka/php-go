@@ -122,6 +122,46 @@ func TestMethodBodyRequirementsAreRejected(t *testing.T) {
 	}
 }
 
+func TestDuplicateMemberModifiersAreRejected(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		err  string
+	}{
+		{
+			name: "access",
+			src:  "<?php class BadAccessModifier { public private function value() {} }",
+			err:  "Multiple access type modifiers are not allowed",
+		},
+		{
+			name: "static",
+			src:  "<?php class BadStaticModifier { static static function value() {} }",
+			err:  "Multiple static modifiers are not allowed",
+		},
+		{
+			name: "abstract",
+			src:  "<?php abstract class BadAbstractModifier { abstract abstract function value(); }",
+			err:  "Multiple abstract modifiers are not allowed",
+		},
+		{
+			name: "final",
+			src:  "<?php class BadFinalModifier { final final function value() {} }",
+			err:  "Multiple final modifiers are not allowed",
+		},
+		{
+			name: "abstract final",
+			src:  "<?php abstract class BadAbstractFinalModifier { abstract final function value(); }",
+			err:  "Cannot use the final modifier on an abstract class member",
+		},
+	}
+	for _, tt := range tests {
+		errs := parseErrors(tt.src)
+		if len(errs) != 1 || errs[0] != tt.err {
+			t.Fatalf("%s: got parse errors %v", tt.name, errs)
+		}
+	}
+}
+
 func TestWhile(t *testing.T) {
 	if got := run(t, "<?php $i = 0; while ($i < 3) { echo $i; $i = $i + 1; }"); got != "012" {
 		t.Fatalf("got %q", got)

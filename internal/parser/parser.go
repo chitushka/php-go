@@ -1053,19 +1053,47 @@ func (p *Parser) parseMemberModifiers() (string, bool, bool, bool) {
 	static := false
 	final := false
 	abstract := false
+	seenAccess := false
 	for {
 		switch p.cur.Type {
 		case lexer.Public:
+			if seenAccess {
+				p.errors = append(p.errors, "Multiple access type modifiers are not allowed")
+			}
+			seenAccess = true
 			visibility = "public"
 		case lexer.Private:
+			if seenAccess {
+				p.errors = append(p.errors, "Multiple access type modifiers are not allowed")
+			}
+			seenAccess = true
 			visibility = "private"
 		case lexer.Protected:
+			if seenAccess {
+				p.errors = append(p.errors, "Multiple access type modifiers are not allowed")
+			}
+			seenAccess = true
 			visibility = "protected"
 		case lexer.Static:
+			if static {
+				p.errors = append(p.errors, "Multiple static modifiers are not allowed")
+			}
 			static = true
 		case lexer.Final:
+			if final {
+				p.errors = append(p.errors, "Multiple final modifiers are not allowed")
+			}
+			if abstract {
+				p.errors = append(p.errors, "Cannot use the final modifier on an abstract class member")
+			}
 			final = true
 		case lexer.Abstract:
+			if abstract {
+				p.errors = append(p.errors, "Multiple abstract modifiers are not allowed")
+			}
+			if final {
+				p.errors = append(p.errors, "Cannot use the final modifier on an abstract class member")
+			}
 			abstract = true
 		default:
 			return visibility, static, final, abstract
