@@ -9,6 +9,10 @@ type BlockStmt struct{ Statements []Stmt }
 
 func (*BlockStmt) stmtNode() {}
 
+type NamespaceBlockStmt struct{ Statements []Stmt }
+
+func (*NamespaceBlockStmt) stmtNode() {}
+
 type AssignStmt struct {
 	Name  string
 	Value Expr

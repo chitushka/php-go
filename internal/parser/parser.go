@@ -168,13 +168,36 @@ func (p *Parser) parseStatement() ast.Stmt {
 }
 
 func (p *Parser) parseNamespaceDecl() ast.Stmt {
-	if !p.expectPeek(lexer.Ident) {
+	switch p.peek.Type {
+	case lexer.Ident:
+		p.next()
+		name := trimLeadingNamespace(p.cur.Literal)
+		if p.peek.Type == lexer.LBrace {
+			p.next()
+			return p.parseNamespaceBlock(name)
+		}
+		p.currentNamespace = name
+		p.imports = map[string]string{}
+		p.consumeSemi()
+		return nil
+	case lexer.LBrace:
+		p.next()
+		return p.parseNamespaceBlock("")
+	default:
+		p.errors = append(p.errors, fmt.Sprintf("expected namespace name or block, got %s", p.peek.Type))
 		return nil
 	}
-	p.currentNamespace = trimLeadingNamespace(p.cur.Literal)
+}
+
+func (p *Parser) parseNamespaceBlock(name string) ast.Stmt {
+	previousNamespace := p.currentNamespace
+	previousImports := p.imports
+	p.currentNamespace = name
 	p.imports = map[string]string{}
-	p.consumeSemi()
-	return nil
+	block := p.parseBlock().(*ast.BlockStmt)
+	p.currentNamespace = previousNamespace
+	p.imports = previousImports
+	return &ast.NamespaceBlockStmt{Statements: block.Statements}
 }
 
 func (p *Parser) parseUseImport() ast.Stmt {

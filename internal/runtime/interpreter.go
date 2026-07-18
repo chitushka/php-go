@@ -141,33 +141,34 @@ func (i *Interpreter) runProgram(p *ast.Program, shutdown bool) error {
 }
 
 func (i *Interpreter) runProgramResult(p *ast.Program, shutdown bool) (Value, bool, error) {
-	for _, s := range p.Statements {
+	statements := flattenNamespaceBlocks(p.Statements)
+	for _, s := range statements {
 		if class, ok := s.(*ast.ClassDeclStmt); ok {
 			i.declaredClassNames[classNameKey(class.Name)] = class.Name
 		}
 	}
-	for _, s := range p.Statements {
+	for _, s := range statements {
 		if fn, ok := s.(*ast.FunctionDeclStmt); ok {
 			if err := i.defineFunction(fn); err != nil {
 				return NullValue(), false, err
 			}
 		}
 	}
-	for _, s := range p.Statements {
+	for _, s := range statements {
 		if iface, ok := s.(*ast.InterfaceDeclStmt); ok {
 			if err := i.defineInterface(iface); err != nil {
 				return NullValue(), false, err
 			}
 		}
 	}
-	for _, s := range p.Statements {
+	for _, s := range statements {
 		if class, ok := s.(*ast.ClassDeclStmt); ok {
 			if err := i.defineClass(class); err != nil {
 				return NullValue(), false, err
 			}
 		}
 	}
-	for _, s := range p.Statements {
+	for _, s := range statements {
 		if _, ok := s.(*ast.FunctionDeclStmt); ok {
 			continue
 		}
@@ -199,6 +200,18 @@ func (i *Interpreter) runProgramResult(p *ast.Program, shutdown bool) (Value, bo
 		}
 	}
 	return NullValue(), false, nil
+}
+
+func flattenNamespaceBlocks(statements []ast.Stmt) []ast.Stmt {
+	var out []ast.Stmt
+	for _, s := range statements {
+		if block, ok := s.(*ast.NamespaceBlockStmt); ok {
+			out = append(out, block.Statements...)
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
 }
 
 type returnSignal struct {
@@ -262,6 +275,22 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 	switch n := s.(type) {
 	case *ast.BlockStmt:
 		for _, st := range n.Statements {
+			ret, err := i.exec(st)
+			if err != nil || ret != nil {
+				return ret, err
+			}
+		}
+	case *ast.NamespaceBlockStmt:
+		for _, st := range flattenNamespaceBlocks(n.Statements) {
+			if _, ok := st.(*ast.FunctionDeclStmt); ok {
+				continue
+			}
+			if _, ok := st.(*ast.ClassDeclStmt); ok {
+				continue
+			}
+			if _, ok := st.(*ast.InterfaceDeclStmt); ok {
+				continue
+			}
 			ret, err := i.exec(st)
 			if err != nil || ret != nil {
 				return ret, err

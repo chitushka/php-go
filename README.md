@@ -26,7 +26,7 @@
 - Class constants через `const NAME = ...`, доступ `Class::NAME`, `self::NAME`, `parent::NAME`, `Interface::NAME` и наследование констант.
 - Bare/runtime constants: bare-доступ `NAME`, `define()`, `defined()`, `constant()`, case-insensitive `define(..., true)` и fallback неизвестной bare-константы в строку имени.
 - Magic constants: `__FILE__`, `__DIR__`, `__LINE__`, `__FUNCTION__`, `__CLASS__`, `__METHOD__`.
-- Namespaces/imports: базовые `namespace`, `use ... as ...`, leading `\`, `__NAMESPACE__`, namespaced functions/classes/constants и fallback namespaced function/constant lookup к global имени.
+- Namespaces/imports: базовые `namespace`, bracketed `namespace { ... }`, `use ... as ...`, leading `\`, `__NAMESPACE__`, namespaced functions/classes/constants и fallback namespaced function/constant lookup к global имени.
 - `instanceof` для классов, родителей и интерфейсов.
 - Magic methods `__get`, `__set`, `__isset`, `__unset`, `__call`, `__callStatic`, `__invoke`, `__clone`, `__sleep`, `__wakeup`, `__toString` для базового property/method overloading, callable objects, клонирования, сериализации и строкового вывода объектов; `__toString` должен вернуть строку.
 - Исключения: `throw`, `try`, несколько `catch`-блоков, пользовательские классы-наследники встроенного `Exception`, базовые `Exception::getMessage()/getCode()/getFile()/getLine()/getPrevious()/getTrace()/getTraceAsString()` и строковое представление исключения.
