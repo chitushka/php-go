@@ -2323,6 +2323,47 @@ func TestCallableBuiltinWarningUsesErrorPolicy(t *testing.T) {
 	}
 }
 
+func TestOOPIntrospectionWarningUsesErrorPolicy(t *testing.T) {
+	p := parser.New(lexer.New("<?php $a = get_class(1); $b = get_object_vars(1); $c = get_called_class(); $d = class_exists(); $e = method_exists('Box'); echo ($a === null ? 'null' : 'bad'); echo ':'; echo ($b === null ? 'null' : 'bad'); echo ':'; echo ($c === null ? 'null' : 'bad'); echo ':'; echo ($d === null ? 'null' : 'bad'); echo ':'; echo ($e === null ? 'null' : 'bad'); echo ':after';"))
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i := runtime.NewInterpreter()
+	if err := i.Run(program); err != nil {
+		t.Fatalf("runtime error: %v", err)
+	}
+	if got := i.Out.String(); got != "null:null:null:null:null:after" {
+		t.Fatalf("got %q", got)
+	}
+	diagnostics := i.Diagnostics()
+	if len(diagnostics) != 5 ||
+		diagnostics[0].Severity != runtime.Warning ||
+		diagnostics[0].Message != "get_class expects object" ||
+		diagnostics[1].Message != "get_object_vars expects object" ||
+		diagnostics[2].Message != "get_called_class used outside class context" ||
+		diagnostics[3].Message != "class_exists expects 1 or 2 arguments, got 0" ||
+		diagnostics[4].Message != "method_exists expects 2 arguments, got 1" {
+		t.Fatalf("unexpected diagnostics: %#v", diagnostics)
+	}
+
+	p = parser.New(lexer.New("<?php get_class(1); echo 'bad';"))
+	program = p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i = runtime.NewInterpreter()
+	i.SetErrorPolicy(runtime.StrictErrorPolicy())
+	err := i.Run(program)
+	runtimeErr, ok := err.(*runtime.RuntimeError)
+	if !ok || runtimeErr.Severity != runtime.Warning || runtimeErr.Message != "get_class expects object" {
+		t.Fatalf("expected strict OOP introspection warning runtime error, got %#v", err)
+	}
+	if got := i.Out.String(); got != "" {
+		t.Fatalf("expected strict OOP introspection warning to halt before output, got %q", got)
+	}
+}
+
 func TestErrorPolicyCanIgnoreDivisionByZeroWarning(t *testing.T) {
 	p := parser.New(lexer.New("<?php $value = 5 / 0; echo ($value === false ? 'false' : 'bad'); echo ':after';"))
 	program := p.ParseProgram()

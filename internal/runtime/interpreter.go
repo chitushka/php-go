@@ -1171,6 +1171,10 @@ func (i *Interpreter) handleBuiltinWarning(err error, value Value, ok bool) (Val
 	return value, ok, nil
 }
 
+func (i *Interpreter) builtinWarningf(value Value, ok bool, format string, args ...any) (Value, bool, error) {
+	return i.handleBuiltinWarning(fmt.Errorf(format, args...), value, ok)
+}
+
 func isCallableWarning(err error) bool {
 	if err == nil {
 		return false
@@ -1220,7 +1224,7 @@ func (i *Interpreter) callDefine(args []ast.Expr) (Value, bool, error) {
 
 func (i *Interpreter) callClassExists(args []ast.Expr) (Value, bool, error) {
 	if len(args) < 1 || len(args) > 2 {
-		return NullValue(), true, fmt.Errorf("class_exists expects 1 or 2 arguments, got %d", len(args))
+		return i.builtinWarningf(NullValue(), true, "class_exists expects 1 or 2 arguments, got %d", len(args))
 	}
 	nameValue, err := i.eval(args[0])
 	if err != nil {
@@ -1246,7 +1250,7 @@ func (i *Interpreter) callClassExists(args []ast.Expr) (Value, bool, error) {
 
 func (i *Interpreter) callInterfaceExists(args []ast.Expr) (Value, bool, error) {
 	if len(args) < 1 || len(args) > 2 {
-		return NullValue(), true, fmt.Errorf("interface_exists expects 1 or 2 arguments, got %d", len(args))
+		return i.builtinWarningf(NullValue(), true, "interface_exists expects 1 or 2 arguments, got %d", len(args))
 	}
 	nameValue, err := i.eval(args[0])
 	if err != nil {
@@ -1272,44 +1276,44 @@ func (i *Interpreter) callInterfaceExists(args []ast.Expr) (Value, bool, error) 
 
 func (i *Interpreter) callGetClass(args []ast.Expr) (Value, bool, error) {
 	if len(args) > 1 {
-		return NullValue(), true, fmt.Errorf("get_class expects 0 or 1 arguments, got %d", len(args))
+		return i.builtinWarningf(NullValue(), true, "get_class expects 0 or 1 arguments, got %d", len(args))
 	}
 	if len(args) == 0 {
 		if thisObj := i.currentThis(); thisObj != nil {
 			return StringValue(thisObj.ClassName), true, nil
 		}
-		return NullValue(), true, fmt.Errorf("get_class expects object")
+		return i.builtinWarningf(NullValue(), true, "get_class expects object")
 	}
 	value, err := i.eval(args[0])
 	if err != nil {
 		return NullValue(), true, err
 	}
 	if value.Kind != ObjectKind || value.O == nil {
-		return NullValue(), true, fmt.Errorf("get_class expects object")
+		return i.builtinWarningf(NullValue(), true, "get_class expects object")
 	}
 	return StringValue(value.O.ClassName), true, nil
 }
 
 func (i *Interpreter) callGetCalledClass(args []ast.Expr) (Value, bool, error) {
 	if len(args) != 0 {
-		return NullValue(), true, fmt.Errorf("get_called_class expects 0 arguments, got %d", len(args))
+		return i.builtinWarningf(NullValue(), true, "get_called_class expects 0 arguments, got %d", len(args))
 	}
 	if called := i.currentCalledClass(); called != "" {
 		return StringValue(called), true, nil
 	}
-	return NullValue(), true, fmt.Errorf("get_called_class used outside class context")
+	return i.builtinWarningf(NullValue(), true, "get_called_class used outside class context")
 }
 
 func (i *Interpreter) callGetObjectVars(args []ast.Expr) (Value, bool, error) {
 	if len(args) != 1 {
-		return NullValue(), true, fmt.Errorf("get_object_vars expects 1 argument, got %d", len(args))
+		return i.builtinWarningf(NullValue(), true, "get_object_vars expects 1 argument, got %d", len(args))
 	}
 	value, err := i.eval(args[0])
 	if err != nil {
 		return NullValue(), true, err
 	}
 	if value.Kind != ObjectKind || value.O == nil {
-		return NullValue(), true, fmt.Errorf("get_object_vars expects object")
+		return i.builtinWarningf(NullValue(), true, "get_object_vars expects object")
 	}
 	result := NewArray()
 	names := make([]string, 0, len(value.O.Props))
@@ -1329,7 +1333,7 @@ func (i *Interpreter) callGetObjectVars(args []ast.Expr) (Value, bool, error) {
 
 func (i *Interpreter) callGetClassMethods(args []ast.Expr) (Value, bool, error) {
 	if len(args) != 1 {
-		return NullValue(), true, fmt.Errorf("get_class_methods expects 1 argument, got %d", len(args))
+		return i.builtinWarningf(NullValue(), true, "get_class_methods expects 1 argument, got %d", len(args))
 	}
 	target, err := i.eval(args[0])
 	if err != nil {
@@ -1363,7 +1367,7 @@ func (i *Interpreter) callGetClassMethods(args []ast.Expr) (Value, bool, error) 
 
 func (i *Interpreter) callGetClassVars(args []ast.Expr) (Value, bool, error) {
 	if len(args) != 1 {
-		return NullValue(), true, fmt.Errorf("get_class_vars expects 1 argument, got %d", len(args))
+		return i.builtinWarningf(NullValue(), true, "get_class_vars expects 1 argument, got %d", len(args))
 	}
 	target, err := i.eval(args[0])
 	if err != nil {
@@ -1409,7 +1413,7 @@ func (i *Interpreter) callGetClassVars(args []ast.Expr) (Value, bool, error) {
 
 func (i *Interpreter) callGetDeclaredClasses(args []ast.Expr) (Value, bool, error) {
 	if len(args) != 0 {
-		return NullValue(), true, fmt.Errorf("get_declared_classes expects 0 arguments, got %d", len(args))
+		return i.builtinWarningf(NullValue(), true, "get_declared_classes expects 0 arguments, got %d", len(args))
 	}
 	names := make([]string, 0, len(i.classes)+len(i.classAliases))
 	for _, class := range i.classes {
@@ -1428,7 +1432,7 @@ func (i *Interpreter) callGetDeclaredClasses(args []ast.Expr) (Value, bool, erro
 
 func (i *Interpreter) callGetDeclaredInterfaces(args []ast.Expr) (Value, bool, error) {
 	if len(args) != 0 {
-		return NullValue(), true, fmt.Errorf("get_declared_interfaces expects 0 arguments, got %d", len(args))
+		return i.builtinWarningf(NullValue(), true, "get_declared_interfaces expects 0 arguments, got %d", len(args))
 	}
 	names := make([]string, 0, len(i.interfaces))
 	for _, iface := range i.interfaces {
@@ -1444,7 +1448,7 @@ func (i *Interpreter) callGetDeclaredInterfaces(args []ast.Expr) (Value, bool, e
 
 func (i *Interpreter) callClassAlias(args []ast.Expr) (Value, bool, error) {
 	if len(args) < 2 || len(args) > 3 {
-		return NullValue(), true, fmt.Errorf("class_alias expects 2 or 3 arguments, got %d", len(args))
+		return i.builtinWarningf(NullValue(), true, "class_alias expects 2 or 3 arguments, got %d", len(args))
 	}
 	originalValue, err := i.eval(args[0])
 	if err != nil {
@@ -1485,7 +1489,7 @@ func (i *Interpreter) callClassAlias(args []ast.Expr) (Value, bool, error) {
 
 func (i *Interpreter) callIsCallable(args []ast.Expr) (Value, bool, error) {
 	if len(args) < 1 || len(args) > 3 {
-		return NullValue(), true, fmt.Errorf("is_callable expects 1 to 3 arguments, got %d", len(args))
+		return i.builtinWarningf(NullValue(), true, "is_callable expects 1 to 3 arguments, got %d", len(args))
 	}
 	value, err := i.eval(args[0])
 	if err != nil {
@@ -1790,7 +1794,7 @@ func (i *Interpreter) callNamedFunctionValues(name string, args []Value) (Value,
 
 func (i *Interpreter) callMethodExists(args []ast.Expr) (Value, bool, error) {
 	if len(args) != 2 {
-		return NullValue(), true, fmt.Errorf("method_exists expects 2 arguments, got %d", len(args))
+		return i.builtinWarningf(NullValue(), true, "method_exists expects 2 arguments, got %d", len(args))
 	}
 	target, err := i.eval(args[0])
 	if err != nil {
@@ -1814,7 +1818,7 @@ func (i *Interpreter) callMethodExists(args []ast.Expr) (Value, bool, error) {
 
 func (i *Interpreter) callPropertyExists(args []ast.Expr) (Value, bool, error) {
 	if len(args) != 2 {
-		return NullValue(), true, fmt.Errorf("property_exists expects 2 arguments, got %d", len(args))
+		return i.builtinWarningf(NullValue(), true, "property_exists expects 2 arguments, got %d", len(args))
 	}
 	target, err := i.eval(args[0])
 	if err != nil {
@@ -1850,7 +1854,7 @@ func (i *Interpreter) callPropertyExists(args []ast.Expr) (Value, bool, error) {
 
 func (i *Interpreter) callGetParentClass(args []ast.Expr) (Value, bool, error) {
 	if len(args) > 1 {
-		return NullValue(), true, fmt.Errorf("get_parent_class expects 0 or 1 arguments, got %d", len(args))
+		return i.builtinWarningf(NullValue(), true, "get_parent_class expects 0 or 1 arguments, got %d", len(args))
 	}
 	var className string
 	if len(args) == 0 {
@@ -1887,7 +1891,7 @@ func (i *Interpreter) callGetParentClass(args []ast.Expr) (Value, bool, error) {
 
 func (i *Interpreter) callIsSubclassOf(args []ast.Expr) (Value, bool, error) {
 	if len(args) < 2 || len(args) > 3 {
-		return NullValue(), true, fmt.Errorf("is_subclass_of expects 2 or 3 arguments, got %d", len(args))
+		return i.builtinWarningf(NullValue(), true, "is_subclass_of expects 2 or 3 arguments, got %d", len(args))
 	}
 	target, err := i.eval(args[0])
 	if err != nil {
@@ -1921,7 +1925,7 @@ func (i *Interpreter) callIsSubclassOf(args []ast.Expr) (Value, bool, error) {
 
 func (i *Interpreter) callIsA(args []ast.Expr) (Value, bool, error) {
 	if len(args) < 2 || len(args) > 3 {
-		return NullValue(), true, fmt.Errorf("is_a expects 2 or 3 arguments, got %d", len(args))
+		return i.builtinWarningf(NullValue(), true, "is_a expects 2 or 3 arguments, got %d", len(args))
 	}
 	target, err := i.eval(args[0])
 	if err != nil {
@@ -1955,7 +1959,7 @@ func (i *Interpreter) callIsA(args []ast.Expr) (Value, bool, error) {
 
 func (i *Interpreter) callClassParents(args []ast.Expr) (Value, bool, error) {
 	if len(args) < 1 || len(args) > 2 {
-		return NullValue(), true, fmt.Errorf("class_parents expects 1 or 2 arguments, got %d", len(args))
+		return i.builtinWarningf(NullValue(), true, "class_parents expects 1 or 2 arguments, got %d", len(args))
 	}
 	target, err := i.eval(args[0])
 	if err != nil {
@@ -1994,7 +1998,7 @@ func (i *Interpreter) callClassParents(args []ast.Expr) (Value, bool, error) {
 
 func (i *Interpreter) callClassImplements(args []ast.Expr) (Value, bool, error) {
 	if len(args) < 1 || len(args) > 2 {
-		return NullValue(), true, fmt.Errorf("class_implements expects 1 or 2 arguments, got %d", len(args))
+		return i.builtinWarningf(NullValue(), true, "class_implements expects 1 or 2 arguments, got %d", len(args))
 	}
 	target, err := i.eval(args[0])
 	if err != nil {
