@@ -944,6 +944,13 @@ func (p *Parser) parseClassDecl(final bool, abstract bool) ast.Stmt {
 		case lexer.Const:
 			class.Constants = append(class.Constants, p.parseClassConstants()...)
 		default:
+			if isVarKeyword(p.cur) {
+				if p.expectPeek(lexer.Var) {
+					class.Properties = append(class.Properties, p.parseClassProperty("public", false, false, false))
+					break
+				}
+				return class
+			}
 			p.errors = append(p.errors, fmt.Sprintf("expected class member in %s, got %s", name, p.cur.Type))
 			return class
 		}
@@ -1007,7 +1014,18 @@ func (p *Parser) parseInterfaceDecl() ast.Stmt {
 			if ok && method != nil {
 				iface.Methods = append(iface.Methods, method)
 			}
+		case lexer.Var:
+			p.errors = append(p.errors, "Interfaces may not include member variables")
+			p.parseClassProperty(visibility, static, false, false)
 		default:
+			if isVarKeyword(p.cur) {
+				p.errors = append(p.errors, "Interfaces may not include member variables")
+				if p.expectPeek(lexer.Var) {
+					p.parseClassProperty("public", false, false, false)
+					break
+				}
+				return iface
+			}
 			p.errors = append(p.errors, fmt.Sprintf("expected interface member in %s, got %s", name, p.cur.Type))
 			return iface
 		}
@@ -1046,6 +1064,10 @@ func isReservedClassNameToken(token lexer.TokenType) bool {
 
 func reservedClassNameError(name string) string {
 	return fmt.Sprintf("cannot use '%s' as class name as it is reserved", strings.ToLower(name))
+}
+
+func isVarKeyword(tok lexer.Token) bool {
+	return tok.Type == lexer.Ident && strings.EqualFold(tok.Literal, "var")
 }
 
 func (p *Parser) parseMemberModifiers() (string, bool, bool, bool) {

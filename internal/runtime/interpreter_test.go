@@ -162,6 +162,32 @@ func TestDuplicateMemberModifiersAreRejected(t *testing.T) {
 	}
 }
 
+func TestVarClassPropertyAndInterfacePropertyErrors(t *testing.T) {
+	got := run(t, "<?php class VarProperty { var $value = 'ok'; } $obj = new VarProperty(); echo $obj->value;")
+	if got != "ok" {
+		t.Fatalf("got %q", got)
+	}
+	tests := []struct {
+		name string
+		src  string
+	}{
+		{
+			name: "public property",
+			src:  "<?php interface BadInterfaceProperty { public $value; }",
+		},
+		{
+			name: "var property",
+			src:  "<?php interface BadInterfaceVarProperty { var $value; }",
+		},
+	}
+	for _, tt := range tests {
+		errs := parseErrors(tt.src)
+		if len(errs) != 1 || errs[0] != "Interfaces may not include member variables" {
+			t.Fatalf("%s: got parse errors %v", tt.name, errs)
+		}
+	}
+}
+
 func TestWhile(t *testing.T) {
 	if got := run(t, "<?php $i = 0; while ($i < 3) { echo $i; $i = $i + 1; }"); got != "012" {
 		t.Fatalf("got %q", got)
