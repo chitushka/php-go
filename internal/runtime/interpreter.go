@@ -4211,7 +4211,18 @@ func (i *Interpreter) assignProperty(object ast.Expr, property string, value Val
 
 func (i *Interpreter) assignList(target *ast.ListExpr, value Value) error {
 	if value.Kind != ArrayKind || value.A == nil {
-		return fmt.Errorf("list assignment expects array")
+		if err := i.emitDiagnostic(Warning, "list assignment expects array"); err != nil {
+			return err
+		}
+		for _, elem := range target.Targets {
+			if elem == nil {
+				continue
+			}
+			if err := i.assignTarget(elem, NullValue()); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	for idx, elem := range target.Targets {
 		if elem == nil {
