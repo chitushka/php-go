@@ -430,6 +430,84 @@ func TestMissingIncludeWarnsAndRequireFailsFatally(t *testing.T) {
 	}
 }
 
+func TestErrorPolicyControlsWarningHaltingAndReporting(t *testing.T) {
+	dir := t.TempDir()
+	src := "<?php $value = include 'missing.php'; echo ($value === false ? 'false' : 'bad'); echo ':after';"
+
+	p := parser.New(lexer.New(src))
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i := runtime.NewInterpreterWithBaseDir(dir)
+	i.SetErrorPolicy(runtime.StrictErrorPolicy())
+	err := i.Run(program)
+	runtimeErr, ok := err.(*runtime.RuntimeError)
+	if !ok || runtimeErr.Severity != runtime.Warning {
+		t.Fatalf("expected warning runtime error, got %#v", err)
+	}
+	if got := i.Out.String(); got != "" {
+		t.Fatalf("expected strict warning to halt before output, got %q", got)
+	}
+	if diagnostics := i.Diagnostics(); len(diagnostics) != 1 || diagnostics[0].Severity != runtime.Warning {
+		t.Fatalf("unexpected strict diagnostics: %#v", diagnostics)
+	}
+
+	p = parser.New(lexer.New(src))
+	program = p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i = runtime.NewInterpreterWithBaseDir(dir)
+	i.SetErrorPolicy(runtime.StrictErrorPolicy().DoNotHalt(runtime.Warning))
+	if err := i.Run(program); err != nil {
+		t.Fatalf("runtime error: %v", err)
+	}
+	if got := i.Out.String(); got != "false:after" {
+		t.Fatalf("got %q", got)
+	}
+	if diagnostics := i.Diagnostics(); len(diagnostics) != 1 || diagnostics[0].Severity != runtime.Warning {
+		t.Fatalf("unexpected non-halting diagnostics: %#v", diagnostics)
+	}
+
+	p = parser.New(lexer.New(src))
+	program = p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i = runtime.NewInterpreterWithBaseDir(dir)
+	i.SetErrorPolicy(runtime.StrictErrorPolicy().Ignore(runtime.Warning))
+	if err := i.Run(program); err != nil {
+		t.Fatalf("runtime error: %v", err)
+	}
+	if got := i.Out.String(); got != "false:after" {
+		t.Fatalf("got %q", got)
+	}
+	if diagnostics := i.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("expected ignored warning to be omitted, got %#v", diagnostics)
+	}
+}
+
+func TestErrorPolicyCanMakeFatalNonHalting(t *testing.T) {
+	dir := t.TempDir()
+	p := parser.New(lexer.New("<?php $value = require 'missing.php'; echo ($value === false ? 'false' : 'bad'); echo ':after';"))
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i := runtime.NewInterpreterWithBaseDir(dir)
+	i.SetErrorPolicy(runtime.DefaultErrorPolicy().DoNotHalt(runtime.FatalError))
+	if err := i.Run(program); err != nil {
+		t.Fatalf("runtime error: %v", err)
+	}
+	if got := i.Out.String(); got != "false:after" {
+		t.Fatalf("got %q", got)
+	}
+	if diagnostics := i.Diagnostics(); len(diagnostics) != 1 || diagnostics[0].Severity != runtime.FatalError {
+		t.Fatalf("unexpected diagnostics: %#v", diagnostics)
+	}
+}
+
 func TestIncludeOnceAndRequireOnceShareIncludedFiles(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "once.php"), []byte("<?php echo 'I'; $count = $count + 1;"), 0644); err != nil {

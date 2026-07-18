@@ -270,9 +270,33 @@ func runPHP(path string, source string, ctx sapiContext) (string, error) {
 	if includePath, ok := ctx.INI.Values["include_path"]; ok {
 		interp.SetIncludePath(includePath)
 	}
+	applyErrorPolicyFromINI(interp, ctx.INI)
 	installSAPIContext(interp, ctx, path)
 	err := interp.Run(program)
 	return interp.Out.String(), err
+}
+
+func applyErrorPolicyFromINI(interp *runtime.Interpreter, ini iniSettings) {
+	policy := runtime.DefaultErrorPolicy()
+	if value, ok := ini.Values["error_reporting"]; ok {
+		if mask, ok := parseErrorReportingMask(value); ok {
+			policy.Report = mask
+		}
+	}
+	if iniBool(ini.Values, "php_src_go.strict_errors", false) {
+		policy = runtime.StrictErrorPolicy()
+	}
+	if value, ok := ini.Values["php_src_go.error_report"]; ok {
+		if mask, ok := parseSeverityMask(value); ok {
+			policy.Report = mask
+		}
+	}
+	if value, ok := ini.Values["php_src_go.error_halt"]; ok {
+		if mask, ok := parseSeverityMask(value); ok {
+			policy.Halt = mask
+		}
+	}
+	interp.SetErrorPolicy(policy)
 }
 
 func installSAPIContext(interp *runtime.Interpreter, ctx sapiContext, path string) {
@@ -842,6 +866,72 @@ func parseINISection(section string) iniSettings {
 		MaxFileUploads:    iniInt(values, "max_file_uploads", 20),
 		UploadTmpDir:      values["upload_tmp_dir"],
 	}
+}
+
+func parseSeverityMask(value string) (runtime.ErrorMask, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, true
+	}
+	var mask runtime.ErrorMask
+	parts := strings.FieldsFunc(value, func(r rune) bool {
+		return r == ',' || r == '|' || r == ' ' || r == '\t'
+	})
+	for _, part := range parts {
+		part = strings.ToLower(strings.TrimSpace(part))
+		if part == "" {
+			continue
+		}
+		switch part {
+		case "all", "e_all":
+			mask |= runtime.ErrorMaskAll
+		case "none", "off", "0":
+		case "parse", "e_parse", "compile_error", "e_compile_error":
+			mask |= runtime.ErrorMaskParse
+		case "fatal", "fatal_error", "e_error", "user_error", "e_user_error", "core_error", "e_core_error":
+			mask |= runtime.ErrorMaskFatal
+		case "error", "recoverable_error", "e_recoverable_error":
+			mask |= runtime.ErrorMaskError
+		case "warning", "e_warning", "user_warning", "e_user_warning", "core_warning", "e_core_warning", "compile_warning", "e_compile_warning":
+			mask |= runtime.ErrorMaskWarning
+		case "notice", "e_notice", "user_notice", "e_user_notice":
+			mask |= runtime.ErrorMaskNotice
+		default:
+			return 0, false
+		}
+	}
+	return mask, true
+}
+
+func parseErrorReportingMask(value string) (runtime.ErrorMask, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return runtime.ErrorMaskAll, true
+	}
+	numeric, err := strconv.ParseInt(value, 10, 64)
+	if err == nil {
+		if numeric < 0 {
+			return runtime.ErrorMaskAll, true
+		}
+		var mask runtime.ErrorMask
+		if numeric&(1|16|64|256) != 0 {
+			mask |= runtime.ErrorMaskFatal
+		}
+		if numeric&(4|64) != 0 {
+			mask |= runtime.ErrorMaskParse
+		}
+		if numeric&(2|32|128|512) != 0 {
+			mask |= runtime.ErrorMaskWarning
+		}
+		if numeric&(8|1024) != 0 {
+			mask |= runtime.ErrorMaskNotice
+		}
+		if numeric&4096 != 0 {
+			mask |= runtime.ErrorMaskError
+		}
+		return mask, true
+	}
+	return parseSeverityMask(value)
 }
 
 func iniBool(values map[string]string, key string, fallback bool) bool {

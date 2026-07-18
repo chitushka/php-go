@@ -45,6 +45,7 @@ type Interpreter struct {
 	objects                     []*Object
 	destructed                  map[*Object]bool
 	diagnostics                 []Diagnostic
+	errorPolicy                 ErrorPolicy
 	Out                         bytes.Buffer
 }
 
@@ -83,6 +84,7 @@ func NewInterpreterWithBaseDir(baseDir string) *Interpreter {
 		dirStack:                    []string{baseDir},
 		fileStack:                   []string{},
 		destructed:                  map[*Object]bool{},
+		errorPolicy:                 DefaultErrorPolicy(),
 	}
 }
 
@@ -118,6 +120,14 @@ func (i *Interpreter) Diagnostics() []Diagnostic {
 	out := make([]Diagnostic, len(i.diagnostics))
 	copy(out, i.diagnostics)
 	return out
+}
+
+func (i *Interpreter) SetErrorPolicy(policy ErrorPolicy) {
+	i.errorPolicy = policy
+}
+
+func (i *Interpreter) ErrorPolicy() ErrorPolicy {
+	return i.errorPolicy
 }
 
 func (i *Interpreter) Run(p *ast.Program) error {
@@ -597,7 +607,10 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 			return nil, err
 		}
 		if path.Kind != String {
-			return nil, newRuntimeError(FatalError, "include/require path must be string")
+			if err := i.emitDiagnostic(FatalError, "include/require path must be string"); err != nil {
+				return nil, err
+			}
+			return nil, nil
 		}
 		if _, err := i.include(path.S, n.Require, n.Once); err != nil {
 			return nil, err
@@ -692,7 +705,10 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 			return NullValue(), err
 		}
 		if path.Kind != String {
-			return NullValue(), newRuntimeError(FatalError, "include/require path must be string")
+			if err := i.emitDiagnostic(FatalError, "include/require path must be string"); err != nil {
+				return NullValue(), err
+			}
+			return BoolValue(false), nil
 		}
 		return i.include(path.S, n.Require, n.Once)
 	case *ast.IncDecExpr:
@@ -6284,16 +6300,24 @@ func (i *Interpreter) include(path string, require bool, once bool) (Value, erro
 		}
 		message := fmt.Sprintf("%s failed for %q: %v", kind, path, err)
 		if !require {
-			i.warn(message)
+			if err := i.emitDiagnostic(Warning, message); err != nil {
+				return NullValue(), err
+			}
 			return BoolValue(false), nil
 		}
-		return NullValue(), newRuntimeError(FatalError, message)
+		if err := i.emitDiagnostic(FatalError, message); err != nil {
+			return NullValue(), err
+		}
+		return BoolValue(false), nil
 	}
 
 	p := parser.New(lexer.New(string(data)))
 	program := p.ParseProgram()
 	if len(p.Errors()) > 0 {
-		return NullValue(), newRuntimeError(ParseError, fmt.Sprintf("parse errors in %s: %v", resolved, p.Errors()))
+		if err := i.emitDiagnostic(ParseError, fmt.Sprintf("parse errors in %s: %v", resolved, p.Errors())); err != nil {
+			return NullValue(), err
+		}
+		return BoolValue(false), nil
 	}
 
 	if once {
@@ -6313,8 +6337,14 @@ func (i *Interpreter) include(path string, require bool, once bool) (Value, erro
 	return value, nil
 }
 
-func (i *Interpreter) warn(message string) {
-	i.diagnostics = append(i.diagnostics, Diagnostic{Severity: Warning, Message: message})
+func (i *Interpreter) emitDiagnostic(severity ErrorSeverity, message string) error {
+	if i.errorPolicy.Reports(severity) {
+		i.diagnostics = append(i.diagnostics, Diagnostic{Severity: severity, Message: message})
+	}
+	if i.errorPolicy.Halts(severity) {
+		return newRuntimeError(severity, message)
+	}
+	return nil
 }
 
 func (i *Interpreter) resolveIncludePath(path string) string {
