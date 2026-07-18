@@ -2146,9 +2146,57 @@ func TestP3DivisionAndModuloEdges(t *testing.T) {
 }
 
 func TestP3ModuloChecksZeroAfterIntegerCast(t *testing.T) {
-	err := runErr(t, "<?php echo 5 % 0.4;")
-	if err == nil || err.Error() != "division by zero" {
-		t.Fatalf("unexpected error: %v", err)
+	p := parser.New(lexer.New("<?php $value = 5 % 0.4; echo ($value === false ? 'false' : 'bad'); echo ':after';"))
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i := runtime.NewInterpreter()
+	if err := i.Run(program); err != nil {
+		t.Fatalf("runtime error: %v", err)
+	}
+	if got := i.Out.String(); got != "false:after" {
+		t.Fatalf("got %q", got)
+	}
+	if diagnostics := i.Diagnostics(); len(diagnostics) != 1 || diagnostics[0].Severity != runtime.Warning || diagnostics[0].Message != "Division by zero" {
+		t.Fatalf("unexpected diagnostics: %#v", diagnostics)
+	}
+}
+
+func TestErrorPolicyCanHaltOnDivisionByZeroWarning(t *testing.T) {
+	p := parser.New(lexer.New("<?php $value = 5 / 0; echo 'bad';"))
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i := runtime.NewInterpreter()
+	i.SetErrorPolicy(runtime.StrictErrorPolicy())
+	err := i.Run(program)
+	runtimeErr, ok := err.(*runtime.RuntimeError)
+	if !ok || runtimeErr.Severity != runtime.Warning || runtimeErr.Message != "Division by zero" {
+		t.Fatalf("expected strict division warning runtime error, got %#v", err)
+	}
+	if got := i.Out.String(); got != "" {
+		t.Fatalf("expected strict division warning to halt before output, got %q", got)
+	}
+}
+
+func TestErrorPolicyCanIgnoreDivisionByZeroWarning(t *testing.T) {
+	p := parser.New(lexer.New("<?php $value = 5 / 0; echo ($value === false ? 'false' : 'bad'); echo ':after';"))
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i := runtime.NewInterpreter()
+	i.SetErrorPolicy(runtime.StrictErrorPolicy().Ignore(runtime.Warning))
+	if err := i.Run(program); err != nil {
+		t.Fatalf("runtime error: %v", err)
+	}
+	if got := i.Out.String(); got != "false:after" {
+		t.Fatalf("got %q", got)
+	}
+	if diagnostics := i.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("expected ignored warning to be omitted, got %#v", diagnostics)
 	}
 }
 

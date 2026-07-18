@@ -117,91 +117,102 @@ func (v Value) number() (float64, bool) {
 }
 
 func Binary(op string, a, b Value) (Value, error) {
+	value, diagnostic, err := BinaryWithDiagnostic(op, a, b)
+	if diagnostic != nil {
+		return value, newRuntimeError(diagnostic.Severity, diagnostic.Message)
+	}
+	return value, err
+}
+
+func BinaryWithDiagnostic(op string, a, b Value) (Value, *Diagnostic, error) {
 	switch op {
 	case "+", "-", "*", "/", "%":
 		na, oka := a.number()
 		nb, okb := b.number()
 		if !oka || !okb {
-			return NullValue(), fmt.Errorf("non numeric operand")
+			return NullValue(), nil, fmt.Errorf("non numeric operand")
 		}
 		switch op {
 		case "+":
-			return numericResult(na + nb)
+			value, err := numericResult(na + nb)
+			return value, nil, err
 		case "-":
-			return numericResult(na - nb)
+			value, err := numericResult(na - nb)
+			return value, nil, err
 		case "*":
-			return numericResult(na * nb)
+			value, err := numericResult(na * nb)
+			return value, nil, err
 		case "/":
 			if nb == 0 {
-				return NullValue(), fmt.Errorf("division by zero")
+				return BoolValue(false), &Diagnostic{Severity: Warning, Message: "Division by zero"}, nil
 			}
-			return FloatValue(na / nb), nil
+			return FloatValue(na / nb), nil, nil
 		case "%":
 			left := int64(na)
 			right := int64(nb)
 			if right == 0 {
-				return NullValue(), fmt.Errorf("division by zero")
+				return BoolValue(false), &Diagnostic{Severity: Warning, Message: "Division by zero"}, nil
 			}
-			return IntValue(left % right), nil
+			return IntValue(left % right), nil, nil
 		}
 	case "&", "|", "^":
 		if a.Kind == String && b.Kind == String {
-			return StringValue(bitwiseStringBinary(op, a.S, b.S)), nil
+			return StringValue(bitwiseStringBinary(op, a.S, b.S)), nil, nil
 		}
 		na, oka := a.number()
 		nb, okb := b.number()
 		if !oka || !okb {
-			return NullValue(), fmt.Errorf("non numeric operand")
+			return NullValue(), nil, fmt.Errorf("non numeric operand")
 		}
 		left := int64(na)
 		right := int64(nb)
 		switch op {
 		case "&":
-			return IntValue(left & right), nil
+			return IntValue(left & right), nil, nil
 		case "|":
-			return IntValue(left | right), nil
+			return IntValue(left | right), nil, nil
 		case "^":
-			return IntValue(left ^ right), nil
+			return IntValue(left ^ right), nil, nil
 		}
 	case "<<", ">>":
 		na, oka := a.number()
 		nb, okb := b.number()
 		if !oka || !okb {
-			return NullValue(), fmt.Errorf("non numeric operand")
+			return NullValue(), nil, fmt.Errorf("non numeric operand")
 		}
 		left := int64(na)
 		right := uint(int64(nb))
 		switch op {
 		case "<<":
-			return IntValue(left << right), nil
+			return IntValue(left << right), nil, nil
 		case ">>":
-			return IntValue(left >> right), nil
+			return IntValue(left >> right), nil, nil
 		}
 	case "==":
-		return BoolValue(looseEqual(a, b)), nil
+		return BoolValue(looseEqual(a, b)), nil, nil
 	case "!=", "<>":
-		return BoolValue(!looseEqual(a, b)), nil
+		return BoolValue(!looseEqual(a, b)), nil, nil
 	case "===":
-		return BoolValue(strictEqual(a, b)), nil
+		return BoolValue(strictEqual(a, b)), nil, nil
 	case "!==":
-		return BoolValue(!strictEqual(a, b)), nil
+		return BoolValue(!strictEqual(a, b)), nil, nil
 	case "<", ">", "<=", ">=":
 		cmp, ok := looseCompare(a, b)
 		if !ok {
-			return NullValue(), fmt.Errorf("non comparable operand")
+			return NullValue(), nil, fmt.Errorf("non comparable operand")
 		}
 		switch op {
 		case "<":
-			return BoolValue(cmp < 0), nil
+			return BoolValue(cmp < 0), nil, nil
 		case ">":
-			return BoolValue(cmp > 0), nil
+			return BoolValue(cmp > 0), nil, nil
 		case "<=":
-			return BoolValue(cmp <= 0), nil
+			return BoolValue(cmp <= 0), nil, nil
 		case ">=":
-			return BoolValue(cmp >= 0), nil
+			return BoolValue(cmp >= 0), nil, nil
 		}
 	}
-	return NullValue(), fmt.Errorf("unsupported operator %s", op)
+	return NullValue(), nil, fmt.Errorf("unsupported operator %s", op)
 }
 
 func BitwiseNot(value Value) (Value, error) {

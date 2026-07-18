@@ -294,7 +294,7 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 			}
 			result = StringValue(left + right)
 		} else {
-			result, err = Binary(n.Op, current, value)
+			result, err = i.binary(n.Op, current, value)
 			if err != nil {
 				return nil, err
 			}
@@ -759,7 +759,7 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 			}
 			return StringValue(left + right), nil
 		}
-		return Binary(n.Op, l, r)
+		return i.binary(n.Op, l, r)
 	case *ast.TernaryExpr:
 		cond, err := i.eval(n.Cond)
 		if err != nil {
@@ -3703,7 +3703,7 @@ func (i *Interpreter) evalAssignExpr(n *ast.AssignExpr) (Value, error) {
 			}
 			value = StringValue(left + right)
 		} else {
-			value, err = Binary(n.Op, current, value)
+			value, err = i.binary(n.Op, current, value)
 			if err != nil {
 				return NullValue(), err
 			}
@@ -6345,6 +6345,19 @@ func (i *Interpreter) emitDiagnostic(severity ErrorSeverity, message string) err
 		return newRuntimeError(severity, message)
 	}
 	return nil
+}
+
+func (i *Interpreter) binary(op string, a, b Value) (Value, error) {
+	value, diagnostic, err := BinaryWithDiagnostic(op, a, b)
+	if err != nil {
+		return NullValue(), err
+	}
+	if diagnostic != nil {
+		if err := i.emitDiagnostic(diagnostic.Severity, diagnostic.Message); err != nil {
+			return NullValue(), err
+		}
+	}
+	return value, nil
 }
 
 func (i *Interpreter) resolveIncludePath(path string) string {
