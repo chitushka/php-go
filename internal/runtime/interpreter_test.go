@@ -1921,6 +1921,14 @@ func TestP3ArrayComparisons(t *testing.T) {
 	}
 }
 
+func TestP3ObjectComparisons(t *testing.T) {
+	src := "<?php class CompareBase { protected $hidden = 'h'; } class CompareBox extends CompareBase { public $name = 'Ada'; private $secret = 's'; public function set($name, $secret) { $this->name = $name; $this->secret = $secret; } } class CompareOther { public $name = 'Ada'; } $a = new CompareBox(); $b = new CompareBox(); $c = new CompareBox(); $c->set('Ada', 't'); $other = new CompareOther(); echo ($a == $b ? 'eq' : 'bad'); echo ':'; echo ($a === $b ? 'bad' : 'not-ident'); echo ':'; echo ($a === $a ? 'ident' : 'bad'); echo ':'; echo ($a != $c ? 'diff' : 'bad'); echo ':'; echo ($a == $other ? 'bad' : 'class'); echo ':'; echo ($a < $c ? 'less' : 'bad'); echo ':'; echo ($a > 0 ? 'object-greater' : 'bad');"
+	got := run(t, src)
+	if got != "eq:not-ident:ident:diff:class:less:object-greater" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestWordLogicalOperatorsHaveLowerPrecedenceThanAssignment(t *testing.T) {
 	src := "<?php $b = true or false; echo $b ? '1' : '0'; echo ':'; $b = false or true; echo $b ? '1' : '0'; echo ':'; $b = true || false; echo $b ? '1' : '0'; echo ':'; $b = false || true; echo $b ? '1' : '0'; echo ':'; $b = true and false; echo $b ? '1' : '0'; echo ':'; $b = true && false; echo $b ? '1' : '0';"
 	got := run(t, src)

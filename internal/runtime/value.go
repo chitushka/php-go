@@ -3,6 +3,7 @@ package runtime
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -216,7 +217,7 @@ func looseEqual(a, b Value) bool {
 		return a.Kind == ArrayKind && b.Kind == ArrayKind && looseArrayEqual(a.A, b.A)
 	}
 	if a.Kind == ObjectKind || b.Kind == ObjectKind {
-		return a.Kind == ObjectKind && b.Kind == ObjectKind && a.O == b.O
+		return a.Kind == ObjectKind && b.Kind == ObjectKind && looseObjectEqual(a.O, b.O)
 	}
 	return a.String() == b.String()
 }
@@ -272,6 +273,15 @@ func looseCompare(a, b Value) (int, bool) {
 			return compareArrays(a.A, b.A), true
 		}
 		if a.Kind == ArrayKind {
+			return 1, true
+		}
+		return -1, true
+	}
+	if a.Kind == ObjectKind || b.Kind == ObjectKind {
+		if a.Kind == ObjectKind && b.Kind == ObjectKind {
+			return compareObjects(a.O, b.O), true
+		}
+		if a.Kind == ObjectKind {
 			return 1, true
 		}
 		return -1, true
@@ -409,6 +419,81 @@ func arrayEntries(a *Array) []ArrayEntry {
 		return nil
 	}
 	return a.Entries
+}
+
+func looseObjectEqual(a, b *Object) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	if !strings.EqualFold(a.ClassName, b.ClassName) {
+		return false
+	}
+	if len(a.Props) != len(b.Props) {
+		return false
+	}
+	for _, key := range sortedObjectPropertyKeys(a) {
+		left := a.Props[key]
+		right, ok := b.Props[key]
+		if !ok || !looseEqual(left, right) {
+			return false
+		}
+	}
+	return true
+}
+
+func compareObjects(a, b *Object) int {
+	if a == b {
+		return 0
+	}
+	if a == nil {
+		return -1
+	}
+	if b == nil {
+		return 1
+	}
+	if cmp := strings.Compare(strings.ToLower(a.ClassName), strings.ToLower(b.ClassName)); cmp != 0 {
+		return cmp
+	}
+	if len(a.Props) < len(b.Props) {
+		return -1
+	}
+	if len(a.Props) > len(b.Props) {
+		return 1
+	}
+	for _, key := range sortedObjectPropertyKeys(a) {
+		right, ok := b.Props[key]
+		if !ok {
+			return 1
+		}
+		cmp, ok := looseCompare(a.Props[key], right)
+		if !ok {
+			continue
+		}
+		if cmp != 0 {
+			return cmp
+		}
+	}
+	for _, key := range sortedObjectPropertyKeys(b) {
+		if _, ok := a.Props[key]; !ok {
+			return -1
+		}
+	}
+	return 0
+}
+
+func sortedObjectPropertyKeys(obj *Object) []string {
+	if obj == nil {
+		return nil
+	}
+	keys := make([]string, 0, len(obj.Props))
+	for key := range obj.Props {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func strictEqual(a, b Value) bool {
