@@ -92,6 +92,36 @@ func TestReservedClassNamesAreRejected(t *testing.T) {
 	}
 }
 
+func TestMethodBodyRequirementsAreRejected(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		err  string
+	}{
+		{
+			name: "abstract method body",
+			src:  "<?php abstract class BodyAbstract { abstract public function value() { return 1; } }",
+			err:  "Abstract function BodyAbstract::value() cannot contain body",
+		},
+		{
+			name: "interface method body",
+			src:  "<?php interface BodyInterface { public function value() { return 1; } }",
+			err:  "Interface function BodyInterface::value() cannot contain body",
+		},
+		{
+			name: "non abstract method no body",
+			src:  "<?php class MissingBody { public function value(); }",
+			err:  "Non-abstract method MissingBody::value() must contain body",
+		},
+	}
+	for _, tt := range tests {
+		errs := parseErrors(tt.src)
+		if len(errs) != 1 || errs[0] != tt.err {
+			t.Fatalf("%s: got parse errors %v", tt.name, errs)
+		}
+	}
+}
+
 func TestWhile(t *testing.T) {
 	if got := run(t, "<?php $i = 0; while ($i < 3) { echo $i; $i = $i + 1; }"); got != "012" {
 		t.Fatalf("got %q", got)

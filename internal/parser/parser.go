@@ -682,10 +682,10 @@ func (p *Parser) parseFunctionDecl() ast.Stmt {
 }
 
 func (p *Parser) parseFunctionDeclWith(visibility string, static bool) ast.Stmt {
-	return p.parseFunctionDeclFull(visibility, static, false, false, true)
+	return p.parseFunctionDeclFull(visibility, static, false, false, true, "", "")
 }
 
-func (p *Parser) parseFunctionDeclFull(visibility string, static bool, final bool, abstract bool, qualifyName bool) ast.Stmt {
+func (p *Parser) parseFunctionDeclFull(visibility string, static bool, final bool, abstract bool, qualifyName bool, owner string, abstractKind string) ast.Stmt {
 	returnsByRef := false
 	if p.peek.Type == lexer.Ampersand {
 		p.next()
@@ -702,9 +702,21 @@ func (p *Parser) parseFunctionDeclFull(visibility string, static bool, final boo
 		return nil
 	}
 	params := p.parseFunctionParams()
-	if abstract {
-		if !p.expectPeek(lexer.Semicolon) {
-			return nil
+	if p.peek.Type == lexer.Semicolon {
+		p.next()
+		if !abstract && owner != "" {
+			p.errors = append(p.errors, fmt.Sprintf("Non-abstract method %s::%s() must contain body", owner, name))
+		}
+		return &ast.FunctionDeclStmt{Name: name, Params: params, Visibility: visibility, Static: static, Final: final, Abstract: abstract, ReturnsByRef: returnsByRef}
+	}
+	if abstract && p.peek.Type == lexer.LBrace {
+		p.next()
+		p.parseBlock()
+		if owner != "" {
+			if abstractKind == "" {
+				abstractKind = "Abstract"
+			}
+			p.errors = append(p.errors, fmt.Sprintf("%s function %s::%s() cannot contain body", abstractKind, owner, name))
 		}
 		return &ast.FunctionDeclStmt{Name: name, Params: params, Visibility: visibility, Static: static, Final: final, Abstract: abstract, ReturnsByRef: returnsByRef}
 	}
@@ -923,7 +935,7 @@ func (p *Parser) parseClassDecl(final bool, abstract bool) ast.Stmt {
 		visibility, static, finalMember, abstractMember := p.parseMemberModifiers()
 		switch p.cur.Type {
 		case lexer.Function:
-			method, ok := p.parseFunctionDeclFull(visibility, static, finalMember, abstractMember, false).(*ast.FunctionDeclStmt)
+			method, ok := p.parseFunctionDeclFull(visibility, static, finalMember, abstractMember, false, name, "Abstract").(*ast.FunctionDeclStmt)
 			if ok && method != nil {
 				class.Methods = append(class.Methods, method)
 			}
@@ -991,7 +1003,7 @@ func (p *Parser) parseInterfaceDecl() ast.Stmt {
 		case lexer.Const:
 			iface.Constants = append(iface.Constants, p.parseClassConstants()...)
 		case lexer.Function:
-			method, ok := p.parseFunctionDeclFull(visibility, static, finalMember, true, false).(*ast.FunctionDeclStmt)
+			method, ok := p.parseFunctionDeclFull(visibility, static, finalMember, true, false, name, "Interface").(*ast.FunctionDeclStmt)
 			if ok && method != nil {
 				iface.Methods = append(iface.Methods, method)
 			}
