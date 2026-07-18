@@ -1137,7 +1137,10 @@ func (i *Interpreter) callBuiltin(c *ast.CallExpr) (Value, bool, error) {
 		args = append(args, toBuiltinValue(value))
 	}
 	if value, ok, err := i.callSAPIBuiltin(c.Name, runtimeArgs); ok || err != nil {
-		return value, ok, err
+		if err != nil {
+			return i.handleBuiltinWarning(err, value, ok)
+		}
+		return value, ok, nil
 	}
 	if value, output, ok, err := builtins.CallWithOutput(c.Name, args); ok || err != nil {
 		if output != "" {
@@ -1739,6 +1742,9 @@ func (i *Interpreter) callNamedFunctionValues(name string, args []Value) (Value,
 	}
 	runtimeArgs := append([]Value(nil), args...)
 	if value, ok, err := i.callSAPIBuiltin(name, runtimeArgs); ok || err != nil {
+		if err != nil {
+			value, _, err = i.handleBuiltinWarning(err, value, ok)
+		}
 		return value, err
 	}
 	builtinArgs := make([]builtins.Value, 0, len(args))
@@ -1750,13 +1756,15 @@ func (i *Interpreter) callNamedFunctionValues(name string, args []Value) (Value,
 			i.Out.WriteString(output)
 		}
 		if err != nil {
-			return NullValue(), err
+			runtimeValue, _, warnErr := i.handleBuiltinWarning(err, fromBuiltinValue(value), ok)
+			return runtimeValue, warnErr
 		}
 		return fromBuiltinValue(value), nil
 	}
 	if value, ok, err := builtins.Call(name, builtinArgs); ok || err != nil {
 		if err != nil {
-			return NullValue(), err
+			runtimeValue, _, warnErr := i.handleBuiltinWarning(err, fromBuiltinValue(value), ok)
+			return runtimeValue, warnErr
 		}
 		return fromBuiltinValue(value), nil
 	}

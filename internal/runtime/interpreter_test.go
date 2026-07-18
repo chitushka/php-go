@@ -2249,6 +2249,41 @@ func TestRegistryBuiltinWarningUsesErrorPolicy(t *testing.T) {
 	}
 }
 
+func TestSAPIBuiltinWarningUsesErrorPolicy(t *testing.T) {
+	p := parser.New(lexer.New("<?php $a = header(); $b = call_user_func('headers_list', 'x'); echo ($a === null ? 'null' : 'bad'); echo ':'; echo ($b === null ? 'null' : 'bad'); echo ':after';"))
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i := runtime.NewInterpreter()
+	if err := i.Run(program); err != nil {
+		t.Fatalf("runtime error: %v", err)
+	}
+	if got := i.Out.String(); got != "null:null:after" {
+		t.Fatalf("got %q", got)
+	}
+	diagnostics := i.Diagnostics()
+	if len(diagnostics) != 2 || diagnostics[0].Severity != runtime.Warning || diagnostics[0].Message != "header expects between 1 and 2 arguments, got 0" || diagnostics[1].Message != "headers_list expects 0 arguments, got 1" {
+		t.Fatalf("unexpected diagnostics: %#v", diagnostics)
+	}
+
+	p = parser.New(lexer.New("<?php header(); echo 'bad';"))
+	program = p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i = runtime.NewInterpreter()
+	i.SetErrorPolicy(runtime.StrictErrorPolicy())
+	err := i.Run(program)
+	runtimeErr, ok := err.(*runtime.RuntimeError)
+	if !ok || runtimeErr.Severity != runtime.Warning || runtimeErr.Message != "header expects between 1 and 2 arguments, got 0" {
+		t.Fatalf("expected strict SAPI builtin warning runtime error, got %#v", err)
+	}
+	if got := i.Out.String(); got != "" {
+		t.Fatalf("expected strict SAPI builtin warning to halt before output, got %q", got)
+	}
+}
+
 func TestErrorPolicyCanIgnoreDivisionByZeroWarning(t *testing.T) {
 	p := parser.New(lexer.New("<?php $value = 5 / 0; echo ($value === false ? 'false' : 'bad'); echo ':after';"))
 	program := p.ParseProgram()
