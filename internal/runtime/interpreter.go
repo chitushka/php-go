@@ -38,6 +38,7 @@ type Interpreter struct {
 	uploadedFiles               map[string]bool
 	includedOnce                map[string]bool
 	autoloading                 map[string]bool
+	includePath                 []string
 	baseDir                     string
 	dirStack                    []string
 	fileStack                   []string
@@ -105,6 +106,10 @@ func (i *Interpreter) SetEntryFile(path string) {
 		path = abs
 	}
 	i.fileStack = []string{filepath.Clean(path)}
+}
+
+func (i *Interpreter) SetIncludePath(path string) {
+	i.includePath = splitIncludePath(path)
 }
 
 func (i *Interpreter) Run(p *ast.Program) error {
@@ -6296,14 +6301,51 @@ func (i *Interpreter) include(path string, require bool, once bool) (Value, erro
 }
 
 func (i *Interpreter) resolveIncludePath(path string) string {
-	resolved := path
-	if !filepath.IsAbs(resolved) {
-		resolved = filepath.Join(i.currentDir(), path)
+	if filepath.IsAbs(path) {
+		return cleanIncludePath(path)
 	}
+	if hasExplicitRelativePrefix(path) {
+		return cleanIncludePath(filepath.Join(i.currentDir(), path))
+	}
+	for _, entry := range i.includePath {
+		if entry == "" {
+			continue
+		}
+		dir := entry
+		if !filepath.IsAbs(dir) {
+			dir = filepath.Join(i.baseDir, dir)
+		}
+		candidate := cleanIncludePath(filepath.Join(dir, path))
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return cleanIncludePath(filepath.Join(i.currentDir(), path))
+}
+
+func cleanIncludePath(path string) string {
+	resolved := path
 	if abs, err := filepath.Abs(resolved); err == nil {
 		resolved = abs
 	}
 	return filepath.Clean(resolved)
+}
+
+func splitIncludePath(path string) []string {
+	if path == "" {
+		return nil
+	}
+	return filepath.SplitList(path)
+}
+
+func hasExplicitRelativePrefix(path string) bool {
+	return path == "." || path == ".." ||
+		strings.HasPrefix(path, "."+string(filepath.Separator)) ||
+		strings.HasPrefix(path, ".."+string(filepath.Separator)) ||
+		strings.HasPrefix(path, "./") ||
+		strings.HasPrefix(path, "../") ||
+		strings.HasPrefix(path, `.\\`) ||
+		strings.HasPrefix(path, `..\\`)
 }
 
 func (i *Interpreter) currentDir() string {

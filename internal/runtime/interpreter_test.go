@@ -336,6 +336,45 @@ func TestNestedIncludeUsesIncludedFileDirectory(t *testing.T) {
 	}
 }
 
+func TestIncludePathResolution(t *testing.T) {
+	dir := t.TempDir()
+	lib := filepath.Join(dir, "lib")
+	nested := filepath.Join(dir, "nested")
+	if err := os.Mkdir(lib, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(nested, 0755); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		filepath.Join(lib, "shared.php"):    "<?php echo 'path';",
+		filepath.Join(lib, "path_only.php"): "<?php return 'from-path';",
+		filepath.Join(nested, "loader.php"): "<?php include 'local.php';",
+		filepath.Join(nested, "local.php"):  "<?php echo 'local';",
+		filepath.Join(dir, "same.php"):      "<?php echo 'dot';",
+		filepath.Join(lib, "same.php"):      "<?php echo 'path-same';",
+	}
+	for name, src := range files {
+		if err := os.WriteFile(name, []byte(src), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	p := parser.New(lexer.New("<?php $value = include 'path_only.php'; echo $value; echo ':'; include 'shared.php'; echo ':'; include 'nested/loader.php'; echo ':'; include './same.php';"))
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i := runtime.NewInterpreterWithBaseDir(dir)
+	i.SetIncludePath("lib")
+	if err := i.Run(program); err != nil {
+		t.Fatalf("runtime error: %v", err)
+	}
+	if got := i.Out.String(); got != "from-path:path:local:dot" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestIncludeOnceAndRequireOnceShareIncludedFiles(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "once.php"), []byte("<?php echo 'I'; $count = $count + 1;"), 0644); err != nil {
