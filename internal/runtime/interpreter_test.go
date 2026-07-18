@@ -2377,6 +2377,70 @@ func TestReadAccessNoticeUsesErrorPolicy(t *testing.T) {
 	}
 }
 
+func TestUndefinedReadNoticeUsesErrorPolicy(t *testing.T) {
+	p := parser.New(lexer.New("<?php $arr = array('yes' => 1); $name = 'dynamicMissing'; $s = 'php'; class Bag {} $bag = new Bag(); $a = $missing; $b = $$name; $c = $arr['no']; $d = $s[9]; $e = $bag->item; echo ($a === null ? 'null' : 'bad'); echo ':'; echo ($b === null ? 'null' : 'bad'); echo ':'; echo ($c === null ? 'null' : 'bad'); echo ':'; echo ($d === null ? 'null' : 'bad'); echo ':'; echo ($e === null ? 'null' : 'bad'); echo ':after';"))
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i := runtime.NewInterpreter()
+	if err := i.Run(program); err != nil {
+		t.Fatalf("runtime error: %v", err)
+	}
+	if got := i.Out.String(); got != "null:null:null:null:null:after" {
+		t.Fatalf("got %q", got)
+	}
+	diagnostics := i.Diagnostics()
+	expectedMessages := []string{
+		"undefined variable missing",
+		"undefined variable dynamicMissing",
+		"undefined index no",
+		"undefined offset 9",
+		"undefined property Bag::$item",
+	}
+	if len(diagnostics) != len(expectedMessages) {
+		t.Fatalf("unexpected diagnostics: %#v", diagnostics)
+	}
+	for idx, message := range expectedMessages {
+		if diagnostics[idx].Severity != runtime.Notice || diagnostics[idx].Message != message {
+			t.Fatalf("unexpected diagnostic %d: %#v", idx, diagnostics[idx])
+		}
+	}
+
+	p = parser.New(lexer.New("<?php echo $missing; echo 'bad';"))
+	program = p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i = runtime.NewInterpreter()
+	i.SetErrorPolicy(runtime.StrictErrorPolicy())
+	err := i.Run(program)
+	runtimeErr, ok := err.(*runtime.RuntimeError)
+	if !ok || runtimeErr.Severity != runtime.Notice || runtimeErr.Message != "undefined variable missing" {
+		t.Fatalf("expected strict undefined variable notice runtime error, got %#v", err)
+	}
+	if got := i.Out.String(); got != "" {
+		t.Fatalf("expected strict undefined variable notice to halt before output, got %q", got)
+	}
+
+	p = parser.New(lexer.New("<?php $arr = array(); $value = $arr['missing']; echo ($value === null ? 'null' : 'bad'); echo ':'; if (!isset($arr['missing']) && empty($arr['missing'])) { echo 'constructs'; } echo ':after';"))
+	program = p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i = runtime.NewInterpreter()
+	i.SetErrorPolicy(runtime.StrictErrorPolicy().Ignore(runtime.Notice))
+	if err := i.Run(program); err != nil {
+		t.Fatalf("runtime error: %v", err)
+	}
+	if got := i.Out.String(); got != "null:constructs:after" {
+		t.Fatalf("got %q", got)
+	}
+	if diagnostics := i.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("expected ignored undefined read notices to be omitted, got %#v", diagnostics)
+	}
+}
+
 func TestIssetEmptyWarningUsesErrorPolicy(t *testing.T) {
 	p := parser.New(lexer.New("<?php $a = isset(); $b = empty(); $c = empty($a, $b); echo ($a === null ? 'null' : 'bad'); echo ':'; echo ($b === null ? 'null' : 'bad'); echo ':'; echo ($c === null ? 'null' : 'bad'); echo ':after';"))
 	program := p.ParseProgram()

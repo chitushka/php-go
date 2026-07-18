@@ -672,11 +672,24 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 		if v, ok := i.getVar(n.Name); ok {
 			return v, nil
 		}
+		if err := i.noticef("undefined variable %s", n.Name); err != nil {
+			return NullValue(), err
+		}
 		return NullValue(), nil
 	case *ast.VariableVariable:
-		name := i.variableVariableName(n.Name)
+		nameValue, ok := i.getVar(n.Name)
+		if !ok {
+			if err := i.noticef("undefined variable %s", n.Name); err != nil {
+				return NullValue(), err
+			}
+			return NullValue(), nil
+		}
+		name := nameValue.String()
 		if v, ok := i.getVar(name); ok {
 			return v, nil
+		}
+		if err := i.noticef("undefined variable %s", name); err != nil {
+			return NullValue(), err
 		}
 		return NullValue(), nil
 	case *ast.IntLit:
@@ -2806,6 +2819,9 @@ func (i *Interpreter) fetchProperty(object ast.Expr, property string) (Value, er
 	if i.shouldUseGet(obj.O) {
 		return i.callMagicGet(obj.O, property)
 	}
+	if err := i.noticef("undefined property %s::$%s", obj.O.ClassName, property); err != nil {
+		return NullValue(), err
+	}
 	return NullValue(), nil
 }
 
@@ -3769,14 +3785,27 @@ func (i *Interpreter) evalIndex(n *ast.IndexExpr) (Value, error) {
 	}
 	switch left.Kind {
 	case ArrayKind:
+		key := KeyFromValue(index)
 		if left.A == nil {
+			if err := i.noticef("%s", undefinedArrayIndexMessage(key)); err != nil {
+				return NullValue(), err
+			}
 			return NullValue(), nil
 		}
-		value, _ := left.A.Get(KeyFromValue(index))
+		value, ok := left.A.Get(key)
+		if !ok {
+			if err := i.noticef("%s", undefinedArrayIndexMessage(key)); err != nil {
+				return NullValue(), err
+			}
+			return NullValue(), nil
+		}
 		return value, nil
 	case String:
 		offset, ok := indexOffset(index)
 		if !ok || offset < 0 || offset >= len(left.S) {
+			if err := i.noticef("undefined offset %s", index.String()); err != nil {
+				return NullValue(), err
+			}
 			return NullValue(), nil
 		}
 		return StringValue(left.S[offset : offset+1]), nil
@@ -3786,6 +3815,13 @@ func (i *Interpreter) evalIndex(n *ast.IndexExpr) (Value, error) {
 		}
 		return NullValue(), nil
 	}
+}
+
+func undefinedArrayIndexMessage(key ArrayKey) string {
+	if key.IsInt {
+		return fmt.Sprintf("undefined offset %d", key.Int)
+	}
+	return fmt.Sprintf("undefined index %s", key.Str)
 }
 
 func (i *Interpreter) evalAssignExpr(n *ast.AssignExpr) (Value, error) {
