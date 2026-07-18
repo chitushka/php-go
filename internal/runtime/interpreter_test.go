@@ -336,6 +336,29 @@ func TestNestedIncludeUsesIncludedFileDirectory(t *testing.T) {
 	}
 }
 
+func TestDefaultDotIncludePathPrecedesIncludedFileDirectory(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "lib")
+	if err := os.Mkdir(sub, 0755); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		filepath.Join(dir, "local.php"):        "<?php echo 'dot';",
+		filepath.Join(sub, "local.php"):        "<?php echo 'nested';",
+		filepath.Join(sub, "plain.php"):        "<?php include 'local.php';",
+		filepath.Join(sub, "explicit_dot.php"): "<?php include './local.php';",
+	}
+	for name, src := range files {
+		if err := os.WriteFile(name, []byte(src), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := runFile(t, dir, "<?php include 'lib/plain.php'; echo ':'; include 'lib/explicit_dot.php';")
+	if got != "dot:nested" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestIncludePathResolution(t *testing.T) {
 	dir := t.TempDir()
 	lib := filepath.Join(dir, "lib")

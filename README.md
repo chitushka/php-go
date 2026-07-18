@@ -47,10 +47,10 @@ go run ./cmd/php53test tests/phpt
 
 - Закрыт большой P2-срез OOP semantics: type hints PHP 5.3 (`array`, class/interface, `self`, `parent`), уточненные проверки override/interface signatures, private static/member scope, `__sleep` scoped properties, `unserialize()` autoload перед `__wakeup`, destructor edge cases при исключениях из `__clone`/`__wakeup`.
 - Закрыты P3 type juggling slices: numeric-string arithmetic/comparison prefixes, loose/strict/order comparisons для массивов и объектов, nonzero division/modulo edge semantics, PHP 5.3 string bitwise semantics и string `++`/`--` edge semantics.
-- Include/require стали ближе к PHP 5.3: поддержаны expression return values (`return`, default `1`, повторный `_once` как `true`) и базовый `include_path` из PHPT `--INI--`.
+- Include/require стали ближе к PHP 5.3: поддержаны expression return values (`return`, default `1`, повторный `_once` как `true`), базовый `include_path` из PHPT `--INI--`, default `.` include_path precedence и bypass include_path для явных `./`/`../` путей.
 - Все новые возможности закреплены focused PHPT-контрактами в `tests/phpt`; текущий базовый контроль качества: `go test ./...` и `go run ./cmd/php53test tests/phpt`.
 
 ## Следующие шаги переноса
 
-1. Следующий шаг: продолжить P3 compatibility отдельными vertical slices с PHPT-контрактом. Наиболее практичный следующий срез - closer include relative path edge rules или начало error model: различать parse/fatal/warning/notice вместо generic Go errors.
+1. Следующий шаг: продолжить P3 compatibility отдельными vertical slices с PHPT-контрактом. Наиболее практичный следующий срез - начало error model: различать parse/fatal/warning/notice вместо generic Go errors.
 2. `declare`/`eval` отложены до отдельного решения; `eval` может остаться выключенным из-за security-модели.

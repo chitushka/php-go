@@ -77,6 +77,7 @@ func NewInterpreterWithBaseDir(baseDir string) *Interpreter {
 		uploadedFiles:               map[string]bool{},
 		includedOnce:                map[string]bool{},
 		autoloading:                 map[string]bool{},
+		includePath:                 []string{"."},
 		baseDir:                     baseDir,
 		dirStack:                    []string{baseDir},
 		fileStack:                   []string{},

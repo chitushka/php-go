@@ -267,7 +267,9 @@ func runPHP(path string, source string, ctx sapiContext) (string, error) {
 	interp := runtime.NewInterpreterWithBaseDir(filepath.Dir(path))
 	interp.SetEntryFile(path)
 	interp.SetUploadedFiles(ctx.Temps)
-	interp.SetIncludePath(ctx.INI.Values["include_path"])
+	if includePath, ok := ctx.INI.Values["include_path"]; ok {
+		interp.SetIncludePath(includePath)
+	}
 	installSAPIContext(interp, ctx, path)
 	err := interp.Run(program)
 	return interp.Out.String(), err
