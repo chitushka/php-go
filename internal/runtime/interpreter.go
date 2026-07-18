@@ -653,7 +653,7 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 			z, err := Binary("-", IntValue(0), v)
 			return z, err
 		case "~":
-			z, err := Binary("^", v, IntValue(-1))
+			z, err := BitwiseNot(v)
 			return z, err
 		}
 	case *ast.CloneExpr:

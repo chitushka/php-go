@@ -137,12 +137,33 @@ func Binary(op string, a, b Value) (Value, error) {
 			}
 			return FloatValue(na / nb), nil
 		case "%":
-			if nb == 0 {
+			left := int64(na)
+			right := int64(nb)
+			if right == 0 {
 				return NullValue(), fmt.Errorf("division by zero")
 			}
-			return IntValue(int64(na) % int64(nb)), nil
+			return IntValue(left % right), nil
 		}
-	case "&", "|", "^", "<<", ">>":
+	case "&", "|", "^":
+		if a.Kind == String && b.Kind == String {
+			return StringValue(bitwiseStringBinary(op, a.S, b.S)), nil
+		}
+		na, oka := a.number()
+		nb, okb := b.number()
+		if !oka || !okb {
+			return NullValue(), fmt.Errorf("non numeric operand")
+		}
+		left := int64(na)
+		right := int64(nb)
+		switch op {
+		case "&":
+			return IntValue(left & right), nil
+		case "|":
+			return IntValue(left | right), nil
+		case "^":
+			return IntValue(left ^ right), nil
+		}
+	case "<<", ">>":
 		na, oka := a.number()
 		nb, okb := b.number()
 		if !oka || !okb {
@@ -151,12 +172,6 @@ func Binary(op string, a, b Value) (Value, error) {
 		left := int64(na)
 		right := uint(int64(nb))
 		switch op {
-		case "&":
-			return IntValue(left & int64(nb)), nil
-		case "|":
-			return IntValue(left | int64(nb)), nil
-		case "^":
-			return IntValue(left ^ int64(nb)), nil
 		case "<<":
 			return IntValue(left << right), nil
 		case ">>":
@@ -187,6 +202,45 @@ func Binary(op string, a, b Value) (Value, error) {
 		}
 	}
 	return NullValue(), fmt.Errorf("unsupported operator %s", op)
+}
+
+func BitwiseNot(value Value) (Value, error) {
+	if value.Kind == String {
+		bytes := []byte(value.S)
+		for idx := range bytes {
+			bytes[idx] = ^bytes[idx]
+		}
+		return StringValue(string(bytes)), nil
+	}
+	return Binary("^", value, IntValue(-1))
+}
+
+func bitwiseStringBinary(op string, a, b string) string {
+	left := []byte(a)
+	right := []byte(b)
+	longer := left
+	shorter := right
+	if len(right) > len(left) {
+		longer = right
+		shorter = left
+	}
+	if op == "|" {
+		result := append([]byte(nil), longer...)
+		for idx := range shorter {
+			result[idx] |= shorter[idx]
+		}
+		return string(result)
+	}
+	result := append([]byte(nil), shorter...)
+	for idx := range result {
+		switch op {
+		case "&":
+			result[idx] &= longer[idx]
+		case "^":
+			result[idx] ^= longer[idx]
+		}
+	}
+	return string(result)
 }
 
 func looseEqual(a, b Value) bool {

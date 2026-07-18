@@ -1905,6 +1905,14 @@ func TestP0OperatorsWordBitwiseShiftTernary(t *testing.T) {
 	}
 }
 
+func TestP0StringBitwiseOperators(t *testing.T) {
+	src := "<?php $and = 'ABCD' & 'ab'; echo $and; echo ':'; echo strlen($and); echo ':'; $or = 'AB' | 'abc'; echo $or; echo ':'; echo strlen($or); echo ':'; $xor = 'AZ!' ^ '  '; echo $xor; echo ':'; echo strlen($xor); echo ':'; echo ~\"\\x9e\\x85\"; echo ':'; echo ('12' | 1);"
+	got := run(t, src)
+	if got != "AB:2:abc:3:az:2:az:13" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestP3NumericStringArithmeticAndLooseComparison(t *testing.T) {
 	src := "<?php echo '12px' + 1; echo ':'; echo ' 1.5e2rest' + 2; echo ':'; echo 'abc' + 2; echo ':'; echo ('10' == 10 ? 'a' : 'no'); echo ':'; echo ('10abc' == 10 ? 'b' : 'no'); echo ':'; echo ('010' == '10' ? 'c' : 'no'); echo ':'; echo ('10abc' == '10' ? 'bad' : 'd'); echo ':'; echo (0 == 'abc' ? 'e' : 'no'); echo ':'; echo (false == '0' ? 'f' : 'no'); echo ':'; echo (null == '' ? 'g' : 'no'); echo ':'; echo (null == '0' ? 'bad' : 'h'); echo ':'; echo ('10' < '2' ? 'bad' : 'i'); echo ':'; echo ('abc' < 'b' ? 'j' : 'bad');"
 	got := run(t, src)
@@ -1926,6 +1934,21 @@ func TestP3ObjectComparisons(t *testing.T) {
 	got := run(t, src)
 	if got != "eq:not-ident:ident:diff:class:less:object-greater" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestP3DivisionAndModuloEdges(t *testing.T) {
+	src := "<?php echo (4 / 2 === 2.0 ? 'float' : 'bad'); echo ':'; echo (5 / 2 === 2.5 ? 'fraction' : 'bad'); echo ':'; echo ('12' / '3' === 4.0 ? 'string-float' : 'bad'); echo ':'; echo ('7' / '2' === 3.5 ? 'string-fraction' : 'bad'); echo ':'; echo 5 % 2.9; echo ':'; echo -5 % 2; echo ':'; echo 5.9 % 2;"
+	got := run(t, src)
+	if got != "float:fraction:string-float:string-fraction:1:-1:1" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestP3ModuloChecksZeroAfterIntegerCast(t *testing.T) {
+	err := runErr(t, "<?php echo 5 % 0.4;")
+	if err == nil || err.Error() != "division by zero" {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
