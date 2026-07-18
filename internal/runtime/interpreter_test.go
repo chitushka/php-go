@@ -188,6 +188,14 @@ func TestOldStyleConstructorMethodAndThis(t *testing.T) {
 	}
 }
 
+func TestNamespacedOldStyleConstructorNameIsOrdinaryMethod(t *testing.T) {
+	src := "<?php namespace N; class Box { public $value = 'default'; function Box($value) { $this->value = $value; return 'called'; } } $box = new Box(); echo $box->value; echo ':'; echo $box->Box('manual'); echo ':'; echo $box->value; class StaticBox { static function StaticBox() { return 'static'; } } echo ':'; echo StaticBox::StaticBox();"
+	got := run(t, src)
+	if got != "default:called:manual:static" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestInheritedOldStyleConstructor(t *testing.T) {
 	src := "<?php class Base { function Base($value) { $this->value = $value; } } class Child extends Base { function get() { return $this->value; } } $child = new Child(7); echo $child->get();"
 	got := run(t, src)

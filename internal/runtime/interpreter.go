@@ -3200,9 +3200,10 @@ func (i *Interpreter) constructorForClass(class *ast.ClassDeclStmt) (*ast.Functi
 	if method, ok := declaredMethod(class, "__construct"); ok {
 		return method, true
 	}
-	baseName := namespaceBaseName(class.Name)
-	if method, ok := declaredMethod(class, baseName); ok {
-		return method, true
+	for _, method := range class.Methods {
+		if isOldStyleConstructor(class.Name, method.Name) {
+			return method, true
+		}
 	}
 	if class.Parent == "" {
 		return nil, false
@@ -3232,7 +3233,10 @@ func classDeclaresMethod(class *ast.ClassDeclStmt, name string) bool {
 }
 
 func isOldStyleConstructor(className, methodName string) bool {
-	return strings.EqualFold(methodName, namespaceBaseName(className))
+	if strings.Contains(className, "\\") {
+		return false
+	}
+	return strings.EqualFold(methodName, className)
 }
 
 func (i *Interpreter) callMethod(n *ast.MethodCallExpr) (Value, error) {
