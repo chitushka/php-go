@@ -1193,9 +1193,23 @@ func isCallableWarning(err error) bool {
 	return strings.HasPrefix(msg, "object of class ") && strings.HasSuffix(msg, " is not callable")
 }
 
+func isSerializedFormatWarning(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return msg == "unexpected end of serialized value" ||
+		msg == "serialized string length out of range" ||
+		msg == "serialized class name length out of range" ||
+		strings.HasPrefix(msg, "unsupported serialized type ") ||
+		strings.HasPrefix(msg, "delimiter ") ||
+		strings.HasPrefix(msg, "expected ") ||
+		strings.HasPrefix(msg, "strconv.")
+}
+
 func (i *Interpreter) callDefine(args []ast.Expr) (Value, bool, error) {
 	if len(args) < 2 || len(args) > 3 {
-		return NullValue(), true, fmt.Errorf("define expects 2 or 3 arguments, got %d", len(args))
+		return i.builtinWarningf(NullValue(), true, "define expects 2 or 3 arguments, got %d", len(args))
 	}
 	nameValue, err := i.eval(args[0])
 	if err != nil {
@@ -2186,7 +2200,7 @@ func (i *Interpreter) classDeclaresProperty(class *ast.ClassDeclStmt, property s
 
 func (i *Interpreter) callDefined(args []ast.Expr) (Value, bool, error) {
 	if len(args) != 1 {
-		return NullValue(), true, fmt.Errorf("defined expects 1 argument, got %d", len(args))
+		return i.builtinWarningf(NullValue(), true, "defined expects 1 argument, got %d", len(args))
 	}
 	name, err := i.eval(args[0])
 	if err != nil {
@@ -2198,7 +2212,7 @@ func (i *Interpreter) callDefined(args []ast.Expr) (Value, bool, error) {
 
 func (i *Interpreter) callConstant(args []ast.Expr) (Value, bool, error) {
 	if len(args) != 1 {
-		return NullValue(), true, fmt.Errorf("constant expects 1 argument, got %d", len(args))
+		return i.builtinWarningf(NullValue(), true, "constant expects 1 argument, got %d", len(args))
 	}
 	name, err := i.eval(args[0])
 	if err != nil {
@@ -2206,14 +2220,14 @@ func (i *Interpreter) callConstant(args []ast.Expr) (Value, bool, error) {
 	}
 	value, ok := i.lookupNamedConstant(name.String())
 	if !ok {
-		return NullValue(), true, fmt.Errorf("undefined constant %s", name.String())
+		return i.builtinWarningf(NullValue(), true, "undefined constant %s", name.String())
 	}
 	return value, true, nil
 }
 
 func (i *Interpreter) callSerialize(args []ast.Expr) (Value, bool, error) {
 	if len(args) != 1 {
-		return NullValue(), true, fmt.Errorf("serialize expects 1 arguments, got %d", len(args))
+		return i.builtinWarningf(NullValue(), true, "serialize expects 1 arguments, got %d", len(args))
 	}
 	value, err := i.eval(args[0])
 	if err != nil {
@@ -2228,7 +2242,7 @@ func (i *Interpreter) callSerialize(args []ast.Expr) (Value, bool, error) {
 
 func (i *Interpreter) callUnserialize(args []ast.Expr) (Value, bool, error) {
 	if len(args) != 1 {
-		return NullValue(), true, fmt.Errorf("unserialize expects 1 arguments, got %d", len(args))
+		return i.builtinWarningf(NullValue(), true, "unserialize expects 1 arguments, got %d", len(args))
 	}
 	raw, err := i.eval(args[0])
 	if err != nil {
@@ -2237,7 +2251,10 @@ func (i *Interpreter) callUnserialize(args []ast.Expr) (Value, bool, error) {
 	parser := runtimeSerializedParser{input: raw.String(), interp: i}
 	value, err := parser.parse()
 	if err != nil {
-		return NullValue(), true, err
+		if !isSerializedFormatWarning(err) {
+			return NullValue(), true, err
+		}
+		return i.handleBuiltinWarning(err, BoolValue(false), true)
 	}
 	return value, true, nil
 }

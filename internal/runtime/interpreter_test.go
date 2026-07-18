@@ -2354,6 +2354,65 @@ func TestRegistryBuiltinWarningUsesErrorPolicy(t *testing.T) {
 	}
 }
 
+func TestConstantSerializationBuiltinWarningUsesErrorPolicy(t *testing.T) {
+	p := parser.New(lexer.New("<?php $a = define(); $b = defined(); $c = constant(); $d = constant('NO_SUCH_CONST'); $e = serialize(); $f = unserialize('broken'); echo ($a === null ? 'null' : 'bad'); echo ':'; echo ($b === null ? 'null' : 'bad'); echo ':'; echo ($c === null ? 'null' : 'bad'); echo ':'; echo ($d === null ? 'null' : 'bad'); echo ':'; echo ($e === null ? 'null' : 'bad'); echo ':'; echo ($f === false ? 'false' : 'bad'); echo ':after';"))
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i := runtime.NewInterpreter()
+	if err := i.Run(program); err != nil {
+		t.Fatalf("runtime error: %v", err)
+	}
+	if got := i.Out.String(); got != "null:null:null:null:null:false:after" {
+		t.Fatalf("got %q", got)
+	}
+	diagnostics := i.Diagnostics()
+	if len(diagnostics) != 6 ||
+		diagnostics[0].Severity != runtime.Warning ||
+		diagnostics[0].Message != "define expects 2 or 3 arguments, got 0" ||
+		diagnostics[1].Message != "defined expects 1 argument, got 0" ||
+		diagnostics[2].Message != "constant expects 1 argument, got 0" ||
+		diagnostics[3].Message != "undefined constant NO_SUCH_CONST" ||
+		diagnostics[4].Message != "serialize expects 1 arguments, got 0" ||
+		diagnostics[5].Message != "delimiter ';' not found" {
+		t.Fatalf("unexpected diagnostics: %#v", diagnostics)
+	}
+
+	p = parser.New(lexer.New("<?php constant('NO_SUCH_CONST'); echo 'bad';"))
+	program = p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i = runtime.NewInterpreter()
+	i.SetErrorPolicy(runtime.StrictErrorPolicy())
+	err := i.Run(program)
+	runtimeErr, ok := err.(*runtime.RuntimeError)
+	if !ok || runtimeErr.Severity != runtime.Warning || runtimeErr.Message != "undefined constant NO_SUCH_CONST" {
+		t.Fatalf("expected strict constant warning runtime error, got %#v", err)
+	}
+	if got := i.Out.String(); got != "" {
+		t.Fatalf("expected strict constant warning to halt before output, got %q", got)
+	}
+
+	p = parser.New(lexer.New("<?php $value = unserialize('broken'); echo ($value === false ? 'false' : 'bad'); echo ':after';"))
+	program = p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i = runtime.NewInterpreter()
+	i.SetErrorPolicy(runtime.StrictErrorPolicy().Ignore(runtime.Warning))
+	if err := i.Run(program); err != nil {
+		t.Fatalf("runtime error: %v", err)
+	}
+	if got := i.Out.String(); got != "false:after" {
+		t.Fatalf("got %q", got)
+	}
+	if diagnostics := i.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("expected ignored constant/serialization warning to be omitted, got %#v", diagnostics)
+	}
+}
+
 func TestSAPIBuiltinWarningUsesErrorPolicy(t *testing.T) {
 	p := parser.New(lexer.New("<?php $a = header(); $b = call_user_func('headers_list', 'x'); echo ($a === null ? 'null' : 'bad'); echo ':'; echo ($b === null ? 'null' : 'bad'); echo ':after';"))
 	program := p.ParseProgram()
