@@ -3830,17 +3830,103 @@ func decrementValue(value Value) Value {
 }
 
 func parseNumericStringValue(text string) (Value, bool) {
-	trimmed := strings.TrimSpace(text)
-	if trimmed == "" {
+	start := 0
+	for start < len(text) && isPHPWhitespace(text[start]) {
+		start++
+	}
+	if start == len(text) {
 		return NullValue(), false
 	}
-	if value, err := strconv.ParseInt(trimmed, 10, 64); err == nil {
-		return IntValue(value), true
+
+	body := text[start:]
+	if len(body) > 2 && body[0] == '0' && (body[1] == 'x' || body[1] == 'X') {
+		if len(body) == 2 {
+			return NullValue(), false
+		}
+		for idx := 2; idx < len(body); idx++ {
+			if !isHexDigit(body[idx]) {
+				return NullValue(), false
+			}
+		}
+		if value, err := strconv.ParseInt(body[2:], 16, 64); err == nil {
+			return IntValue(value), true
+		}
+		if value, err := strconv.ParseUint(body[2:], 16, 64); err == nil {
+			return FloatValue(float64(value)), true
+		}
+		return NullValue(), false
 	}
-	if value, err := strconv.ParseFloat(trimmed, 64); err == nil {
+
+	end, isFloat := numericStringEnd(body)
+	if end != len(body) {
+		return NullValue(), false
+	}
+	if !isFloat {
+		if value, err := strconv.ParseInt(body, 10, 64); err == nil {
+			return IntValue(value), true
+		}
+	}
+	if value, err := strconv.ParseFloat(body, 64); err == nil {
+		if isFloat {
+			return FloatValue(value), true
+		}
 		return FloatValue(value), true
 	}
 	return NullValue(), false
+}
+
+func isPHPWhitespace(ch byte) bool {
+	return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || ch == '\v' || ch == '\f'
+}
+
+func isHexDigit(ch byte) bool {
+	return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')
+}
+
+func numericStringEnd(text string) (int, bool) {
+	if text == "" {
+		return 0, false
+	}
+	end := 0
+	if text[end] == '+' || text[end] == '-' {
+		end++
+		if end == len(text) {
+			return end, false
+		}
+	}
+	digits := 0
+	for end < len(text) && text[end] >= '0' && text[end] <= '9' {
+		end++
+		digits++
+	}
+	isFloat := false
+	if end < len(text) && text[end] == '.' {
+		isFloat = true
+		end++
+		for end < len(text) && text[end] >= '0' && text[end] <= '9' {
+			end++
+			digits++
+		}
+	}
+	if digits == 0 {
+		return end, false
+	}
+	if end < len(text) && (text[end] == 'e' || text[end] == 'E') {
+		expEnd := end + 1
+		if expEnd < len(text) && (text[expEnd] == '+' || text[expEnd] == '-') {
+			expEnd++
+		}
+		expDigits := 0
+		for expEnd < len(text) && text[expEnd] >= '0' && text[expEnd] <= '9' {
+			expEnd++
+			expDigits++
+		}
+		if expDigits > 0 {
+			end = expEnd
+			isFloat = true
+		}
+	}
+	return end, isFloat
 }
 
 func incrementString(text string) string {

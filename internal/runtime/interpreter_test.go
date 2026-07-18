@@ -1913,6 +1913,14 @@ func TestP0StringBitwiseOperators(t *testing.T) {
 	}
 }
 
+func TestP0StringIncDecEdges(t *testing.T) {
+	src := "<?php $hex = '0x9'; ++$hex; echo ($hex === 10 ? 'hex-inc' : 'bad'); echo ':'; $hex = '0x9'; --$hex; echo ($hex === 8 ? 'hex-dec' : 'bad'); echo ':'; $trail = '9 '; ++$trail; echo ($trail === '9 ' ? 'trail-inc' : 'bad'); echo ':'; --$trail; echo ($trail === '9 ' ? 'trail-dec' : 'bad'); echo ':'; $lead = ' 9'; ++$lead; echo ($lead === 10 ? 'lead' : 'bad'); echo ':'; $carry = 'Z9'; ++$carry; echo $carry; echo ':'; $mixed = '9z'; ++$mixed; echo $mixed; echo ':'; $punct = 'a-'; ++$punct; echo ($punct === 'a-' ? 'punct' : 'bad');"
+	got := run(t, src)
+	if got != "hex-inc:hex-dec:trail-inc:trail-dec:lead:AA0:10a:punct" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestP3NumericStringArithmeticAndLooseComparison(t *testing.T) {
 	src := "<?php echo '12px' + 1; echo ':'; echo ' 1.5e2rest' + 2; echo ':'; echo 'abc' + 2; echo ':'; echo ('10' == 10 ? 'a' : 'no'); echo ':'; echo ('10abc' == 10 ? 'b' : 'no'); echo ':'; echo ('010' == '10' ? 'c' : 'no'); echo ':'; echo ('10abc' == '10' ? 'bad' : 'd'); echo ':'; echo (0 == 'abc' ? 'e' : 'no'); echo ':'; echo (false == '0' ? 'f' : 'no'); echo ':'; echo (null == '' ? 'g' : 'no'); echo ':'; echo (null == '0' ? 'bad' : 'h'); echo ':'; echo ('10' < '2' ? 'bad' : 'i'); echo ':'; echo ('abc' < 'b' ? 'j' : 'bad');"
 	got := run(t, src)
