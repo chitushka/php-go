@@ -124,9 +124,10 @@ type FunctionDeclStmt struct {
 func (*FunctionDeclStmt) stmtNode() {}
 
 type Param struct {
-	Name    string
-	Default Expr
-	ByRef   bool
+	Name     string
+	TypeHint string
+	Default  Expr
+	ByRef    bool
 }
 
 type ClosureUse struct {

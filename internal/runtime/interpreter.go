@@ -2204,7 +2204,8 @@ type serializedObjectProperty struct {
 
 func (i *Interpreter) serializableObjectProperties(obj *Object) ([]serializedObjectProperty, error) {
 	if i.hasPublicMethod(obj, "__sleep") {
-		names, err := i.callFunctionValues(obj.Methods[methodNameKey("__sleep")], nil, obj, obj.ClassName)
+		method := obj.Methods[methodNameKey("__sleep")]
+		names, err := i.callFunctionValues(method, nil, obj, obj.ClassName)
 		if err != nil {
 			return nil, err
 		}
@@ -2214,7 +2215,7 @@ func (i *Interpreter) serializableObjectProperties(obj *Object) ([]serializedObj
 		props := make([]serializedObjectProperty, 0, len(names.A.Entries))
 		for _, entry := range names.A.Entries {
 			name := entry.RuntimeValue().String()
-			_, value, info, ok, _ := i.objectProperty(obj, name)
+			_, value, info, ok, _ := i.objectPropertyInScope(obj, name, method.Owner)
 			if !ok {
 				value = NullValue()
 			}
@@ -2382,6 +2383,12 @@ func (p *runtimeSerializedParser) parseObject() (Value, error) {
 	if err := p.expectByte('{'); err != nil {
 		return NullValue(), err
 	}
+	if err := p.interp.autoloadClass(className); err != nil {
+		return NullValue(), err
+	}
+	if class, ok := p.interp.classByName(className); ok {
+		className = class.Name
+	}
 	props := map[string]Value{}
 	meta := map[string]PropertyMeta{}
 	for idx := 0; idx < count; idx++ {
@@ -2402,16 +2409,15 @@ func (p *runtimeSerializedParser) parseObject() (Value, error) {
 	}
 	methods := map[string]*ast.FunctionDeclStmt{}
 	if class, ok := p.interp.classByName(className); ok {
-		className = class.Name
 		methods = p.interp.methodsForClass(class)
 	}
 	obj := NewObject(className, methods, props, meta)
-	p.interp.trackObject(obj)
 	if p.interp.hasPublicMethod(obj, "__wakeup") {
 		if _, err := p.interp.callFunctionValues(obj.Methods[methodNameKey("__wakeup")], nil, obj, obj.ClassName); err != nil {
 			return NullValue(), err
 		}
 	}
+	p.interp.trackObject(obj)
 	return ObjectValue(obj), nil
 }
 
@@ -3060,6 +3066,9 @@ func (i *Interpreter) callFunctionWithBinderResult(fn *ast.FunctionDeclStmt, pro
 		if err != nil {
 			return functionCallResult{}, err
 		}
+		if err := i.checkParamTypeHint(fn, param, slot.value, idx); err != nil {
+			return functionCallResult{}, err
+		}
 		callFrame.vars[param.Name] = slot
 	}
 	i.frames = append(i.frames, callFrame)
@@ -3083,6 +3092,61 @@ func functionKey(fn *ast.FunctionDeclStmt) string {
 		return fn.Owner + "::" + fn.Name
 	}
 	return fn.Name
+}
+
+func (i *Interpreter) checkParamTypeHint(fn *ast.FunctionDeclStmt, param ast.Param, value Value, idx int) error {
+	if param.TypeHint == "" {
+		return nil
+	}
+	if value.Kind == Null && paramDefaultAllowsNull(param) {
+		return nil
+	}
+	if strings.EqualFold(param.TypeHint, "array") {
+		if value.Kind == ArrayKind {
+			return nil
+		}
+		return fmt.Errorf("argument %d for %s must be of type array", idx+1, functionKey(fn))
+	}
+	typeName, err := i.resolveParamTypeHint(fn, param.TypeHint)
+	if err != nil {
+		return err
+	}
+	if value.Kind == ObjectKind && value.O != nil {
+		matches, err := i.classLikeMatches(value.O.ClassName, typeName, true)
+		if err != nil {
+			return err
+		}
+		if matches {
+			return nil
+		}
+	}
+	return fmt.Errorf("argument %d for %s must be of type %s", idx+1, functionKey(fn), typeName)
+}
+
+func paramDefaultAllowsNull(param ast.Param) bool {
+	_, ok := param.Default.(*ast.NullLit)
+	return ok
+}
+
+func (i *Interpreter) resolveParamTypeHint(fn *ast.FunctionDeclStmt, hint string) (string, error) {
+	switch hint {
+	case "self":
+		if fn.Owner == "" {
+			return "", fmt.Errorf("self type hint used outside class context")
+		}
+		return fn.Owner, nil
+	case "parent":
+		if fn.Owner == "" {
+			return "", fmt.Errorf("parent type hint used outside class context")
+		}
+		class, ok := i.classByName(fn.Owner)
+		if !ok || class.Parent == "" {
+			return "", fmt.Errorf("class %s has no parent for parent type hint", fn.Owner)
+		}
+		return class.Parent, nil
+	default:
+		return hint, nil
+	}
 }
 
 func (i *Interpreter) newObject(n *ast.NewExpr) (Value, error) {
@@ -4587,17 +4651,21 @@ func (i *Interpreter) shouldUseUnset(obj *Object) bool {
 }
 
 func (i *Interpreter) objectProperty(obj *Object, property string) (string, Value, PropertyMeta, bool, bool) {
+	return i.objectPropertyInScope(obj, property, i.currentClass())
+}
+
+func (i *Interpreter) objectPropertyInScope(obj *Object, property string, scope string) (string, Value, PropertyMeta, bool, bool) {
 	if obj == nil {
 		return "", NullValue(), PropertyMeta{}, false, false
 	}
-	if current := i.currentClass(); current != "" {
-		key := propertyStorageKey(current, "private", property)
+	if scope != "" {
+		key := propertyStorageKey(scope, "private", property)
 		if value, ok := obj.Props[key]; ok {
 			info := obj.PropMeta[key]
 			if info.Name == "" {
 				info.Name = property
 			}
-			return key, value, info, true, !i.propertyAccessible(info)
+			return key, value, info, true, !i.propertyAccessibleInScope(info, scope)
 		}
 	}
 	if value, ok := obj.Props[property]; ok {
@@ -4605,7 +4673,7 @@ func (i *Interpreter) objectProperty(obj *Object, property string) (string, Valu
 		if info.Name == "" {
 			info.Name = property
 		}
-		if !i.propertyAccessible(info) {
+		if !i.propertyAccessibleInScope(info, scope) {
 			return property, value, info, false, true
 		}
 		return property, value, info, true, false
@@ -4622,7 +4690,7 @@ func (i *Interpreter) objectProperty(obj *Object, property string) (string, Valu
 		if info.Name == "" {
 			info.Name = property
 		}
-		if !i.propertyAccessible(info) {
+		if !i.propertyAccessibleInScope(info, scope) {
 			return key, value, info, false, true
 		}
 		return key, value, info, true, false
@@ -5166,7 +5234,7 @@ func (i *Interpreter) defineClass(class *ast.ClassDeclStmt) error {
 		parentMethods := i.methodsForClass(parent)
 		for _, method := range class.Methods {
 			if parentMethod, ok := parentMethods[methodNameKey(method.Name)]; ok {
-				if err := validateMethodOverrideCompatibility(class.Name, method, parentMethod); err != nil {
+				if err := i.validateMethodOverrideCompatibility(class.Name, method, parentMethod); err != nil {
 					return err
 				}
 			}
@@ -5372,7 +5440,7 @@ func validatePropertyOverrideCompatibility(className string, prop, parentProp *a
 	return nil
 }
 
-func validateMethodOverrideCompatibility(className string, method, parentMethod *ast.FunctionDeclStmt) error {
+func (i *Interpreter) validateMethodOverrideCompatibility(className string, method, parentMethod *ast.FunctionDeclStmt) error {
 	if parentMethod.Visibility == "private" {
 		return nil
 	}
@@ -5388,7 +5456,7 @@ func validateMethodOverrideCompatibility(className string, method, parentMethod 
 	if isModernConstructor(method) && isModernConstructor(parentMethod) {
 		return nil
 	}
-	if err := validateMethodSignatureCompatibility(className, method, parentMethod); err != nil {
+	if err := i.validateMethodSignatureCompatibility(className, method, parentMethod); err != nil {
 		return err
 	}
 	return nil
@@ -5398,7 +5466,7 @@ func isModernConstructor(method *ast.FunctionDeclStmt) bool {
 	return method != nil && strings.EqualFold(method.Name, "__construct")
 }
 
-func validateMethodSignatureCompatibility(className string, method, prototype *ast.FunctionDeclStmt) error {
+func (i *Interpreter) validateMethodSignatureCompatibility(className string, method, prototype *ast.FunctionDeclStmt) error {
 	methodLabel := className + "::" + method.Name
 	prototypeLabel := prototype.Owner + "::" + prototype.Name
 	if len(method.Params) < len(prototype.Params) {
@@ -5413,6 +5481,11 @@ func validateMethodSignatureCompatibility(className string, method, prototype *a
 		if method.Params[idx].ByRef != prototypeParam.ByRef {
 			return fmt.Errorf("method %s parameter %d reference modifier must match %s", methodLabel, idx+1, prototypeLabel)
 		}
+		methodHint := i.normalizedParamTypeHint(method, method.Params[idx])
+		prototypeHint := i.normalizedParamTypeHint(prototype, prototypeParam)
+		if !strings.EqualFold(methodHint, prototypeHint) {
+			return fmt.Errorf("method %s parameter %d type hint must match %s", methodLabel, idx+1, prototypeLabel)
+		}
 	}
 	if method.ReturnsByRef != prototype.ReturnsByRef {
 		return fmt.Errorf("method %s return-by-reference modifier must match %s", methodLabel, prototypeLabel)
@@ -5420,11 +5493,28 @@ func validateMethodSignatureCompatibility(className string, method, prototype *a
 	return nil
 }
 
-func validateInterfaceMethodCompatibility(className string, method, prototype *ast.FunctionDeclStmt) error {
+func (i *Interpreter) normalizedParamTypeHint(fn *ast.FunctionDeclStmt, param ast.Param) string {
+	hint := param.TypeHint
+	switch hint {
+	case "", "array":
+		return hint
+	case "self":
+		return fn.Owner
+	case "parent":
+		if class, ok := i.classByName(fn.Owner); ok {
+			return class.Parent
+		}
+		return ""
+	default:
+		return hint
+	}
+}
+
+func (i *Interpreter) validateInterfaceMethodCompatibility(className string, method, prototype *ast.FunctionDeclStmt) error {
 	if method.Static != prototype.Static {
 		return fmt.Errorf("method %s::%s static modifier must match %s::%s", className, method.Name, prototype.Owner, prototype.Name)
 	}
-	return validateMethodSignatureCompatibility(className, method, prototype)
+	return i.validateMethodSignatureCompatibility(className, method, prototype)
 }
 
 func requiredParamCount(fn *ast.FunctionDeclStmt) int {
@@ -5502,7 +5592,7 @@ func (i *Interpreter) defineInterface(iface *ast.InterfaceDeclStmt) error {
 		}
 		for name, method := range methods {
 			if existing, ok := parentMethods[name]; ok {
-				merged, err := compatibleInterfacePrototype(iface.Name, existing, method)
+				merged, err := i.compatibleInterfacePrototype(iface.Name, existing, method)
 				if err != nil {
 					return err
 				}
@@ -5532,7 +5622,7 @@ func (i *Interpreter) defineInterface(iface *ast.InterfaceDeclStmt) error {
 			return err
 		}
 		if parentMethod, ok := parentMethods[methodNameKey(method.Name)]; ok {
-			if err := validateInterfaceMethodCompatibility(iface.Name, method, parentMethod); err != nil {
+			if err := i.validateInterfaceMethodCompatibility(iface.Name, method, parentMethod); err != nil {
 				return err
 			}
 		}
@@ -5567,15 +5657,15 @@ func validateClassConstants(owner string, constants []*ast.ClassConstant, label 
 	return nil
 }
 
-func compatibleInterfacePrototype(interfaceName string, existing, candidate *ast.FunctionDeclStmt) (*ast.FunctionDeclStmt, error) {
-	candidateErr := validateInterfaceMethodCompatibility(interfaceName, candidate, existing)
+func (i *Interpreter) compatibleInterfacePrototype(interfaceName string, existing, candidate *ast.FunctionDeclStmt) (*ast.FunctionDeclStmt, error) {
+	candidateErr := i.validateInterfaceMethodCompatibility(interfaceName, candidate, existing)
 	if candidateErr == nil {
-		if validateInterfaceMethodCompatibility(interfaceName, existing, candidate) == nil {
+		if i.validateInterfaceMethodCompatibility(interfaceName, existing, candidate) == nil {
 			return existing, nil
 		}
 		return candidate, nil
 	}
-	if validateInterfaceMethodCompatibility(interfaceName, existing, candidate) == nil {
+	if i.validateInterfaceMethodCompatibility(interfaceName, existing, candidate) == nil {
 		return existing, nil
 	}
 	return nil, candidateErr
@@ -5602,7 +5692,7 @@ func (i *Interpreter) checkInterfaceImplementations(class *ast.ClassDeclStmt, re
 			if method.Visibility != "" && method.Visibility != "public" {
 				return fmt.Errorf("class %s interface method %s must be public", class.Name, name)
 			}
-			if err := validateInterfaceMethodCompatibility(class.Name, method, ifaceMethod); err != nil {
+			if err := i.validateInterfaceMethodCompatibility(class.Name, method, ifaceMethod); err != nil {
 				return err
 			}
 		}
@@ -5785,13 +5875,17 @@ func (i *Interpreter) methodAccessible(method *ast.FunctionDeclStmt) bool {
 }
 
 func (i *Interpreter) propertyAccessible(info PropertyMeta) bool {
+	return i.propertyAccessibleInScope(info, i.currentClass())
+}
+
+func (i *Interpreter) propertyAccessibleInScope(info PropertyMeta, scope string) bool {
 	switch info.Visibility {
 	case "", "public":
 		return true
 	case "private":
-		return strings.EqualFold(i.currentClass(), info.Owner)
+		return strings.EqualFold(scope, info.Owner)
 	case "protected":
-		return i.classesRelated(i.currentClass(), info.Owner)
+		return i.classesRelated(scope, info.Owner)
 	}
 	return false
 }
@@ -5802,6 +5896,17 @@ func (i *Interpreter) findStaticProperty(className, property string) (Value, Pro
 }
 
 func (i *Interpreter) findStaticPropertySlot(className, property string) (Value, PropertyMeta, string, string, bool) {
+	if current := i.currentClass(); current != "" && i.isSameOrSubclass(className, current) {
+		privateKey := propertyStorageKey(current, "private", property)
+		if props, ok := i.statics[current]; ok {
+			if value, exists := props[privateKey]; exists {
+				if meta, metaOK := i.staticMeta[current][privateKey]; metaOK {
+					return value, meta, current, privateKey, true
+				}
+				return value, PropertyMeta{Owner: current, Name: property, Visibility: "private", Static: true}, current, privateKey, true
+			}
+		}
+	}
 	if props, ok := i.statics[className]; ok {
 		privateKey := propertyStorageKey(className, "private", property)
 		for _, key := range []string{property, privateKey} {

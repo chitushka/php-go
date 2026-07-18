@@ -738,6 +738,9 @@ func (p *Parser) parseFunctionParams() []ast.Param {
 	}
 	for {
 		param := ast.Param{}
+		if hint, ok := p.parseParamTypeHint(); ok {
+			param.TypeHint = hint
+		}
 		if p.peek.Type == lexer.Ampersand {
 			p.next()
 			param.ByRef = true
@@ -759,6 +762,25 @@ func (p *Parser) parseFunctionParams() []ast.Param {
 	}
 	p.expectPeek(lexer.RParen)
 	return params
+}
+
+func (p *Parser) parseParamTypeHint() (string, bool) {
+	switch p.peek.Type {
+	case lexer.Array:
+		p.next()
+		return "array", true
+	case lexer.Ident:
+		p.next()
+		return p.resolveClassName(p.cur.Literal), true
+	case lexer.Self:
+		p.next()
+		return "self", true
+	case lexer.Parent:
+		p.next()
+		return "parent", true
+	default:
+		return "", false
+	}
 }
 
 func (p *Parser) parseClosure() ast.Expr {

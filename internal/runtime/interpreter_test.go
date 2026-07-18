@@ -1231,6 +1231,14 @@ func TestPrivateStaticParentPropertyUsesDeclaringClassScope(t *testing.T) {
 	}
 }
 
+func TestPrivateStaticParentPropertyWithLateStaticBindingUsesDeclaringClassScope(t *testing.T) {
+	src := "<?php class BaseLateStatic { private static $value = 'base'; public static function viaStatic() { return static::$value; } public static function setViaStatic($value) { static::$value = $value; } } class ChildLateStatic extends BaseLateStatic { private static $value = 'child'; public static function childValue() { return self::$value; } } echo ChildLateStatic::viaStatic(); echo ':'; echo ChildLateStatic::childValue(); ChildLateStatic::setViaStatic('new-base'); echo ':'; echo BaseLateStatic::viaStatic(); echo ':'; echo ChildLateStatic::viaStatic(); echo ':'; echo ChildLateStatic::childValue();"
+	got := run(t, src)
+	if got != "base:child:new-base:new-base:child" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestLateStaticAccess(t *testing.T) {
 	src := "<?php class Base { public static $name = 'base'; public static function name() { return static::$name; } } class Child extends Base { public static $name = 'child'; } echo Child::name();"
 	got := run(t, src)
@@ -1385,6 +1393,39 @@ func TestInheritedMethodParameterReferenceModifierMustMatch(t *testing.T) {
 func TestInheritedMethodReturnByReferenceModifierMustMatch(t *testing.T) {
 	err := runErr(t, "<?php class Base { public function &value() { return $this->value; } } class Child extends Base { public function value() { return 1; } }")
 	if err == nil || err.Error() != "method Child::value return-by-reference modifier must match Base::value" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestParameterTypeHintsAreEnforced(t *testing.T) {
+	src := "<?php interface ContractHint {} class BaseHint implements ContractHint {} class ChildHint extends BaseHint {} function sum_hint(array $items) { return $items[0] + $items[1]; } class CheckerHint { public function object(BaseHint $obj, ContractHint $contract, self $self = null) { return get_class($obj) . ':' . get_class($contract) . ':' . (is_object($self) ? get_class($self) : 'null'); } } class ParentHintBase {} class ParentHintChild extends ParentHintBase { public function accept(parent $value) { return get_class($value); } } $child = new ChildHint(); $checker = new CheckerHint(); echo sum_hint(array(2, 3)); echo '|'; echo $checker->object($child, $child, $checker); echo '|'; echo $checker->object($child, $child, null); echo '|'; echo (new ParentHintChild())->accept(new ParentHintBase());"
+	got := run(t, src)
+	if got != "5|ChildHint:ChildHint:CheckerHint|ChildHint:ChildHint:null|ParentHintBase" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestParameterTypeHintRejectsWrongValue(t *testing.T) {
+	err := runErr(t, "<?php function needs_array(array $items) {} needs_array('no');")
+	if err == nil || err.Error() != "argument 1 for needs_array must be of type array" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	err = runErr(t, "<?php class ExpectedHint {} class OtherHint {} function needs_object(ExpectedHint $value) {} needs_object(new OtherHint());")
+	if err == nil || err.Error() != "argument 1 for needs_object must be of type ExpectedHint" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestInheritedMethodParameterTypeHintMustMatch(t *testing.T) {
+	err := runErr(t, "<?php class BaseHint {} class OtherHint {} class ParentHint { public function value(BaseHint $value) {} } class ChildHint extends ParentHint { public function value(OtherHint $value) {} }")
+	if err == nil || err.Error() != "method ChildHint::value parameter 1 type hint must match ParentHint::value" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestInterfaceParameterTypeHintMustMatch(t *testing.T) {
+	err := runErr(t, "<?php class BaseHint {} class OtherHint {} interface TypeHinted { public function value(BaseHint $value); } class UserHint implements TypeHinted { public function value(OtherHint $value) {} }")
+	if err == nil || err.Error() != "method UserHint::value parameter 1 type hint must match TypeHinted::value" {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -1788,10 +1829,39 @@ func TestMagicSleepSelectsSerializedProperties(t *testing.T) {
 	}
 }
 
+func TestMagicSleepSerializesScopedProperties(t *testing.T) {
+	src := "<?php class SleepBase { protected $shared = 'prot'; } class SleepChild extends SleepBase { private $childSecret = 'child'; public $name = 'Ada'; public function __sleep() { return array('name', 'shared', 'childSecret', 'missing'); } } echo serialize(new SleepChild());"
+	got := run(t, src)
+	want := "O:10:\"SleepChild\":4:{s:4:\"name\";s:3:\"Ada\";s:9:\"\x00*\x00shared\";s:4:\"prot\";s:23:\"\x00SleepChild\x00childSecret\";s:5:\"child\";s:7:\"missing\";N;}"
+	if got != want {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestMagicWakeupRunsAfterUnserialize(t *testing.T) {
 	src := `<?php class User { public $name; public $ready = 'no'; public function __wakeup() { $this->ready = 'yes'; } } $u = unserialize('O:4:"User":1:{s:4:"name";s:3:"Ada";}'); echo $u->name; echo ':'; echo $u->ready;`
 	got := run(t, src)
 	if got != "Ada:yes" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestUnserializeAutoloadsClassBeforeWakeup(t *testing.T) {
+	dir := t.TempDir()
+	src := "<?php class WakeAuto { public $ready = 'no'; public function __wakeup() { $this->ready = 'yes'; } }"
+	if err := os.WriteFile(filepath.Join(dir, "wake_auto.php"), []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got := runFile(t, dir, `<?php function __autoload($class) { include 'wake_auto.php'; } $obj = unserialize('O:8:"WakeAuto":0:{}'); echo get_class($obj); echo ':'; echo $obj->ready;`)
+	if got != "WakeAuto:yes" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestDestructorDoesNotRunWhenWakeupThrows(t *testing.T) {
+	src := `<?php class BadWake { public function __wakeup() { throw new Exception('boom'); } public function __destruct() { echo ':destruct'; } } try { unserialize('O:7:"BadWake":0:{}'); } catch (Exception $e) { echo 'caught'; } echo ':done';`
+	got := run(t, src)
+	if got != "caught:done" {
 		t.Fatalf("got %q", got)
 	}
 }
