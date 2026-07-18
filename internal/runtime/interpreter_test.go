@@ -870,6 +870,36 @@ func TestClassConstantExpressionsAreValidated(t *testing.T) {
 	}
 }
 
+func TestClassConstantModifiersAreRejected(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		err  string
+	}{
+		{
+			name: "class visibility",
+			src:  "<?php class BadClassConstModifier { public const VALUE = 1; }",
+			err:  "class constants cannot have modifiers",
+		},
+		{
+			name: "class static",
+			src:  "<?php class BadStaticClassConstModifier { static const VALUE = 1; }",
+			err:  "class constants cannot have modifiers",
+		},
+		{
+			name: "interface visibility",
+			src:  "<?php interface BadInterfaceConstModifier { public const VALUE = 1; }",
+			err:  "interface constants cannot have modifiers",
+		},
+	}
+	for _, tc := range cases {
+		errs := parseErrors(tc.src)
+		if len(errs) != 1 || errs[0] != tc.err {
+			t.Fatalf("%s: got parse errors %v", tc.name, errs)
+		}
+	}
+}
+
 func TestDuplicateInterfaceDeclarationsAreRejected(t *testing.T) {
 	cases := []struct {
 		src string

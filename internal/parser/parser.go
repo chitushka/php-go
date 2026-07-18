@@ -952,7 +952,7 @@ func (p *Parser) parseClassDecl(final bool, abstract bool) ast.Stmt {
 	class := &ast.ClassDeclStmt{Name: name, Parent: parent, Implements: implements, Final: final, Abstract: abstract}
 	p.next()
 	for p.cur.Type != lexer.RBrace && p.cur.Type != lexer.EOF {
-		visibility, static, finalMember, abstractMember := p.parseMemberModifiers()
+		visibility, static, finalMember, abstractMember, hasModifiers := p.parseMemberModifiers()
 		switch p.cur.Type {
 		case lexer.Function:
 			method, ok := p.parseFunctionDeclFull(visibility, static, finalMember, abstractMember, false, name, "Abstract").(*ast.FunctionDeclStmt)
@@ -962,6 +962,9 @@ func (p *Parser) parseClassDecl(final bool, abstract bool) ast.Stmt {
 		case lexer.Var:
 			class.Properties = append(class.Properties, p.parseClassProperty(visibility, static, finalMember, abstractMember))
 		case lexer.Const:
+			if hasModifiers {
+				p.errors = append(p.errors, "class constants cannot have modifiers")
+			}
 			class.Constants = append(class.Constants, p.parseClassConstants()...)
 		case lexer.Class, lexer.Interface:
 			p.errors = append(p.errors, "Class declarations may not be nested")
@@ -1028,9 +1031,12 @@ func (p *Parser) parseInterfaceDecl() ast.Stmt {
 	iface := &ast.InterfaceDeclStmt{Name: name, Parents: parents}
 	p.next()
 	for p.cur.Type != lexer.RBrace && p.cur.Type != lexer.EOF {
-		visibility, static, finalMember, _ := p.parseMemberModifiers()
+		visibility, static, finalMember, _, hasModifiers := p.parseMemberModifiers()
 		switch p.cur.Type {
 		case lexer.Const:
+			if hasModifiers {
+				p.errors = append(p.errors, "interface constants cannot have modifiers")
+			}
 			iface.Constants = append(iface.Constants, p.parseClassConstants()...)
 		case lexer.Function:
 			method, ok := p.parseFunctionDeclFull(visibility, static, finalMember, true, false, name, "Interface").(*ast.FunctionDeclStmt)
@@ -1269,38 +1275,44 @@ func (p *Parser) skipClassLikeDeclaration() {
 	}
 }
 
-func (p *Parser) parseMemberModifiers() (string, bool, bool, bool) {
+func (p *Parser) parseMemberModifiers() (string, bool, bool, bool, bool) {
 	visibility := "public"
 	static := false
 	final := false
 	abstract := false
 	seenAccess := false
+	hasModifiers := false
 	for {
 		switch p.cur.Type {
 		case lexer.Public:
+			hasModifiers = true
 			if seenAccess {
 				p.errors = append(p.errors, "Multiple access type modifiers are not allowed")
 			}
 			seenAccess = true
 			visibility = "public"
 		case lexer.Private:
+			hasModifiers = true
 			if seenAccess {
 				p.errors = append(p.errors, "Multiple access type modifiers are not allowed")
 			}
 			seenAccess = true
 			visibility = "private"
 		case lexer.Protected:
+			hasModifiers = true
 			if seenAccess {
 				p.errors = append(p.errors, "Multiple access type modifiers are not allowed")
 			}
 			seenAccess = true
 			visibility = "protected"
 		case lexer.Static:
+			hasModifiers = true
 			if static {
 				p.errors = append(p.errors, "Multiple static modifiers are not allowed")
 			}
 			static = true
 		case lexer.Final:
+			hasModifiers = true
 			if final {
 				p.errors = append(p.errors, "Multiple final modifiers are not allowed")
 			}
@@ -1309,6 +1321,7 @@ func (p *Parser) parseMemberModifiers() (string, bool, bool, bool) {
 			}
 			final = true
 		case lexer.Abstract:
+			hasModifiers = true
 			if abstract {
 				p.errors = append(p.errors, "Multiple abstract modifiers are not allowed")
 			}
@@ -1317,7 +1330,7 @@ func (p *Parser) parseMemberModifiers() (string, bool, bool, bool) {
 			}
 			abstract = true
 		default:
-			return visibility, static, final, abstract
+			return visibility, static, final, abstract, hasModifiers
 		}
 		p.next()
 	}
