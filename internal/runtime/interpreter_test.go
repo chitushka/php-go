@@ -2284,6 +2284,45 @@ func TestSAPIBuiltinWarningUsesErrorPolicy(t *testing.T) {
 	}
 }
 
+func TestCallableBuiltinWarningUsesErrorPolicy(t *testing.T) {
+	p := parser.New(lexer.New("<?php $a = call_user_func(); $b = call_user_func_array('strlen', 'not-array'); $c = call_user_func(array('not-enough')); echo ($a === null ? 'null' : 'bad'); echo ':'; echo ($b === null ? 'null' : 'bad'); echo ':'; echo ($c === null ? 'null' : 'bad'); echo ':after';"))
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i := runtime.NewInterpreter()
+	if err := i.Run(program); err != nil {
+		t.Fatalf("runtime error: %v", err)
+	}
+	if got := i.Out.String(); got != "null:null:null:after" {
+		t.Fatalf("got %q", got)
+	}
+	diagnostics := i.Diagnostics()
+	if len(diagnostics) != 3 ||
+		diagnostics[0].Severity != runtime.Warning ||
+		diagnostics[0].Message != "call_user_func expects at least 1 argument, got 0" ||
+		diagnostics[1].Message != "call_user_func_array expects argument 2 to be array" ||
+		diagnostics[2].Message != "invalid callable" {
+		t.Fatalf("unexpected diagnostics: %#v", diagnostics)
+	}
+
+	p = parser.New(lexer.New("<?php call_user_func(); echo 'bad';"))
+	program = p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i = runtime.NewInterpreter()
+	i.SetErrorPolicy(runtime.StrictErrorPolicy())
+	err := i.Run(program)
+	runtimeErr, ok := err.(*runtime.RuntimeError)
+	if !ok || runtimeErr.Severity != runtime.Warning || runtimeErr.Message != "call_user_func expects at least 1 argument, got 0" {
+		t.Fatalf("expected strict callable warning runtime error, got %#v", err)
+	}
+	if got := i.Out.String(); got != "" {
+		t.Fatalf("expected strict callable warning to halt before output, got %q", got)
+	}
+}
+
 func TestErrorPolicyCanIgnoreDivisionByZeroWarning(t *testing.T) {
 	p := parser.New(lexer.New("<?php $value = 5 / 0; echo ($value === false ? 'false' : 'bad'); echo ':after';"))
 	program := p.ParseProgram()

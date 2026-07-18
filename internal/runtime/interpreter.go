@@ -1171,6 +1171,17 @@ func (i *Interpreter) handleBuiltinWarning(err error, value Value, ok bool) (Val
 	return value, ok, nil
 }
 
+func isCallableWarning(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	if msg == "invalid callable" || msg == "object is not callable" {
+		return true
+	}
+	return strings.HasPrefix(msg, "object of class ") && strings.HasSuffix(msg, " is not callable")
+}
+
 func (i *Interpreter) callDefine(args []ast.Expr) (Value, bool, error) {
 	if len(args) < 2 || len(args) > 3 {
 		return NullValue(), true, fmt.Errorf("define expects 2 or 3 arguments, got %d", len(args))
@@ -1629,19 +1640,22 @@ func (i *Interpreter) callableName(value Value) string {
 
 func (i *Interpreter) callUserFunc(args []ast.Expr) (Value, bool, error) {
 	if len(args) < 1 {
-		return NullValue(), true, fmt.Errorf("call_user_func expects at least 1 argument, got %d", len(args))
+		return i.handleBuiltinWarning(fmt.Errorf("call_user_func expects at least 1 argument, got %d", len(args)), NullValue(), true)
 	}
 	callable, err := i.eval(args[0])
 	if err != nil {
 		return NullValue(), true, err
 	}
 	value, err := i.callCallableValue(callable, args[1:])
+	if isCallableWarning(err) {
+		return i.handleBuiltinWarning(err, value, true)
+	}
 	return value, true, err
 }
 
 func (i *Interpreter) callUserFuncArray(args []ast.Expr) (Value, bool, error) {
 	if len(args) != 2 {
-		return NullValue(), true, fmt.Errorf("call_user_func_array expects 2 arguments, got %d", len(args))
+		return i.handleBuiltinWarning(fmt.Errorf("call_user_func_array expects 2 arguments, got %d", len(args)), NullValue(), true)
 	}
 	callable, err := i.eval(args[0])
 	if err != nil {
@@ -1652,13 +1666,16 @@ func (i *Interpreter) callUserFuncArray(args []ast.Expr) (Value, bool, error) {
 		return NullValue(), true, err
 	}
 	if argArray.Kind != ArrayKind || argArray.A == nil {
-		return NullValue(), true, fmt.Errorf("call_user_func_array expects argument 2 to be array")
+		return i.handleBuiltinWarning(fmt.Errorf("call_user_func_array expects argument 2 to be array"), NullValue(), true)
 	}
 	values := make([]Value, 0, len(argArray.A.Entries))
 	for _, entry := range argArray.A.Entries {
 		values = append(values, entry.RuntimeValue())
 	}
 	value, err := i.callCallableValueValues(callable, values)
+	if isCallableWarning(err) {
+		return i.handleBuiltinWarning(err, value, true)
+	}
 	return value, true, err
 }
 
