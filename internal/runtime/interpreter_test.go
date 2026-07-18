@@ -1905,6 +1905,14 @@ func TestP0OperatorsWordBitwiseShiftTernary(t *testing.T) {
 	}
 }
 
+func TestP3NumericStringArithmeticAndLooseComparison(t *testing.T) {
+	src := "<?php echo '12px' + 1; echo ':'; echo ' 1.5e2rest' + 2; echo ':'; echo 'abc' + 2; echo ':'; echo ('10' == 10 ? 'a' : 'no'); echo ':'; echo ('10abc' == 10 ? 'b' : 'no'); echo ':'; echo ('010' == '10' ? 'c' : 'no'); echo ':'; echo ('10abc' == '10' ? 'bad' : 'd'); echo ':'; echo (0 == 'abc' ? 'e' : 'no'); echo ':'; echo (false == '0' ? 'f' : 'no'); echo ':'; echo (null == '' ? 'g' : 'no'); echo ':'; echo (null == '0' ? 'bad' : 'h'); echo ':'; echo ('10' < '2' ? 'bad' : 'i'); echo ':'; echo ('abc' < 'b' ? 'j' : 'bad');"
+	got := run(t, src)
+	if got != "13:152:2:a:b:c:d:e:f:g:h:i:j" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestWordLogicalOperatorsHaveLowerPrecedenceThanAssignment(t *testing.T) {
 	src := "<?php $b = true or false; echo $b ? '1' : '0'; echo ':'; $b = false or true; echo $b ? '1' : '0'; echo ':'; $b = true || false; echo $b ? '1' : '0'; echo ':'; $b = false || true; echo $b ? '1' : '0'; echo ':'; $b = true and false; echo $b ? '1' : '0'; echo ':'; $b = true && false; echo $b ? '1' : '0';"
 	got := run(t, src)

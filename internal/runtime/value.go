@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 
 	"php-src-go/internal/ast"
 )
@@ -109,8 +110,7 @@ func (v Value) number() (float64, bool) {
 	case Null:
 		return 0, true
 	case String:
-		n, err := strconv.ParseFloat(v.S, 64)
-		return n, err == nil
+		return parseNumericPrefix(v.S), true
 	}
 	return 0, false
 }
@@ -162,31 +162,176 @@ func Binary(op string, a, b Value) (Value, error) {
 			return IntValue(left >> right), nil
 		}
 	case "==":
-		return BoolValue(a.String() == b.String()), nil
+		return BoolValue(looseEqual(a, b)), nil
 	case "!=", "<>":
-		return BoolValue(a.String() != b.String()), nil
+		return BoolValue(!looseEqual(a, b)), nil
 	case "===":
 		return BoolValue(strictEqual(a, b)), nil
 	case "!==":
 		return BoolValue(!strictEqual(a, b)), nil
 	case "<", ">", "<=", ">=":
-		na, oka := a.number()
-		nb, okb := b.number()
-		if !oka || !okb {
+		cmp, ok := looseCompare(a, b)
+		if !ok {
 			return NullValue(), fmt.Errorf("non comparable operand")
 		}
 		switch op {
 		case "<":
-			return BoolValue(na < nb), nil
+			return BoolValue(cmp < 0), nil
 		case ">":
-			return BoolValue(na > nb), nil
+			return BoolValue(cmp > 0), nil
 		case "<=":
-			return BoolValue(na <= nb), nil
+			return BoolValue(cmp <= 0), nil
 		case ">=":
-			return BoolValue(na >= nb), nil
+			return BoolValue(cmp >= 0), nil
 		}
 	}
 	return NullValue(), fmt.Errorf("unsupported operator %s", op)
+}
+
+func looseEqual(a, b Value) bool {
+	if a.Kind == Bool || b.Kind == Bool {
+		return a.Truthy() == b.Truthy()
+	}
+	if a.Kind == Null || b.Kind == Null {
+		return nullLooseEqual(a, b)
+	}
+	if isNumberKind(a.Kind) && b.Kind == String {
+		return numericValue(a) == parseNumericPrefix(b.S)
+	}
+	if a.Kind == String && isNumberKind(b.Kind) {
+		return parseNumericPrefix(a.S) == numericValue(b)
+	}
+	if isNumberKind(a.Kind) && isNumberKind(b.Kind) {
+		return numericValue(a) == numericValue(b)
+	}
+	if a.Kind == String && b.Kind == String {
+		if an, aok := fullNumericString(a.S); aok {
+			if bn, bok := fullNumericString(b.S); bok {
+				return an == bn
+			}
+		}
+		return a.S == b.S
+	}
+	if a.Kind == ArrayKind || b.Kind == ArrayKind {
+		return a.Kind == ArrayKind && b.Kind == ArrayKind && a.A == b.A
+	}
+	if a.Kind == ObjectKind || b.Kind == ObjectKind {
+		return a.Kind == ObjectKind && b.Kind == ObjectKind && a.O == b.O
+	}
+	return a.String() == b.String()
+}
+
+func nullLooseEqual(a, b Value) bool {
+	if a.Kind == Null && b.Kind == Null {
+		return true
+	}
+	other := b
+	if b.Kind == Null {
+		other = a
+	}
+	switch other.Kind {
+	case Bool:
+		return !other.B
+	case Int, Float:
+		return numericValue(other) == 0
+	case String:
+		return other.S == ""
+	case ArrayKind:
+		return other.A == nil || len(other.A.Entries) == 0
+	default:
+		return false
+	}
+}
+
+func looseCompare(a, b Value) (int, bool) {
+	if a.Kind == Bool || b.Kind == Bool {
+		return compareFloat(boolNumber(a.Truthy()), boolNumber(b.Truthy())), true
+	}
+	if a.Kind == Null || b.Kind == Null {
+		return compareFloat(nullCompareNumber(a), nullCompareNumber(b)), true
+	}
+	if isNumberKind(a.Kind) && b.Kind == String {
+		return compareFloat(numericValue(a), parseNumericPrefix(b.S)), true
+	}
+	if a.Kind == String && isNumberKind(b.Kind) {
+		return compareFloat(parseNumericPrefix(a.S), numericValue(b)), true
+	}
+	if isNumberKind(a.Kind) && isNumberKind(b.Kind) {
+		return compareFloat(numericValue(a), numericValue(b)), true
+	}
+	if a.Kind == String && b.Kind == String {
+		if an, aok := fullNumericString(a.S); aok {
+			if bn, bok := fullNumericString(b.S); bok {
+				return compareFloat(an, bn), true
+			}
+		}
+		return strings.Compare(a.S, b.S), true
+	}
+	return strings.Compare(a.String(), b.String()), true
+}
+
+func isNumberKind(kind Kind) bool {
+	return kind == Int || kind == Float
+}
+
+func numericValue(value Value) float64 {
+	switch value.Kind {
+	case Int:
+		return float64(value.I)
+	case Float:
+		return value.F
+	default:
+		return 0
+	}
+}
+
+func fullNumericString(text string) (float64, bool) {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return 0, false
+	}
+	value, err := strconv.ParseFloat(trimmed, 64)
+	if err != nil {
+		return 0, false
+	}
+	return value, true
+}
+
+func boolNumber(value bool) float64 {
+	if value {
+		return 1
+	}
+	return 0
+}
+
+func nullCompareNumber(value Value) float64 {
+	if value.Kind == Null {
+		return 0
+	}
+	if value.Kind == String {
+		return parseNumericPrefix(value.S)
+	}
+	if value.Kind == Bool {
+		return boolNumber(value.B)
+	}
+	if isNumberKind(value.Kind) {
+		return numericValue(value)
+	}
+	if value.Kind == ArrayKind && value.A != nil && len(value.A.Entries) > 0 {
+		return 1
+	}
+	return 0
+}
+
+func compareFloat(a, b float64) int {
+	switch {
+	case a < b:
+		return -1
+	case a > b:
+		return 1
+	default:
+		return 0
+	}
 }
 
 func strictEqual(a, b Value) bool {
