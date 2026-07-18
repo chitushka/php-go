@@ -2376,6 +2376,62 @@ func TestReadAccessNoticeUsesErrorPolicy(t *testing.T) {
 	}
 }
 
+func TestIssetEmptyWarningUsesErrorPolicy(t *testing.T) {
+	p := parser.New(lexer.New("<?php $a = isset(); $b = empty(); $c = empty($a, $b); echo ($a === null ? 'null' : 'bad'); echo ':'; echo ($b === null ? 'null' : 'bad'); echo ':'; echo ($c === null ? 'null' : 'bad'); echo ':after';"))
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i := runtime.NewInterpreter()
+	if err := i.Run(program); err != nil {
+		t.Fatalf("runtime error: %v", err)
+	}
+	if got := i.Out.String(); got != "null:null:null:after" {
+		t.Fatalf("got %q", got)
+	}
+	diagnostics := i.Diagnostics()
+	if len(diagnostics) != 3 ||
+		diagnostics[0].Severity != runtime.Warning ||
+		diagnostics[0].Message != "isset expects at least 1 argument, got 0" ||
+		diagnostics[1].Message != "empty expects 1 argument, got 0" ||
+		diagnostics[2].Message != "empty expects 1 argument, got 2" {
+		t.Fatalf("unexpected diagnostics: %#v", diagnostics)
+	}
+
+	p = parser.New(lexer.New("<?php isset(); echo 'bad';"))
+	program = p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i = runtime.NewInterpreter()
+	i.SetErrorPolicy(runtime.StrictErrorPolicy())
+	err := i.Run(program)
+	runtimeErr, ok := err.(*runtime.RuntimeError)
+	if !ok || runtimeErr.Severity != runtime.Warning || runtimeErr.Message != "isset expects at least 1 argument, got 0" {
+		t.Fatalf("expected strict isset warning runtime error, got %#v", err)
+	}
+	if got := i.Out.String(); got != "" {
+		t.Fatalf("expected strict isset warning to halt before output, got %q", got)
+	}
+
+	p = parser.New(lexer.New("<?php $value = empty(); echo ($value === null ? 'null' : 'bad'); echo ':after';"))
+	program = p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i = runtime.NewInterpreter()
+	i.SetErrorPolicy(runtime.StrictErrorPolicy().Ignore(runtime.Warning))
+	if err := i.Run(program); err != nil {
+		t.Fatalf("runtime error: %v", err)
+	}
+	if got := i.Out.String(); got != "null:after" {
+		t.Fatalf("got %q", got)
+	}
+	if diagnostics := i.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("expected ignored isset/empty warning to be omitted, got %#v", diagnostics)
+	}
+}
+
 func TestRegistryBuiltinWarningUsesErrorPolicy(t *testing.T) {
 	p := parser.New(lexer.New("<?php $value = strlen(); echo ($value === null ? 'null' : 'bad'); echo ':after';"))
 	program := p.ParseProgram()

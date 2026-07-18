@@ -2623,7 +2623,7 @@ func (p *runtimeSerializedParser) expectByte(want byte) error {
 
 func (i *Interpreter) callIsset(args []ast.Expr) (Value, bool, error) {
 	if len(args) == 0 {
-		return NullValue(), true, fmt.Errorf("isset expects at least 1 argument, got 0")
+		return i.builtinWarningf(NullValue(), true, "isset expects at least 1 argument, got 0")
 	}
 	for _, arg := range args {
 		value, exists, err := i.lookupConstructValue(arg)
@@ -2639,7 +2639,7 @@ func (i *Interpreter) callIsset(args []ast.Expr) (Value, bool, error) {
 
 func (i *Interpreter) callEmpty(args []ast.Expr) (Value, bool, error) {
 	if len(args) != 1 {
-		return NullValue(), true, fmt.Errorf("empty expects 1 argument, got %d", len(args))
+		return i.builtinWarningf(NullValue(), true, "empty expects 1 argument, got %d", len(args))
 	}
 	if value, handled, err := i.lookupEmptyValue(args[0]); handled {
 		if err != nil {
