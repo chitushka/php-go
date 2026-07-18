@@ -1144,15 +1144,28 @@ func (i *Interpreter) callBuiltin(c *ast.CallExpr) (Value, bool, error) {
 			i.Out.WriteString(output)
 		}
 		if err != nil {
-			return NullValue(), true, err
+			return i.handleBuiltinWarning(err, fromBuiltinValue(value), true)
 		}
 		return fromBuiltinValue(value), true, nil
 	}
 	value, ok, err := builtins.Call(c.Name, args)
-	if !ok || err != nil {
-		return NullValue(), ok, err
+	if err != nil {
+		return i.handleBuiltinWarning(err, fromBuiltinValue(value), ok)
+	}
+	if !ok {
+		return NullValue(), false, nil
 	}
 	return fromBuiltinValue(value), true, nil
+}
+
+func (i *Interpreter) handleBuiltinWarning(err error, value Value, ok bool) (Value, bool, error) {
+	if err == nil {
+		return value, ok, nil
+	}
+	if diagErr := i.emitDiagnostic(Warning, err.Error()); diagErr != nil {
+		return NullValue(), ok, diagErr
+	}
+	return value, ok, nil
 }
 
 func (i *Interpreter) callDefine(args []ast.Expr) (Value, bool, error) {
