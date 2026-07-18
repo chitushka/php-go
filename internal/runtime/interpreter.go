@@ -3092,7 +3092,7 @@ func (i *Interpreter) callFunctionResult(fn *ast.FunctionDeclStmt, args []ast.Ex
 	return i.callFunctionWithBinderResult(fn, len(args), thisObj, calledClass, nil, func(idx int, param ast.Param) (*variableSlot, error) {
 		if idx >= len(args) {
 			if param.Default == nil {
-				return nil, fmt.Errorf("function %s expects at least %d arguments, got %d", fn.Name, i.requiredParamCount(fn), len(args))
+				return i.missingArgumentSlot(fn, len(args))
 			}
 			value, err := i.eval(param.Default)
 			if err != nil {
@@ -3119,7 +3119,7 @@ func (i *Interpreter) callFunctionValues(fn *ast.FunctionDeclStmt, args []Value,
 	result, err := i.callFunctionWithBinderResult(fn, len(args), thisObj, calledClass, nil, func(idx int, param ast.Param) (*variableSlot, error) {
 		if idx >= len(args) {
 			if param.Default == nil {
-				return nil, fmt.Errorf("function %s expects at least %d arguments, got %d", fn.Name, i.requiredParamCount(fn), len(args))
+				return i.missingArgumentSlot(fn, len(args))
 			}
 			value, err := i.eval(param.Default)
 			if err != nil {
@@ -3151,7 +3151,7 @@ func (i *Interpreter) callClosureValues(closure *Closure, args []Value) (Value, 
 	result, err := i.callFunctionWithBinderResult(fn, len(args), nil, "", closure.Captures, func(idx int, param ast.Param) (*variableSlot, error) {
 		if idx >= len(args) {
 			if param.Default == nil {
-				return nil, fmt.Errorf("function %s expects at least %d arguments, got %d", fn.Name, i.requiredParamCount(fn), len(args))
+				return i.missingArgumentSlot(fn, len(args))
 			}
 			value, err := i.eval(param.Default)
 			if err != nil {
@@ -3175,7 +3175,7 @@ func (i *Interpreter) callClosureResult(closure *Closure, args []ast.Expr) (func
 	return i.callFunctionWithBinderResult(fn, len(args), nil, "", closure.Captures, func(idx int, param ast.Param) (*variableSlot, error) {
 		if idx >= len(args) {
 			if param.Default == nil {
-				return nil, fmt.Errorf("function %s expects at least %d arguments, got %d", fn.Name, i.requiredParamCount(fn), len(args))
+				return i.missingArgumentSlot(fn, len(args))
 			}
 			value, err := i.eval(param.Default)
 			if err != nil {
@@ -3196,6 +3196,13 @@ func (i *Interpreter) callClosureResult(closure *Closure, args []ast.Expr) (func
 		}
 		return &variableSlot{value: value}, nil
 	})
+}
+
+func (i *Interpreter) missingArgumentSlot(fn *ast.FunctionDeclStmt, provided int) (*variableSlot, error) {
+	if err := i.emitDiagnostic(Warning, fmt.Sprintf("function %s expects at least %d arguments, got %d", fn.Name, i.requiredParamCount(fn), provided)); err != nil {
+		return nil, err
+	}
+	return &variableSlot{value: NullValue()}, nil
 }
 
 func (i *Interpreter) callFunctionWithBinder(fn *ast.FunctionDeclStmt, provided int, thisObj *Object, calledClass string, bind func(int, ast.Param) (*variableSlot, error)) (Value, error) {

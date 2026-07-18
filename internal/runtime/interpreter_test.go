@@ -2489,6 +2489,62 @@ func TestPregMatchCaptureWarningUsesErrorPolicy(t *testing.T) {
 	}
 }
 
+func TestUserFunctionMissingArgumentWarningUsesErrorPolicy(t *testing.T) {
+	p := parser.New(lexer.New("<?php function pair($a, $b) { echo $a; echo ':'; echo ($b === null ? 'null' : 'bad'); } pair('set'); echo ':'; $fn = function($a, $b) { echo $a; echo ':'; echo ($b === null ? 'null' : 'bad'); }; $fn('closure'); echo ':after';"))
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i := runtime.NewInterpreter()
+	if err := i.Run(program); err != nil {
+		t.Fatalf("runtime error: %v", err)
+	}
+	if got := i.Out.String(); got != "set:null:closure:null:after" {
+		t.Fatalf("got %q", got)
+	}
+	diagnostics := i.Diagnostics()
+	if len(diagnostics) != 2 ||
+		diagnostics[0].Severity != runtime.Warning ||
+		diagnostics[0].Message != "function pair expects at least 2 arguments, got 1" ||
+		diagnostics[1].Severity != runtime.Warning ||
+		!strings.Contains(diagnostics[1].Message, " expects at least 2 arguments, got 1") {
+		t.Fatalf("unexpected diagnostics: %#v", diagnostics)
+	}
+
+	p = parser.New(lexer.New("<?php function needs($value) {} needs(); echo 'bad';"))
+	program = p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i = runtime.NewInterpreter()
+	i.SetErrorPolicy(runtime.StrictErrorPolicy())
+	err := i.Run(program)
+	runtimeErr, ok := err.(*runtime.RuntimeError)
+	if !ok || runtimeErr.Severity != runtime.Warning || runtimeErr.Message != "function needs expects at least 1 arguments, got 0" {
+		t.Fatalf("expected strict missing argument warning runtime error, got %#v", err)
+	}
+	if got := i.Out.String(); got != "" {
+		t.Fatalf("expected strict missing argument warning to halt before output, got %q", got)
+	}
+
+	p = parser.New(lexer.New("<?php function missing($value) { echo ($value === null ? 'null' : 'bad'); } missing(); echo ':after';"))
+	program = p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i = runtime.NewInterpreter()
+	i.SetErrorPolicy(runtime.StrictErrorPolicy().Ignore(runtime.Warning))
+	if err := i.Run(program); err != nil {
+		t.Fatalf("runtime error: %v", err)
+	}
+	if got := i.Out.String(); got != "null:after" {
+		t.Fatalf("got %q", got)
+	}
+	if diagnostics := i.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("expected ignored missing argument warning to be omitted, got %#v", diagnostics)
+	}
+}
+
 func TestRegistryBuiltinWarningUsesErrorPolicy(t *testing.T) {
 	p := parser.New(lexer.New("<?php $value = strlen(); echo ($value === null ? 'null' : 'bad'); echo ':after';"))
 	program := p.ParseProgram()
