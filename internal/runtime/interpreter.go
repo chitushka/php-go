@@ -3380,6 +3380,9 @@ func (i *Interpreter) callStaticName(staticClassName, methodName string, args []
 	if !ok {
 		return NullValue(), fmt.Errorf("undefined class %s", className)
 	}
+	if strings.EqualFold(methodName, "__clone") {
+		return NullValue(), fmt.Errorf("cannot call __clone directly; use clone")
+	}
 	methods := i.methodsForClass(class)
 	method, ok := i.staticMethod(methods, className, methodName)
 	if !ok {
@@ -3415,6 +3418,9 @@ func (i *Interpreter) callStaticNameValues(staticClassName, methodName string, a
 	class, ok := i.classByName(className)
 	if !ok {
 		return NullValue(), fmt.Errorf("undefined class %s", className)
+	}
+	if strings.EqualFold(methodName, "__clone") {
+		return NullValue(), fmt.Errorf("cannot call __clone directly; use clone")
 	}
 	methods := i.methodsForClass(class)
 	method, ok := i.staticMethod(methods, className, methodName)

@@ -1755,6 +1755,14 @@ func TestCloneCannotBeCalledAsMethod(t *testing.T) {
 	if err == nil || err.Error() != "cannot call __clone directly; use clone" {
 		t.Fatalf("unexpected dynamic error: %v", err)
 	}
+	err = runErr(t, "<?php class Box { public function __clone() {} } Box::__clone();")
+	if err == nil || err.Error() != "cannot call __clone directly; use clone" {
+		t.Fatalf("unexpected static error: %v", err)
+	}
+	err = runErr(t, "<?php class Box { public function __clone() {} } call_user_func('Box::__clone');")
+	if err == nil || err.Error() != "cannot call __clone directly; use clone" {
+		t.Fatalf("unexpected callable error: %v", err)
+	}
 }
 
 func TestCloneRequiresObject(t *testing.T) {
