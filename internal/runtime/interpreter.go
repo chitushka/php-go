@@ -5342,10 +5342,17 @@ func validateMethodOverrideCompatibility(className string, method, parentMethod 
 	if visibilityRank(method.Visibility) < visibilityRank(parentMethod.Visibility) {
 		return fmt.Errorf("cannot reduce visibility of inherited method %s::%s in %s", parentMethod.Owner, parentMethod.Name, className)
 	}
+	if isModernConstructor(method) && isModernConstructor(parentMethod) {
+		return nil
+	}
 	if err := validateMethodSignatureCompatibility(className, method, parentMethod); err != nil {
 		return err
 	}
 	return nil
+}
+
+func isModernConstructor(method *ast.FunctionDeclStmt) bool {
+	return method != nil && strings.EqualFold(method.Name, "__construct")
 }
 
 func validateMethodSignatureCompatibility(className string, method, prototype *ast.FunctionDeclStmt) error {

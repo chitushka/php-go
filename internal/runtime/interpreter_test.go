@@ -212,6 +212,21 @@ func TestConstructPreferredOverOldStyleConstructor(t *testing.T) {
 	}
 }
 
+func TestConstructorOverrideSignatureCompatibilityIsNotChecked(t *testing.T) {
+	src := "<?php class Base { public function __construct($value, &$ref) { $this->value = $value; } } class Child extends Base { public function __construct() { $this->value = 'child'; } } $child = new Child(); echo $child->value;"
+	got := run(t, src)
+	if got != "child" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestInterfaceConstructorSignatureCompatibilityIsChecked(t *testing.T) {
+	err := runErr(t, "<?php interface ConstructContract { public function __construct($value); } class ConstructUser implements ConstructContract { public function __construct() {} }")
+	if err == nil || err.Error() != "method ConstructUser::__construct must accept at least 1 parameters to match ConstructContract::__construct" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestOldStyleConstructorCannotBeStatic(t *testing.T) {
 	err := runErr(t, "<?php class StaticOldStyle { public static function StaticOldStyle() {} }")
 	if err == nil || err.Error() != "old-style constructor StaticOldStyle::StaticOldStyle must not be static" {
