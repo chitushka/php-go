@@ -906,12 +906,29 @@ func (p *Parser) parseInclude(require bool, once bool) ast.Stmt {
 }
 
 func (p *Parser) parseClassDeclWithLeadingModifier(mod string) ast.Stmt {
+	final := mod == "final"
+	abstract := mod == "abstract"
+	if p.peek.Type == lexer.Final || p.peek.Type == lexer.Abstract {
+		p.next()
+		switch p.cur.Type {
+		case lexer.Final:
+			if final {
+				p.errors = append(p.errors, "Multiple final modifiers are not allowed")
+			}
+			final = true
+		case lexer.Abstract:
+			if abstract {
+				p.errors = append(p.errors, "Multiple abstract modifiers are not allowed")
+			}
+			abstract = true
+		}
+	}
 	if p.peek.Type != lexer.Class {
 		p.errors = append(p.errors, fmt.Sprintf("%s must be followed by class", mod))
 		return nil
 	}
 	p.next()
-	return p.parseClassDecl(mod == "final", mod == "abstract")
+	return p.parseClassDecl(final, abstract)
 }
 
 func (p *Parser) parseClassDecl(final bool, abstract bool) ast.Stmt {

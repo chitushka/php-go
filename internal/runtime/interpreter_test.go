@@ -1212,6 +1212,44 @@ func TestCannotExtendFinalClass(t *testing.T) {
 	}
 }
 
+func TestClassFinalAbstractModifierCombination(t *testing.T) {
+	tests := []string{
+		"<?php abstract final class BadClassModifier {}",
+		"<?php final abstract class BadClassModifier {}",
+	}
+	for _, src := range tests {
+		err := runErr(t, src)
+		if err == nil || err.Error() != "class BadClassModifier cannot be both final and abstract" {
+			t.Fatalf("%s: unexpected error: %v", src, err)
+		}
+	}
+}
+
+func TestDuplicateClassModifiersAreRejected(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		err  string
+	}{
+		{
+			name: "final",
+			src:  "<?php final final class BadFinalClassModifier {}",
+			err:  "Multiple final modifiers are not allowed",
+		},
+		{
+			name: "abstract",
+			src:  "<?php abstract abstract class BadAbstractClassModifier {}",
+			err:  "Multiple abstract modifiers are not allowed",
+		},
+	}
+	for _, tt := range tests {
+		errs := parseErrors(tt.src)
+		if len(errs) != 1 || errs[0] != tt.err {
+			t.Fatalf("%s: got parse errors %v", tt.name, errs)
+		}
+	}
+}
+
 func TestCannotOverrideFinalMethod(t *testing.T) {
 	err := runErr(t, "<?php class Base { final public function value() { return 1; } } class Child extends Base { public function value() { return 2; } }")
 	if err == nil || err.Error() != "cannot override final method Base::value" {
