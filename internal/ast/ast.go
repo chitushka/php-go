@@ -166,6 +166,14 @@ type IncludeStmt struct {
 
 func (*IncludeStmt) stmtNode() {}
 
+type IncludeExpr struct {
+	Path    Expr
+	Require bool
+	Once    bool
+}
+
+func (*IncludeExpr) exprNode() {}
+
 type ClassDeclStmt struct {
 	Name       string
 	Parent     string

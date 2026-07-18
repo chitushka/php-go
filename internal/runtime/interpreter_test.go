@@ -347,6 +347,26 @@ func TestIncludeOnceAndRequireOnceShareIncludedFiles(t *testing.T) {
 	}
 }
 
+func TestIncludeExpressionReturnValues(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"return_value.php": "<?php $seen = $seen + 1; return 'ret'; echo 'bad';",
+		"return_null.php":  "<?php return null;",
+		"no_return.php":    "<?php $seen = $seen + 1;",
+		"once_value.php":   "<?php $seen = $seen + 1; return 'once';",
+	}
+	for name, src := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	src := "<?php $seen = 0; $a = include 'return_value.php'; echo $a; echo ':'; echo $seen; echo ':'; $b = include 'no_return.php'; echo ($b === 1 ? 'one' : 'bad'); echo ':'; $c = include 'return_null.php'; echo ($c === null ? 'null' : 'bad'); echo ':'; $d = include_once 'once_value.php'; echo $d; echo ':'; $e = include_once './once_value.php'; echo ($e === true ? 'true' : 'bad'); echo ':'; echo $seen;"
+	got := runFile(t, dir, src)
+	if got != "ret:1:one:null:once:true:3" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestClassConstructorMethodAndThis(t *testing.T) {
 	src := "<?php class Box { function __construct($value) { $this->value = $value; } function get() { return $this->value; } } $box = new Box(9); echo $box->get();"
 	got := run(t, src)

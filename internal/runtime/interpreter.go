@@ -108,10 +108,16 @@ func (i *Interpreter) SetEntryFile(path string) {
 }
 
 func (i *Interpreter) Run(p *ast.Program) error {
-	return i.runProgram(p, true)
+	_, _, err := i.runProgramResult(p, true)
+	return err
 }
 
 func (i *Interpreter) runProgram(p *ast.Program, shutdown bool) error {
+	_, _, err := i.runProgramResult(p, shutdown)
+	return err
+}
+
+func (i *Interpreter) runProgramResult(p *ast.Program, shutdown bool) (Value, bool, error) {
 	for _, s := range p.Statements {
 		if class, ok := s.(*ast.ClassDeclStmt); ok {
 			i.declaredClassNames[classNameKey(class.Name)] = class.Name
@@ -120,21 +126,21 @@ func (i *Interpreter) runProgram(p *ast.Program, shutdown bool) error {
 	for _, s := range p.Statements {
 		if fn, ok := s.(*ast.FunctionDeclStmt); ok {
 			if err := i.defineFunction(fn); err != nil {
-				return err
+				return NullValue(), false, err
 			}
 		}
 	}
 	for _, s := range p.Statements {
 		if iface, ok := s.(*ast.InterfaceDeclStmt); ok {
 			if err := i.defineInterface(iface); err != nil {
-				return err
+				return NullValue(), false, err
 			}
 		}
 	}
 	for _, s := range p.Statements {
 		if class, ok := s.(*ast.ClassDeclStmt); ok {
 			if err := i.defineClass(class); err != nil {
-				return err
+				return NullValue(), false, err
 			}
 		}
 	}
@@ -148,19 +154,28 @@ func (i *Interpreter) runProgram(p *ast.Program, shutdown bool) error {
 		if _, ok := s.(*ast.InterfaceDeclStmt); ok {
 			continue
 		}
-		if _, err := i.exec(s); err != nil {
+		if ret, err := i.exec(s); err != nil {
 			if _, ok := err.(*ExitError); ok && shutdown {
 				if shutdownErr := i.runDestructors(); shutdownErr != nil {
-					return shutdownErr
+					return NullValue(), false, shutdownErr
 				}
 			}
-			return err
+			return NullValue(), false, err
+		} else if ret != nil {
+			if shutdown {
+				if shutdownErr := i.runDestructors(); shutdownErr != nil {
+					return NullValue(), false, shutdownErr
+				}
+			}
+			return ret.value, true, nil
 		}
 	}
 	if shutdown {
-		return i.runDestructors()
+		if err := i.runDestructors(); err != nil {
+			return NullValue(), false, err
+		}
 	}
-	return nil
+	return NullValue(), false, nil
 }
 
 type returnSignal struct {
@@ -571,7 +586,7 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 		if path.Kind != String {
 			return nil, fmt.Errorf("include/require path must be string")
 		}
-		if err := i.include(path.S, n.Require, n.Once); err != nil {
+		if _, err := i.include(path.S, n.Require, n.Once); err != nil {
 			return nil, err
 		}
 	case *ast.ExprStmt:
@@ -658,6 +673,15 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 		}
 	case *ast.CloneExpr:
 		return i.evalClone(n.Expr)
+	case *ast.IncludeExpr:
+		path, err := i.eval(n.Path)
+		if err != nil {
+			return NullValue(), err
+		}
+		if path.Kind != String {
+			return NullValue(), fmt.Errorf("include/require path must be string")
+		}
+		return i.include(path.S, n.Require, n.Once)
 	case *ast.IncDecExpr:
 		return i.evalIncDec(n.Target, n.Op, n.Post)
 	case *ast.InfixExpr:
@@ -6234,10 +6258,10 @@ func (i *Interpreter) interfaceExtendsInterface(name, ancestor string) bool {
 	return false
 }
 
-func (i *Interpreter) include(path string, require bool, once bool) error {
+func (i *Interpreter) include(path string, require bool, once bool) (Value, error) {
 	resolved := i.resolveIncludePath(path)
 	if once && i.includedOnce[resolved] {
-		return nil
+		return BoolValue(true), nil
 	}
 	data, err := os.ReadFile(resolved)
 	if err != nil {
@@ -6245,13 +6269,13 @@ func (i *Interpreter) include(path string, require bool, once bool) error {
 		if require {
 			kind = "require"
 		}
-		return fmt.Errorf("%s failed for %q: %w", kind, path, err)
+		return NullValue(), fmt.Errorf("%s failed for %q: %w", kind, path, err)
 	}
 
 	p := parser.New(lexer.New(string(data)))
 	program := p.ParseProgram()
 	if len(p.Errors()) > 0 {
-		return fmt.Errorf("parse errors in %s: %v", resolved, p.Errors())
+		return NullValue(), fmt.Errorf("parse errors in %s: %v", resolved, p.Errors())
 	}
 
 	if once {
@@ -6259,10 +6283,16 @@ func (i *Interpreter) include(path string, require bool, once bool) error {
 	}
 	i.dirStack = append(i.dirStack, filepath.Dir(resolved))
 	i.fileStack = append(i.fileStack, resolved)
-	err = i.runProgram(program, false)
+	value, returned, err := i.runProgramResult(program, false)
 	i.fileStack = i.fileStack[:len(i.fileStack)-1]
 	i.dirStack = i.dirStack[:len(i.dirStack)-1]
-	return err
+	if err != nil {
+		return NullValue(), err
+	}
+	if !returned {
+		return IntValue(1), nil
+	}
+	return value, nil
 }
 
 func (i *Interpreter) resolveIncludePath(path string) string {

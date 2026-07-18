@@ -927,6 +927,15 @@ func (p *Parser) parseInclude(require bool, once bool) ast.Stmt {
 	return &ast.IncludeStmt{Path: path, Require: require, Once: once}
 }
 
+func (p *Parser) parseIncludeExpr(require bool, once bool) ast.Expr {
+	if p.peek.Type == lexer.Semicolon {
+		p.errors = append(p.errors, "include/require expects a path expression")
+		return &ast.NullLit{}
+	}
+	p.next()
+	return &ast.IncludeExpr{Path: p.parseExpression(lowest), Require: require, Once: once}
+}
+
 func (p *Parser) parseClassDeclWithLeadingModifier(mod string) ast.Stmt {
 	final := mod == "final"
 	abstract := mod == "abstract"
@@ -1552,6 +1561,14 @@ func (p *Parser) parseExpression(precedence int) ast.Expr {
 	case lexer.Clone:
 		p.next()
 		left = &ast.CloneExpr{Expr: p.parseExpression(prefix)}
+	case lexer.Include:
+		left = p.parseIncludeExpr(false, false)
+	case lexer.Require:
+		left = p.parseIncludeExpr(true, false)
+	case lexer.IncludeOnce:
+		left = p.parseIncludeExpr(false, true)
+	case lexer.RequireOnce:
+		left = p.parseIncludeExpr(true, true)
 	case lexer.Bang, lexer.Minus, lexer.Plus, lexer.Tilde:
 		op := p.cur.Literal
 		p.next()
