@@ -1175,6 +1175,10 @@ func (i *Interpreter) builtinWarningf(value Value, ok bool, format string, args 
 	return i.handleBuiltinWarning(fmt.Errorf(format, args...), value, ok)
 }
 
+func (i *Interpreter) recoverableErrorf(format string, args ...any) error {
+	return i.emitDiagnostic(RecoverableError, fmt.Sprintf(format, args...))
+}
+
 func isCallableWarning(err error) bool {
 	if err == nil {
 		return false
@@ -3229,7 +3233,7 @@ func (i *Interpreter) checkParamTypeHint(fn *ast.FunctionDeclStmt, param ast.Par
 		if value.Kind == ArrayKind {
 			return nil
 		}
-		return fmt.Errorf("argument %d for %s must be of type array", idx+1, functionKey(fn))
+		return i.recoverableErrorf("argument %d for %s must be of type array", idx+1, functionKey(fn))
 	}
 	typeName, err := i.resolveParamTypeHint(fn, param.TypeHint)
 	if err != nil {
@@ -3244,7 +3248,7 @@ func (i *Interpreter) checkParamTypeHint(fn *ast.FunctionDeclStmt, param ast.Par
 			return nil
 		}
 	}
-	return fmt.Errorf("argument %d for %s must be of type %s", idx+1, functionKey(fn), typeName)
+	return i.recoverableErrorf("argument %d for %s must be of type %s", idx+1, functionKey(fn), typeName)
 }
 
 func paramDefaultAllowsNull(param ast.Param) bool {

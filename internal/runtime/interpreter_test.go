@@ -1608,6 +1608,60 @@ func TestParameterTypeHintRejectsWrongValue(t *testing.T) {
 	}
 }
 
+func TestParameterTypeHintErrorUsesErrorPolicy(t *testing.T) {
+	p := parser.New(lexer.New("<?php function needs_array(array $items) {} needs_array('no'); echo 'bad';"))
+	program := p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i := runtime.NewInterpreter()
+	err := i.Run(program)
+	runtimeErr, ok := err.(*runtime.RuntimeError)
+	if !ok || runtimeErr.Severity != runtime.RecoverableError || runtimeErr.Message != "argument 1 for needs_array must be of type array" {
+		t.Fatalf("expected type hint recoverable runtime error, got %#v", err)
+	}
+	if got := i.Out.String(); got != "" {
+		t.Fatalf("expected type hint error to halt before output, got %q", got)
+	}
+	if diagnostics := i.Diagnostics(); len(diagnostics) != 1 || diagnostics[0].Severity != runtime.RecoverableError || diagnostics[0].Message != "argument 1 for needs_array must be of type array" {
+		t.Fatalf("unexpected diagnostics: %#v", diagnostics)
+	}
+
+	p = parser.New(lexer.New("<?php function needs_array(array $items) { echo is_string($items) ? 'string' : 'bad'; } needs_array('no'); echo ':after';"))
+	program = p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i = runtime.NewInterpreter()
+	i.SetErrorPolicy(runtime.DefaultErrorPolicy().DoNotHalt(runtime.RecoverableError))
+	if err := i.Run(program); err != nil {
+		t.Fatalf("runtime error: %v", err)
+	}
+	if got := i.Out.String(); got != "string:after" {
+		t.Fatalf("got %q", got)
+	}
+	if diagnostics := i.Diagnostics(); len(diagnostics) != 1 || diagnostics[0].Severity != runtime.RecoverableError || diagnostics[0].Message != "argument 1 for needs_array must be of type array" {
+		t.Fatalf("unexpected diagnostics: %#v", diagnostics)
+	}
+
+	p = parser.New(lexer.New("<?php class ExpectedHint {} class OtherHint {} function needs_object(ExpectedHint $value) { echo get_class($value); } needs_object(new OtherHint()); echo ':after';"))
+	program = p.ParseProgram()
+	if len(p.Errors()) > 0 {
+		t.Fatalf("parse errors: %v", p.Errors())
+	}
+	i = runtime.NewInterpreter()
+	i.SetErrorPolicy(runtime.StrictErrorPolicy().Ignore(runtime.RecoverableError))
+	if err := i.Run(program); err != nil {
+		t.Fatalf("runtime error: %v", err)
+	}
+	if got := i.Out.String(); got != "OtherHint:after" {
+		t.Fatalf("got %q", got)
+	}
+	if diagnostics := i.Diagnostics(); len(diagnostics) != 0 {
+		t.Fatalf("expected ignored type hint error to be omitted, got %#v", diagnostics)
+	}
+}
+
 func TestInheritedMethodParameterTypeHintMustMatch(t *testing.T) {
 	err := runErr(t, "<?php class BaseHint {} class OtherHint {} class ParentHint { public function value(BaseHint $value) {} } class ChildHint extends ParentHint { public function value(OtherHint $value) {} }")
 	if err == nil || err.Error() != "method ChildHint::value parameter 1 type hint must match ParentHint::value" {
