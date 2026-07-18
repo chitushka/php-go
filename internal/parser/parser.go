@@ -724,6 +724,9 @@ func (p *Parser) parseFunctionDeclFull(visibility string, static bool, final boo
 		return nil
 	}
 	body := p.parseBlock().(*ast.BlockStmt)
+	if owner != "" && containsClassDeclaration(body) {
+		p.errors = append(p.errors, "Class declarations may not be nested")
+	}
 	return &ast.FunctionDeclStmt{Name: name, Params: params, Body: body, Visibility: visibility, Static: static, Final: final, Abstract: abstract, ReturnsByRef: returnsByRef}
 }
 
@@ -943,6 +946,9 @@ func (p *Parser) parseClassDecl(final bool, abstract bool) ast.Stmt {
 			class.Properties = append(class.Properties, p.parseClassProperty(visibility, static, finalMember, abstractMember))
 		case lexer.Const:
 			class.Constants = append(class.Constants, p.parseClassConstants()...)
+		case lexer.Class, lexer.Interface:
+			p.errors = append(p.errors, "Class declarations may not be nested")
+			p.skipClassLikeDeclaration()
 		default:
 			if isVarKeyword(p.cur) {
 				if p.expectPeek(lexer.Var) {
@@ -1017,6 +1023,9 @@ func (p *Parser) parseInterfaceDecl() ast.Stmt {
 		case lexer.Var:
 			p.errors = append(p.errors, "Interfaces may not include member variables")
 			p.parseClassProperty(visibility, static, false, false)
+		case lexer.Class, lexer.Interface:
+			p.errors = append(p.errors, "Class declarations may not be nested")
+			p.skipClassLikeDeclaration()
 		default:
 			if isVarKeyword(p.cur) {
 				p.errors = append(p.errors, "Interfaces may not include member variables")
@@ -1068,6 +1077,179 @@ func reservedClassNameError(name string) string {
 
 func isVarKeyword(tok lexer.Token) bool {
 	return tok.Type == lexer.Ident && strings.EqualFold(tok.Literal, "var")
+}
+
+func containsClassDeclaration(stmt ast.Stmt) bool {
+	switch s := stmt.(type) {
+	case nil:
+		return false
+	case *ast.ClassDeclStmt, *ast.InterfaceDeclStmt:
+		return true
+	case *ast.AssignStmt:
+		return exprContainsClassDeclaration(s.Value)
+	case *ast.CompoundAssignStmt:
+		return exprContainsClassDeclaration(s.Target) || exprContainsClassDeclaration(s.Value)
+	case *ast.IncDecStmt:
+		return exprContainsClassDeclaration(s.Target)
+	case *ast.EchoStmt:
+		return exprsContainClassDeclaration(s.Values)
+	case *ast.UnsetStmt:
+		return exprsContainClassDeclaration(s.Targets)
+	case *ast.ExitStmt:
+		return exprContainsClassDeclaration(s.Value)
+	case *ast.BlockStmt:
+		return blockContainsClassDeclaration(s)
+	case *ast.IfStmt:
+		return exprContainsClassDeclaration(s.Cond) || blockContainsClassDeclaration(s.Consequence) || blockContainsClassDeclaration(s.Alternative)
+	case *ast.WhileStmt:
+		return exprContainsClassDeclaration(s.Cond) || blockContainsClassDeclaration(s.Body)
+	case *ast.DoWhileStmt:
+		return blockContainsClassDeclaration(s.Body) || exprContainsClassDeclaration(s.Cond)
+	case *ast.ForStmt:
+		return containsClassDeclaration(s.Init) || exprContainsClassDeclaration(s.Cond) || containsClassDeclaration(s.Post) || blockContainsClassDeclaration(s.Body)
+	case *ast.ForeachStmt:
+		return exprContainsClassDeclaration(s.Source) || blockContainsClassDeclaration(s.Body)
+	case *ast.SwitchStmt:
+		if exprContainsClassDeclaration(s.Value) {
+			return true
+		}
+		for _, c := range s.Cases {
+			if exprContainsClassDeclaration(c.Expr) {
+				return true
+			}
+			for _, nested := range c.Statements {
+				if containsClassDeclaration(nested) {
+					return true
+				}
+			}
+		}
+	case *ast.TryCatchStmt:
+		if blockContainsClassDeclaration(s.TryBlock) {
+			return true
+		}
+		for _, c := range s.Catches {
+			if blockContainsClassDeclaration(c.Block) {
+				return true
+			}
+		}
+	case *ast.ReturnStmt:
+		return exprContainsClassDeclaration(s.Value)
+	case *ast.StaticLocalStmt:
+		for _, decl := range s.Decls {
+			if exprContainsClassDeclaration(decl.Default) {
+				return true
+			}
+		}
+	case *ast.IncludeStmt:
+		return exprContainsClassDeclaration(s.Path)
+	case *ast.PropertyAssignStmt:
+		return exprContainsClassDeclaration(s.Object) || exprContainsClassDeclaration(s.Value)
+	case *ast.StaticPropertyAssignStmt:
+		return exprContainsClassDeclaration(s.Value)
+	case *ast.IndexAssignStmt:
+		return exprContainsClassDeclaration(s.Target) || exprContainsClassDeclaration(s.Value)
+	case *ast.ThrowStmt:
+		return exprContainsClassDeclaration(s.Value)
+	case *ast.ExprStmt:
+		return exprContainsClassDeclaration(s.Expr)
+	}
+	return false
+}
+
+func blockContainsClassDeclaration(block *ast.BlockStmt) bool {
+	if block == nil {
+		return false
+	}
+	for _, stmt := range block.Statements {
+		if containsClassDeclaration(stmt) {
+			return true
+		}
+	}
+	return false
+}
+
+func exprsContainClassDeclaration(exprs []ast.Expr) bool {
+	for _, expr := range exprs {
+		if exprContainsClassDeclaration(expr) {
+			return true
+		}
+	}
+	return false
+}
+
+func exprContainsClassDeclaration(expr ast.Expr) bool {
+	switch e := expr.(type) {
+	case nil:
+		return false
+	case *ast.PrefixExpr:
+		return exprContainsClassDeclaration(e.Right)
+	case *ast.CloneExpr:
+		return exprContainsClassDeclaration(e.Expr)
+	case *ast.IncDecExpr:
+		return exprContainsClassDeclaration(e.Target)
+	case *ast.InfixExpr:
+		return exprContainsClassDeclaration(e.Left) || exprContainsClassDeclaration(e.Right)
+	case *ast.TernaryExpr:
+		return exprContainsClassDeclaration(e.Cond) || exprContainsClassDeclaration(e.Then) || exprContainsClassDeclaration(e.Else)
+	case *ast.AssignExpr:
+		return exprContainsClassDeclaration(e.Target) || exprContainsClassDeclaration(e.Value)
+	case *ast.ListExpr:
+		return exprsContainClassDeclaration(e.Targets)
+	case *ast.CastExpr:
+		return exprContainsClassDeclaration(e.Expr)
+	case *ast.ArrayLit:
+		for _, elem := range e.Elements {
+			if exprContainsClassDeclaration(elem.Key) || exprContainsClassDeclaration(elem.Value) {
+				return true
+			}
+		}
+	case *ast.IndexExpr:
+		return exprContainsClassDeclaration(e.Left) || exprContainsClassDeclaration(e.Index)
+	case *ast.CallExpr:
+		return exprsContainClassDeclaration(e.Args)
+	case *ast.VariableCallExpr:
+		return exprContainsClassDeclaration(e.Callee) || exprsContainClassDeclaration(e.Args)
+	case *ast.ClosureExpr:
+		return blockContainsClassDeclaration(e.Body)
+	case *ast.NewExpr:
+		return exprContainsClassDeclaration(e.ClassExpr) || exprsContainClassDeclaration(e.Args)
+	case *ast.PropertyFetchExpr:
+		return exprContainsClassDeclaration(e.Object)
+	case *ast.DynamicPropertyFetchExpr:
+		return exprContainsClassDeclaration(e.Object) || exprContainsClassDeclaration(e.Property)
+	case *ast.MethodCallExpr:
+		return exprContainsClassDeclaration(e.Object) || exprsContainClassDeclaration(e.Args)
+	case *ast.DynamicMethodCallExpr:
+		return exprContainsClassDeclaration(e.Object) || exprContainsClassDeclaration(e.Method) || exprsContainClassDeclaration(e.Args)
+	case *ast.DynamicStaticPropertyFetchExpr:
+		return exprContainsClassDeclaration(e.Property)
+	case *ast.StaticCallExpr:
+		return exprsContainClassDeclaration(e.Args)
+	case *ast.DynamicStaticCallExpr:
+		return exprContainsClassDeclaration(e.Method) || exprsContainClassDeclaration(e.Args)
+	case *ast.InstanceOfExpr:
+		return exprContainsClassDeclaration(e.Left) || exprContainsClassDeclaration(e.ClassExpr)
+	}
+	return false
+}
+
+func (p *Parser) skipClassLikeDeclaration() {
+	depth := 0
+	for p.cur.Type != lexer.EOF {
+		switch p.cur.Type {
+		case lexer.LBrace:
+			depth++
+		case lexer.RBrace:
+			if depth == 0 {
+				return
+			}
+			depth--
+			if depth == 0 {
+				return
+			}
+		}
+		p.next()
+	}
 }
 
 func (p *Parser) parseMemberModifiers() (string, bool, bool, bool) {

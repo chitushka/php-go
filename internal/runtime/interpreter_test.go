@@ -162,6 +162,44 @@ func TestDuplicateMemberModifiersAreRejected(t *testing.T) {
 	}
 }
 
+func TestNestedClassDeclarationsAreRejected(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+	}{
+		{
+			name: "class member class",
+			src:  "<?php class Outer { class Inner {} }",
+		},
+		{
+			name: "method body class",
+			src:  "<?php class Outer { function make() { class Inner {} } }",
+		},
+		{
+			name: "method body interface",
+			src:  "<?php class Outer { function make() { interface Inner {} } }",
+		},
+		{
+			name: "interface member class",
+			src:  "<?php interface Outer { class Inner {} }",
+		},
+		{
+			name: "nested in control flow",
+			src:  "<?php class Outer { function make() { if (true) { class Inner {} } } }",
+		},
+		{
+			name: "nested in closure",
+			src:  "<?php class Outer { function make() { $fn = function() { class Inner {} }; } }",
+		},
+	}
+	for _, tt := range tests {
+		errs := parseErrors(tt.src)
+		if len(errs) != 1 || errs[0] != "Class declarations may not be nested" {
+			t.Fatalf("%s: got parse errors %v", tt.name, errs)
+		}
+	}
+}
+
 func TestVarClassPropertyAndInterfacePropertyErrors(t *testing.T) {
 	got := run(t, "<?php class VarProperty { var $value = 'ok'; } $obj = new VarProperty(); echo $obj->value;")
 	if got != "ok" {
