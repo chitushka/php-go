@@ -1913,6 +1913,14 @@ func TestP3NumericStringArithmeticAndLooseComparison(t *testing.T) {
 	}
 }
 
+func TestP3ArrayComparisons(t *testing.T) {
+	src := "<?php $a = array('x' => 1, 'y' => '2'); $b = array('y' => 2, 'x' => '1'); $sameOrder = array('x' => 1, 'y' => '2'); $differentValue = array('x' => 1, 'y' => 3); $short = array('x' => 1); $empty = array(); $one = array(1); echo ($a == $b ? 'eq' : 'bad'); echo ':'; echo ($a === $sameOrder ? 'ident' : 'bad'); echo ':'; echo ($a === $b ? 'bad' : 'not-ident'); echo ':'; echo ($a != $differentValue ? 'diff' : 'bad'); echo ':'; echo ($short < $a ? 'short' : 'bad'); echo ':'; echo ($differentValue > $a ? 'greater' : 'bad'); echo ':'; echo ($empty == null ? 'empty-null' : 'bad'); echo ':'; echo ($one > 0 ? 'array-greater' : 'bad');"
+	got := run(t, src)
+	if got != "eq:ident:not-ident:diff:short:greater:empty-null:array-greater" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestWordLogicalOperatorsHaveLowerPrecedenceThanAssignment(t *testing.T) {
 	src := "<?php $b = true or false; echo $b ? '1' : '0'; echo ':'; $b = false or true; echo $b ? '1' : '0'; echo ':'; $b = true || false; echo $b ? '1' : '0'; echo ':'; $b = false || true; echo $b ? '1' : '0'; echo ':'; $b = true and false; echo $b ? '1' : '0'; echo ':'; $b = true && false; echo $b ? '1' : '0';"
 	got := run(t, src)

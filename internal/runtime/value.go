@@ -213,7 +213,7 @@ func looseEqual(a, b Value) bool {
 		return a.S == b.S
 	}
 	if a.Kind == ArrayKind || b.Kind == ArrayKind {
-		return a.Kind == ArrayKind && b.Kind == ArrayKind && a.A == b.A
+		return a.Kind == ArrayKind && b.Kind == ArrayKind && looseArrayEqual(a.A, b.A)
 	}
 	if a.Kind == ObjectKind || b.Kind == ObjectKind {
 		return a.Kind == ObjectKind && b.Kind == ObjectKind && a.O == b.O
@@ -266,6 +266,15 @@ func looseCompare(a, b Value) (int, bool) {
 			}
 		}
 		return strings.Compare(a.S, b.S), true
+	}
+	if a.Kind == ArrayKind || b.Kind == ArrayKind {
+		if a.Kind == ArrayKind && b.Kind == ArrayKind {
+			return compareArrays(a.A, b.A), true
+		}
+		if a.Kind == ArrayKind {
+			return 1, true
+		}
+		return -1, true
 	}
 	return strings.Compare(a.String(), b.String()), true
 }
@@ -334,6 +343,74 @@ func compareFloat(a, b float64) int {
 	}
 }
 
+func looseArrayEqual(a, b *Array) bool {
+	if arrayLen(a) != arrayLen(b) {
+		return false
+	}
+	for _, entry := range arrayEntries(a) {
+		other, ok := b.Get(entry.Key)
+		if !ok || !looseEqual(entry.RuntimeValue(), other) {
+			return false
+		}
+	}
+	return true
+}
+
+func strictArrayEqual(a, b *Array) bool {
+	left := arrayEntries(a)
+	right := arrayEntries(b)
+	if len(left) != len(right) {
+		return false
+	}
+	for idx, leftEntry := range left {
+		rightEntry := right[idx]
+		if leftEntry.Key.identity() != rightEntry.Key.identity() {
+			return false
+		}
+		if !strictEqual(leftEntry.RuntimeValue(), rightEntry.RuntimeValue()) {
+			return false
+		}
+	}
+	return true
+}
+
+func compareArrays(a, b *Array) int {
+	if arrayLen(a) < arrayLen(b) {
+		return -1
+	}
+	if arrayLen(a) > arrayLen(b) {
+		return 1
+	}
+	for _, entry := range arrayEntries(a) {
+		other, ok := b.Get(entry.Key)
+		if !ok {
+			return 1
+		}
+		cmp, ok := looseCompare(entry.RuntimeValue(), other)
+		if !ok {
+			continue
+		}
+		if cmp != 0 {
+			return cmp
+		}
+	}
+	return 0
+}
+
+func arrayLen(a *Array) int {
+	if a == nil {
+		return 0
+	}
+	return len(a.Entries)
+}
+
+func arrayEntries(a *Array) []ArrayEntry {
+	if a == nil {
+		return nil
+	}
+	return a.Entries
+}
+
 func strictEqual(a, b Value) bool {
 	if a.Kind != b.Kind {
 		return false
@@ -350,7 +427,7 @@ func strictEqual(a, b Value) bool {
 	case String:
 		return a.S == b.S
 	case ArrayKind:
-		return a.A == b.A
+		return strictArrayEqual(a.A, b.A)
 	case ObjectKind:
 		return a.O == b.O
 	default:
