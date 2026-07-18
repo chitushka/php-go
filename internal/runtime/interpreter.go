@@ -1680,6 +1680,11 @@ func (i *Interpreter) callMethodExists(args []ast.Expr) (Value, bool, error) {
 	if err != nil {
 		return NullValue(), true, err
 	}
+	if target.Kind == String {
+		if err := i.autoloadClass(target.String()); err != nil {
+			return NullValue(), true, err
+		}
+	}
 	methods, ok := i.methodsForTarget(target)
 	if !ok {
 		return BoolValue(false), true, nil
@@ -1712,6 +1717,9 @@ func (i *Interpreter) callPropertyExists(args []ast.Expr) (Value, bool, error) {
 	}
 	if target.Kind != String {
 		return BoolValue(false), true, nil
+	}
+	if err := i.autoloadClass(target.String()); err != nil {
+		return NullValue(), true, err
 	}
 	class, ok := i.classByName(target.String())
 	if !ok {

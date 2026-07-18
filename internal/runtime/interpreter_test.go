@@ -665,6 +665,18 @@ func TestOOPDeclaredIntrospectionIncludesAutoloadedTypes(t *testing.T) {
 	}
 }
 
+func TestMethodAndPropertyExistsAutoloadStringTargets(t *testing.T) {
+	dir := t.TempDir()
+	src := "<?php interface ExistsAutoloadContract { public function run(); } class ExistsAutoloaded { public $name = 'Ada'; private $secret = 'hidden'; public function run() {} }"
+	if err := os.WriteFile(filepath.Join(dir, "exists_autoload.php"), []byte(src), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got := runFile(t, dir, "<?php function __autoload($class) { include 'exists_autoload.php'; } echo method_exists('ExistsAutoloaded', 'run') ? 'method' : 'no'; echo ':'; echo method_exists('ExistsAutoloadContract', 'run') ? 'iface' : 'no'; echo ':'; echo property_exists('ExistsAutoloaded', 'name') ? 'prop' : 'no'; echo ':'; echo property_exists('ExistsAutoloaded', 'secret') ? 'private' : 'no';")
+	if got != "method:iface:prop:private" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestClassAliasAutoloadAndLookup(t *testing.T) {
 	dir := t.TempDir()
 	src := "<?php class AliasSource { const LABEL = 'source'; public static $count = 2; public static function bump() { self::$count = self::$count + 1; return self::$count; } public function name() { return 'object'; } }"
