@@ -1765,6 +1765,14 @@ func TestCloneCannotBeCalledAsMethod(t *testing.T) {
 	}
 }
 
+func TestDestructorDoesNotRunWhenCloneThrows(t *testing.T) {
+	src := "<?php class BadClone { function __clone() { throw new Exception('boom'); } function __destruct() { echo ':destruct'; } } $obj = new BadClone(); try { clone $obj; } catch (Exception $e) { echo 'caught'; } echo ':done';"
+	got := run(t, src)
+	if got != "caught:done:destruct" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestCloneRequiresObject(t *testing.T) {
 	err := runErr(t, "<?php $x = clone 1;")
 	if err == nil || err.Error() != "clone expects object" {

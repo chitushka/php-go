@@ -3157,7 +3157,6 @@ func (i *Interpreter) evalClone(expr ast.Expr) (Value, error) {
 		return NullValue(), fmt.Errorf("clone expects object")
 	}
 	clone := i.cloneObject(value.O)
-	i.trackObject(clone)
 	if method, ok := i.objectMethod(clone, "__clone"); ok {
 		if err := i.checkMethodAccess(clone.ClassName, method); err != nil {
 			return NullValue(), err
@@ -3166,6 +3165,7 @@ func (i *Interpreter) evalClone(expr ast.Expr) (Value, error) {
 			return NullValue(), err
 		}
 	}
+	i.trackObject(clone)
 	return ObjectValue(clone), nil
 }
 
