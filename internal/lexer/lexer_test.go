@@ -85,6 +85,52 @@ func TestStringEscapes(t *testing.T) {
 	}
 }
 
+func TestNumberLiteralForms(t *testing.T) {
+	tests := []struct {
+		source string
+		typ    TokenType
+		lit    string
+	}{
+		{"<?php 0x1A;", Int, "0x1A"},
+		{"<?php 0X1a;", Int, "0X1a"},
+		{"<?php 017;", Int, "017"},
+		{"<?php 1e3;", Float, "1e3"},
+		{"<?php 1E3;", Float, "1E3"},
+		{"<?php 1.5e-3;", Float, "1.5e-3"},
+		{"<?php 1.5e+3;", Float, "1.5e+3"},
+		{"<?php .5;", Float, ".5"},
+		{"<?php 5.;", Float, "5."},
+		{"<?php 10;", Int, "10"},
+	}
+	for _, tt := range tests {
+		l := New(tt.source)
+		got := l.NextToken()
+		if got.Type != tt.typ || got.Literal != tt.lit {
+			t.Fatalf("source %q: got token %s (%q), want %s (%q)", tt.source, got.Type, got.Literal, tt.typ, tt.lit)
+		}
+	}
+}
+
+func TestDotOperatorNotConfusedWithFloatLiteral(t *testing.T) {
+	l := New("<?php 1 . 2;")
+	tests := []struct {
+		typ TokenType
+		lit string
+	}{
+		{Int, "1"},
+		{Dot, "."},
+		{Int, "2"},
+		{Semicolon, ";"},
+		{EOF, ""},
+	}
+	for _, want := range tests {
+		got := l.NextToken()
+		if got.Type != want.typ || got.Literal != want.lit {
+			t.Fatalf("got token %s (%q), want %s (%q)", got.Type, got.Literal, want.typ, want.lit)
+		}
+	}
+}
+
 func TestHeredocAndNowdocTokens(t *testing.T) {
 	l := New("<?php <<<TXT\nHello $name\nTXT;\n<<<'RAW'\nRaw $name\nRAW;")
 

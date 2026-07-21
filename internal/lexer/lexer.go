@@ -158,6 +158,10 @@ func (l *Lexer) NextToken() Token {
 			tok = l.token(Plus, string(l.ch), line, col)
 		}
 	case '.':
+		if isDigit(l.peekChar()) {
+			lit, typ := l.readNumber()
+			return Token{Type: typ, Literal: lit, Line: line, Column: col}
+		}
 		if l.peekChar() == '=' {
 			ch := l.ch
 			l.readChar()
@@ -381,14 +385,40 @@ func (l *Lexer) readIdentifier() string {
 func (l *Lexer) readNumber() (string, TokenType) {
 	pos := l.position
 	typ := Int
+
+	if l.ch == '0' && (l.peekChar() == 'x' || l.peekChar() == 'X') && isHexDigit(l.peekOffset(2)) {
+		l.readChar()
+		l.readChar()
+		for isHexDigit(l.ch) {
+			l.readChar()
+		}
+		return l.input[pos:l.position], Int
+	}
+
 	for isDigit(l.ch) {
 		l.readChar()
 	}
-	if l.ch == '.' && isDigit(l.peekChar()) {
+	if l.ch == '.' {
 		typ = Float
 		l.readChar()
 		for isDigit(l.ch) {
 			l.readChar()
+		}
+	}
+	if l.ch == 'e' || l.ch == 'E' {
+		digitOffset := 1
+		if next := l.peekOffset(1); next == '+' || next == '-' {
+			digitOffset = 2
+		}
+		if isDigit(l.peekOffset(digitOffset)) {
+			typ = Float
+			l.readChar()
+			if l.ch == '+' || l.ch == '-' {
+				l.readChar()
+			}
+			for isDigit(l.ch) {
+				l.readChar()
+			}
 		}
 	}
 	return l.input[pos:l.position], typ

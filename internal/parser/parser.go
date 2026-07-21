@@ -1560,7 +1560,12 @@ func (p *Parser) parseExpression(precedence int) ast.Expr {
 			return &ast.NullLit{}
 		}
 	case lexer.Int:
-		v, _ := strconv.ParseInt(p.cur.Literal, 10, 64)
+		v, err := strconv.ParseInt(p.cur.Literal, 0, 64)
+		if err != nil {
+			// Base-0 parsing rejects invalid octal digits (e.g. "089"); fall
+			// back to decimal rather than silently producing zero.
+			v, _ = strconv.ParseInt(p.cur.Literal, 10, 64)
+		}
 		left = &ast.IntLit{Value: v}
 	case lexer.Float:
 		v, _ := strconv.ParseFloat(p.cur.Literal, 64)
