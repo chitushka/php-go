@@ -12,3 +12,8 @@ php.exe
 .vscode/
 .DS_Store
 temp
+
+# AI agents
+.claude/
+.codex/
+AGENTS.md

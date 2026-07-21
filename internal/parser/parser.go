@@ -1781,11 +1781,13 @@ func (p *Parser) parseIndexAccess(left ast.Expr) ast.Expr {
 }
 
 func (p *Parser) parseCall() ast.Expr {
-	call := &ast.CallExpr{Name: p.resolveFunctionName(p.cur.Literal)}
+	rawName := p.cur.Literal
+	call := &ast.CallExpr{Name: p.resolveFunctionName(rawName)}
 	if !p.expectPeek(lexer.LParen) {
 		return call
 	}
 	call.Args = p.parseCallArgs()
+	p.validateConstructVariableArgs(rawName, call.Args)
 	return call
 }
 
@@ -1953,6 +1955,31 @@ func isWritableExpr(expr ast.Expr) bool {
 	switch expr.(type) {
 	case *ast.Ident, *ast.VariableVariable, *ast.PropertyFetchExpr, *ast.DynamicPropertyFetchExpr, *ast.StaticPropertyFetchExpr, *ast.DynamicStaticPropertyFetchExpr, *ast.IndexExpr, *ast.ListExpr:
 		return true
+	default:
+		return false
+	}
+}
+
+func (p *Parser) validateConstructVariableArgs(name string, args []ast.Expr) {
+	if strings.EqualFold(name, "isset") {
+		for _, arg := range args {
+			if !isConstructVariableExpr(arg) {
+				p.errors = append(p.errors, "isset expects variables")
+			}
+		}
+		return
+	}
+	if strings.EqualFold(name, "empty") && len(args) == 1 && !isConstructVariableExpr(args[0]) {
+		p.errors = append(p.errors, "empty expects a variable")
+	}
+}
+
+func isConstructVariableExpr(expr ast.Expr) bool {
+	switch n := expr.(type) {
+	case *ast.Ident, *ast.VariableVariable, *ast.PropertyFetchExpr, *ast.DynamicPropertyFetchExpr, *ast.StaticPropertyFetchExpr, *ast.DynamicStaticPropertyFetchExpr:
+		return true
+	case *ast.IndexExpr:
+		return n.Index != nil && isConstructVariableExpr(n.Left)
 	default:
 		return false
 	}

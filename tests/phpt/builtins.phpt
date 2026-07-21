@@ -3,6 +3,7 @@ core builtin functions
 --FILE--
 <?php
 $items = array('a' => 1, 'b' => null, 'c' => 'x');
+$zero = 0;
 if (isset($items['a'])) {
     echo 'a';
 }
@@ -15,7 +16,7 @@ if (!isset($missing)) {
 if (empty($items['b'])) {
     echo 'd';
 }
-if (empty(0)) {
+if (empty($zero)) {
     echo 'e';
 }
 if (!empty($items['c'])) {

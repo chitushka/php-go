@@ -3148,10 +3148,47 @@ func TestClosureUseCaptures(t *testing.T) {
 }
 
 func TestBuiltinIssetAndEmpty(t *testing.T) {
-	src := "<?php $items = array('a' => 1, 'b' => null, 'c' => 'x'); if (isset($items['a'])) { echo 'a'; } if (!isset($items['b'])) { echo 'b'; } if (!isset($missing)) { echo 'c'; } if (empty($items['b'])) { echo 'd'; } if (empty(0)) { echo 'e'; } if (!empty($items['c'])) { echo 'f'; }"
+	src := "<?php $items = array('a' => 1, 'b' => null, 'c' => 'x'); $zero = 0; if (isset($items['a'])) { echo 'a'; } if (!isset($items['b'])) { echo 'b'; } if (!isset($missing)) { echo 'c'; } if (empty($items['b'])) { echo 'd'; } if (empty($zero)) { echo 'e'; } if (!empty($items['c'])) { echo 'f'; }"
 	got := run(t, src)
 	if got != "abcdef" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestIssetEmptyRequireVariables(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		err  string
+	}{
+		{
+			name: "isset expression",
+			src:  "<?php isset($a + 1);",
+			err:  "isset expects variables",
+		},
+		{
+			name: "empty literal",
+			src:  "<?php empty(0);",
+			err:  "empty expects a variable",
+		},
+		{
+			name: "empty call",
+			src:  "<?php empty(trim($a));",
+			err:  "empty expects a variable",
+		},
+		{
+			name: "isset append index",
+			src:  "<?php isset($items[]);",
+			err:  "isset expects variables",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := parseErrors(tt.src)
+			if len(errs) != 1 || errs[0] != tt.err {
+				t.Fatalf("expected %q, got %#v", tt.err, errs)
+			}
+		})
 	}
 }
 
