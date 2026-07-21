@@ -1899,6 +1899,28 @@ func TestPredefinedConstantsAreCaseSensitiveAndNotRedefinable(t *testing.T) {
 	}
 }
 
+func TestFloatToStringUsesPHPPrecision(t *testing.T) {
+	src := `<?php
+echo 0.1 + 0.2; echo ':';
+echo 3.0; echo ':';
+echo 100000000000000.0; echo ':';
+echo 10000000000000.0; echo ':';
+echo 0.00001; echo ':';
+echo 0.0001;`
+	got := run(t, src)
+	if got != "0.3:3:1.0E+14:10000000000000:1.0E-5:0.0001" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestIntOverflowPromotesToFloat(t *testing.T) {
+	src := `<?php var_dump(9223372036854775807 + 1);`
+	got := run(t, src)
+	if got != "float(9.2233720368548E+18)\n" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestInterfaceConstants(t *testing.T) {
 	src := "<?php interface Named { const KIND = 'iface'; } echo Named::KIND;"
 	got := run(t, src)

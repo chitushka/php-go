@@ -67,7 +67,7 @@ func (v Value) String() string {
 	case IntKind:
 		return strconv.FormatInt(v.I, 10)
 	case FloatKind:
-		return strconv.FormatFloat(v.F, 'f', -1, 64)
+		return FormatPHPFloat(v.F)
 	case StringKind:
 		return v.S
 	case ArrayKind:

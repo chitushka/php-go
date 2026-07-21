@@ -2297,7 +2297,7 @@ func (i *Interpreter) serializeValue(value Value) (string, error) {
 	case Int:
 		return "i:" + strconv.FormatInt(value.I, 10) + ";", nil
 	case Float:
-		return "d:" + strconv.FormatFloat(value.F, 'f', -1, 64) + ";", nil
+		return "d:" + builtins.FormatPHPFloat(value.F) + ";", nil
 	case String:
 		return `s:` + strconv.Itoa(len(value.S)) + `:"` + value.S + `";`, nil
 	case ArrayKind:

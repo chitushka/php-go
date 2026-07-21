@@ -17,7 +17,7 @@ var_dump(php_int_max);
 int(9223372036854775807)
 int(8)
 string(6) "5.3.29"
-float(3.141592653589793)
+float(3.1415926535898)
 int(32767)
 int(2)
 bool(true)

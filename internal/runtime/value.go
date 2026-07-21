@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"php-src-go/internal/ast"
+	"php-src-go/internal/runtime/builtins"
 )
 
 type Kind int
@@ -84,7 +85,7 @@ func (v Value) String() string {
 	case Int:
 		return strconv.FormatInt(v.I, 10)
 	case Float:
-		return strconv.FormatFloat(v.F, 'f', -1, 64)
+		return builtins.FormatPHPFloat(v.F)
 	case String:
 		return v.S
 	case ArrayKind:
@@ -585,8 +586,14 @@ func strictEqual(a, b Value) bool {
 	}
 }
 
+// maxInt64Float is 2^63, the smallest float64 magnitude that no longer fits
+// in an int64. PHP promotes arithmetic results to float on overflow instead
+// of wrapping, and int64(v) for out-of-range or non-finite v is undefined
+// (or silently wraps), so both cases must be routed to FloatValue first.
+const maxInt64Float = 9223372036854775808.0
+
 func numericResult(v float64) (Value, error) {
-	if math.Trunc(v) == v {
+	if math.Trunc(v) == v && v >= -maxInt64Float && v < maxInt64Float {
 		return IntValue(int64(v)), nil
 	}
 	return FloatValue(v), nil

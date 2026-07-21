@@ -25,7 +25,7 @@ func serializeValue(value Value) string {
 	case IntKind:
 		return "i:" + strconv.FormatInt(value.I, 10) + ";"
 	case FloatKind:
-		return "d:" + strconv.FormatFloat(value.F, 'f', -1, 64) + ";"
+		return "d:" + FormatPHPFloat(value.F) + ";"
 	case StringKind:
 		return "s:" + strconv.Itoa(len(value.S)) + ":\"" + value.S + "\";"
 	case ArrayKind:

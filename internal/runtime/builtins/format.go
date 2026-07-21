@@ -71,7 +71,7 @@ func writeVarDump(b *strings.Builder, value Value, depth int) {
 	case FloatKind:
 		b.WriteString(indent)
 		b.WriteString("float(")
-		b.WriteString(strconv.FormatFloat(value.F, 'f', -1, 64))
+		b.WriteString(FormatPHPFloat(value.F))
 		b.WriteString(")\n")
 	case StringKind:
 		b.WriteString(indent)
