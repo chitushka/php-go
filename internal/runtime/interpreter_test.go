@@ -3078,6 +3078,16 @@ func TestFunctionCallReferenceAndNameRules(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 
+	src = "<?php function force($value) { $value = $value + 10; } $n = 1; force(&$n); echo $n; $items = array('n' => 2); force(&$items['n']); echo ':'; echo $items['n'];"
+	got = run(t, src)
+	if got != "11:12" {
+		t.Fatalf("got %q", got)
+	}
+
+	if errs := parseErrors("<?php function force($value) {} force(&(1 + 2));"); len(errs) != 1 || errs[0] != "call-time reference argument must be a variable" {
+		t.Fatalf("expected call-time reference parse error, got %#v", errs)
+	}
+
 	err := runErr(t, "<?php function Same() {} function same() {}")
 	if err == nil || err.Error() != "cannot redeclare function same" {
 		t.Fatalf("unexpected error: %v", err)

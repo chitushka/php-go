@@ -353,6 +353,12 @@ type AssignExpr struct {
 
 func (*AssignExpr) exprNode() {}
 
+type ByRefArgExpr struct {
+	Target Expr
+}
+
+func (*ByRefArgExpr) exprNode() {}
+
 type ListExpr struct {
 	Targets []Expr
 }

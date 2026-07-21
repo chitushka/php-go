@@ -822,6 +822,8 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 		return i.eval(n.Else)
 	case *ast.AssignExpr:
 		return i.evalAssignExpr(n)
+	case *ast.ByRefArgExpr:
+		return i.eval(n.Target)
 	case *ast.ListExpr:
 		return NullValue(), nil
 	case *ast.CastExpr:
@@ -2911,6 +2913,8 @@ func (i *Interpreter) callPregMatchWithCaptures(c *ast.CallExpr) (Value, error) 
 
 func (i *Interpreter) assignBuiltinResult(target ast.Expr, value Value) error {
 	switch n := target.(type) {
+	case *ast.ByRefArgExpr:
+		return i.assignBuiltinResult(n.Target, value)
 	case *ast.Ident:
 		i.setVar(n.Name, value)
 		return nil
@@ -3120,14 +3124,22 @@ func (i *Interpreter) callFunctionResult(fn *ast.FunctionDeclStmt, args []ast.Ex
 			}
 			return &variableSlot{value: value}, nil
 		}
-		if param.ByRef {
-			slot, err := i.referenceSlot(args[idx])
+		arg := args[idx]
+		if target, ok := callTimeReferenceTarget(arg); ok {
+			slot, err := i.referenceSlot(target)
 			if err != nil {
 				return nil, fmt.Errorf("argument %d for %s must be a variable passed by reference", idx+1, fn.Name)
 			}
 			return slot, nil
 		}
-		value, err := i.eval(args[idx])
+		if param.ByRef {
+			slot, err := i.referenceSlot(arg)
+			if err != nil {
+				return nil, fmt.Errorf("argument %d for %s must be a variable passed by reference", idx+1, fn.Name)
+			}
+			return slot, nil
+		}
+		value, err := i.eval(arg)
 		if err != nil {
 			return nil, err
 		}
@@ -3203,14 +3215,22 @@ func (i *Interpreter) callClosureResult(closure *Closure, args []ast.Expr) (func
 			}
 			return &variableSlot{value: value}, nil
 		}
-		if param.ByRef {
-			slot, err := i.referenceSlot(args[idx])
+		arg := args[idx]
+		if target, ok := callTimeReferenceTarget(arg); ok {
+			slot, err := i.referenceSlot(target)
 			if err != nil {
 				return nil, fmt.Errorf("argument %d for %s must be a variable passed by reference", idx+1, fn.Name)
 			}
 			return slot, nil
 		}
-		value, err := i.eval(args[idx])
+		if param.ByRef {
+			slot, err := i.referenceSlot(arg)
+			if err != nil {
+				return nil, fmt.Errorf("argument %d for %s must be a variable passed by reference", idx+1, fn.Name)
+			}
+			return slot, nil
+		}
+		value, err := i.eval(arg)
 		if err != nil {
 			return nil, err
 		}
@@ -3873,6 +3893,8 @@ func (i *Interpreter) evalAssignExpr(n *ast.AssignExpr) (Value, error) {
 
 func (i *Interpreter) referenceSlot(expr ast.Expr) (*variableSlot, error) {
 	switch n := expr.(type) {
+	case *ast.ByRefArgExpr:
+		return i.referenceSlot(n.Target)
 	case *ast.Ident:
 		return i.ensureSlot(n.Name), nil
 	case *ast.VariableVariable:
@@ -3886,6 +3908,13 @@ func (i *Interpreter) referenceSlot(expr ast.Expr) (*variableSlot, error) {
 	default:
 		return nil, fmt.Errorf("reference assignment value must be a variable")
 	}
+}
+
+func callTimeReferenceTarget(expr ast.Expr) (ast.Expr, bool) {
+	if n, ok := expr.(*ast.ByRefArgExpr); ok {
+		return n.Target, true
+	}
+	return nil, false
 }
 
 func (i *Interpreter) callFunctionReference(c *ast.CallExpr) (*variableSlot, error) {

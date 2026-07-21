@@ -1799,7 +1799,16 @@ func (p *Parser) parseCallArgs() []ast.Expr {
 	}
 	for {
 		p.next()
-		args = append(args, p.parseExpression(lowest))
+		if p.cur.Type == lexer.Ampersand {
+			p.next()
+			target := p.parseExpression(lowest)
+			if !isReferenceWritableExpr(target) {
+				p.errors = append(p.errors, "call-time reference argument must be a variable")
+			}
+			args = append(args, &ast.ByRefArgExpr{Target: target})
+		} else {
+			args = append(args, p.parseExpression(lowest))
+		}
 		if p.peek.Type != lexer.Comma {
 			break
 		}

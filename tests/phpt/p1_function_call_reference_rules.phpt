@@ -25,9 +25,22 @@ $target = 'n';
 $n = 4;
 bump($$target);
 echo $n;
+echo "\n";
+
+function force($value) {
+    $value = $value + 10;
+}
+
+force(&$n);
+echo $n;
+echo "\n";
+force(&$items['count']);
+echo $items['count'];
 ?>
 --EXPECT--
 php!
 go!
 2
 5
+15
+12
