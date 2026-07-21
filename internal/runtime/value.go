@@ -27,6 +27,12 @@ const (
 type Closure struct {
 	Fn       *ast.FunctionDeclStmt
 	Captures map[string]*variableSlot
+	// This/CalledClass implement PHP 5.3's automatic $this binding: a
+	// closure literal written inside a method captures the enclosing
+	// method's $this (and late-static-binding class) implicitly, without
+	// needing `use ($this)`.
+	This        *Object
+	CalledClass string
 }
 
 type Value struct {
@@ -146,6 +152,13 @@ func BinaryWithDiagnostic(op string, a, b Value) (Value, *Diagnostic, error) {
 		case "/":
 			if nb == 0 {
 				return BoolValue(false), &Diagnostic{Severity: Warning, Message: "Division by zero"}, nil
+			}
+			if isIntLikeKind(a.Kind) && isIntLikeKind(b.Kind) {
+				left := int64(na)
+				right := int64(nb)
+				if left%right == 0 {
+					return IntValue(left / right), nil, nil
+				}
 			}
 			return FloatValue(na / nb), nil, nil
 		case "%":
@@ -597,4 +610,11 @@ func numericResult(v float64) (Value, error) {
 		return IntValue(int64(v)), nil
 	}
 	return FloatValue(v), nil
+}
+
+// isIntLikeKind reports whether a value's Kind carries an exact integer
+// numeric value (Int/Bool/Null), as opposed to Float/String where the
+// division result must stay float even when it happens to come out whole.
+func isIntLikeKind(k Kind) bool {
+	return k == Int || k == Bool || k == Null
 }

@@ -134,15 +134,17 @@ func TestDotOperatorNotConfusedWithFloatLiteral(t *testing.T) {
 func TestHeredocAndNowdocTokens(t *testing.T) {
 	l := New("<?php <<<TXT\nHello $name\nTXT;\n<<<'RAW'\nRaw $name\nRAW;")
 
+	// PHP's heredoc/nowdoc content excludes the single newline immediately
+	// before the closing label line.
 	got := l.NextToken()
-	if got.Type != String || got.Literal != "Hello $name\n" || !got.Interpolate {
+	if got.Type != String || got.Literal != "Hello $name" || !got.Interpolate {
 		t.Fatalf("got heredoc token %s (%q) interpolate=%v", got.Type, got.Literal, got.Interpolate)
 	}
 	if semi := l.NextToken(); semi.Type != Semicolon {
 		t.Fatalf("got token %s, want semicolon", semi.Type)
 	}
 	got = l.NextToken()
-	if got.Type != String || got.Literal != "Raw $name\n" || got.Interpolate {
+	if got.Type != String || got.Literal != "Raw $name" || got.Interpolate {
 		t.Fatalf("got nowdoc token %s (%q) interpolate=%v", got.Type, got.Literal, got.Interpolate)
 	}
 }

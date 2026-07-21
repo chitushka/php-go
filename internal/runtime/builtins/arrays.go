@@ -2,6 +2,7 @@ package builtins
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -14,6 +15,13 @@ type ArrayKey struct {
 
 func IntKey(v int64) ArrayKey     { return ArrayKey{IsInt: true, Int: v} }
 func StringKey(v string) ArrayKey { return ArrayKey{Str: v} }
+
+func (k ArrayKey) Value() Value {
+	if k.IsInt {
+		return IntValue(k.Int)
+	}
+	return StringValue(k.Str)
+}
 
 func (k ArrayKey) identity() string {
 	if k.IsInt {
@@ -236,4 +244,230 @@ func explode(args []Value) (Value, error) {
 		arr.Append(StringValue(part))
 	}
 	return ArrayValue(arr), nil
+}
+
+// arraySum mirrors PHP's array_sum(): the result stays an int as long as
+// every element contributes a whole int-like value, and promotes to float
+// the moment any element does not (matching the +/- int/float rule).
+func arraySum(args []Value) (Value, error) {
+	if err := checkArgCount("array_sum", len(args), 1, 1); err != nil {
+		return NullValue(), err
+	}
+	if args[0].Kind != ArrayKind || args[0].A == nil {
+		return IntValue(0), nil
+	}
+	isFloat := false
+	var intSum int64
+	var floatSum float64
+	for _, entry := range args[0].A.Entries {
+		n, ok := entry.Value.Number()
+		if !ok {
+			continue
+		}
+		wholeAndIntLike := (entry.Value.Kind == IntKind || entry.Value.Kind == BoolKind || entry.Value.Kind == NullKind) && n == math.Trunc(n)
+		if isFloat {
+			floatSum += n
+			continue
+		}
+		if wholeAndIntLike {
+			intSum += int64(n)
+			continue
+		}
+		floatSum = float64(intSum) + n
+		isFloat = true
+	}
+	if isFloat {
+		return FloatValue(floatSum), nil
+	}
+	return IntValue(intSum), nil
+}
+
+// arrayProduct mirrors PHP's array_product(): same int/float promotion rule
+// as arraySum, multiplicative identity 1 instead of additive 0.
+func arrayProduct(args []Value) (Value, error) {
+	if err := checkArgCount("array_product", len(args), 1, 1); err != nil {
+		return NullValue(), err
+	}
+	if args[0].Kind != ArrayKind || args[0].A == nil || len(args[0].A.Entries) == 0 {
+		return IntValue(0), nil
+	}
+	isFloat := false
+	var intProd int64 = 1
+	var floatProd float64 = 1
+	for _, entry := range args[0].A.Entries {
+		n, ok := entry.Value.Number()
+		if !ok {
+			continue
+		}
+		wholeAndIntLike := (entry.Value.Kind == IntKind || entry.Value.Kind == BoolKind || entry.Value.Kind == NullKind) && n == math.Trunc(n)
+		if isFloat {
+			floatProd *= n
+			continue
+		}
+		if wholeAndIntLike {
+			intProd *= int64(n)
+			continue
+		}
+		floatProd = float64(intProd) * n
+		isFloat = true
+	}
+	if isFloat {
+		return FloatValue(floatProd), nil
+	}
+	return IntValue(intProd), nil
+}
+
+// arrayReverse mirrors PHP's array_reverse(): string keys are always kept,
+// int keys are renumbered from 0 in the new order unless $preserve_keys is
+// truthy.
+func arrayReverse(args []Value) (Value, error) {
+	if err := checkArgCount("array_reverse", len(args), 1, 2); err != nil {
+		return NullValue(), err
+	}
+	if args[0].Kind != ArrayKind || args[0].A == nil {
+		return ArrayValue(NewArray()), nil
+	}
+	preserveKeys := len(args) == 2 && args[1].Truthy()
+	out := NewArray()
+	entries := args[0].A.Entries
+	for idx := len(entries) - 1; idx >= 0; idx-- {
+		entry := entries[idx]
+		if !entry.Key.IsInt || preserveKeys {
+			out.Set(entry.Key, entry.Value)
+		} else {
+			out.Append(entry.Value)
+		}
+	}
+	return ArrayValue(out), nil
+}
+
+// arraySlice mirrors PHP's array_slice(): negative $offset/$length count
+// from the end, string keys are always preserved, int keys are renumbered
+// from 0 unless $preserve_keys is truthy.
+func arraySlice(args []Value) (Value, error) {
+	if err := checkArgCount("array_slice", len(args), 2, 4); err != nil {
+		return NullValue(), err
+	}
+	if args[0].Kind != ArrayKind || args[0].A == nil {
+		return ArrayValue(NewArray()), nil
+	}
+	entries := args[0].A.Entries
+	length := len(entries)
+
+	offN, _ := args[1].Number()
+	offset := int(offN)
+	if offset < 0 {
+		offset += length
+		if offset < 0 {
+			offset = 0
+		}
+	}
+	if offset > length {
+		offset = length
+	}
+
+	end := length
+	if len(args) >= 3 && args[2].Kind != NullKind {
+		lenN, _ := args[2].Number()
+		l := int(lenN)
+		if l < 0 {
+			end = length + l
+		} else {
+			end = offset + l
+		}
+		if end > length {
+			end = length
+		}
+		if end < offset {
+			end = offset
+		}
+	}
+
+	preserveKeys := len(args) == 4 && args[3].Truthy()
+	out := NewArray()
+	for _, entry := range entries[offset:end] {
+		if !entry.Key.IsInt || preserveKeys {
+			out.Set(entry.Key, entry.Value)
+		} else {
+			out.Append(entry.Value)
+		}
+	}
+	return ArrayValue(out), nil
+}
+
+// arraySearch mirrors PHP's array_search(): like in_array but returns the
+// matching key (or false if none matched).
+func arraySearch(args []Value) (Value, error) {
+	if err := checkArgCount("array_search", len(args), 2, 3); err != nil {
+		return NullValue(), err
+	}
+	if args[1].Kind != ArrayKind || args[1].A == nil {
+		return BoolValue(false), nil
+	}
+	strict := len(args) == 3 && args[2].Truthy()
+	for _, entry := range args[1].A.Entries {
+		if strict {
+			if valuesStrictEqual(entry.Value, args[0]) {
+				return entry.Key.Value(), nil
+			}
+		} else if entry.Value.String() == args[0].String() {
+			return entry.Key.Value(), nil
+		}
+	}
+	return BoolValue(false), nil
+}
+
+// arrayMerge mirrors PHP's array_merge(): int keys are renumbered and
+// appended in argument order, string keys are overwritten by later arrays.
+func arrayMerge(args []Value) (Value, error) {
+	if len(args) == 0 {
+		return NullValue(), fmt.Errorf("array_merge expects at least 1 argument, got 0")
+	}
+	out := NewArray()
+	for _, arg := range args {
+		if arg.Kind != ArrayKind || arg.A == nil {
+			continue
+		}
+		for _, entry := range arg.A.Entries {
+			if entry.Key.IsInt {
+				out.Append(entry.Value)
+			} else {
+				out.Set(entry.Key, entry.Value)
+			}
+		}
+	}
+	return ArrayValue(out), nil
+}
+
+// arrayKeys mirrors PHP's array_keys(): with just an array, returns all
+// keys reindexed from 0; with $search_value, only the keys whose value
+// matches it (loose by default, === with $strict).
+func arrayKeys(args []Value) (Value, error) {
+	if err := checkArgCount("array_keys", len(args), 1, 3); err != nil {
+		return NullValue(), err
+	}
+	out := NewArray()
+	if args[0].Kind != ArrayKind || args[0].A == nil {
+		return ArrayValue(out), nil
+	}
+	if len(args) == 1 {
+		for _, entry := range args[0].A.Entries {
+			out.Append(entry.Key.Value())
+		}
+		return ArrayValue(out), nil
+	}
+	strict := len(args) == 3 && args[2].Truthy()
+	searchValue := args[1]
+	for _, entry := range args[0].A.Entries {
+		var match bool
+		if strict {
+			match = valuesStrictEqual(entry.Value, searchValue)
+		} else {
+			match = entry.Value.String() == searchValue.String()
+		}
+		if match {
+			out.Append(entry.Key.Value())
+		}
+	}
+	return ArrayValue(out), nil
 }

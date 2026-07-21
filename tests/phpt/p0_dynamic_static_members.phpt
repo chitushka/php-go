@@ -10,8 +10,7 @@ class DynamicStatic {
     }
 }
 
-$name = 'slot';
-$slot = 'value';
+$name = 'value';
 echo DynamicStatic::$$name;
 echo "\n";
 

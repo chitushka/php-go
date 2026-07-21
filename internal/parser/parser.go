@@ -125,6 +125,8 @@ func (p *Parser) parseStatement() ast.Stmt {
 		return p.parseFunctionDecl()
 	case lexer.Namespace:
 		return p.parseNamespaceDecl()
+	case lexer.Const:
+		return p.parseConstStmt()
 	case lexer.Use:
 		return p.parseUseImport()
 	case lexer.Return:
@@ -323,6 +325,25 @@ func (p *Parser) parseUnset() ast.Stmt {
 	return stmt
 }
 
+// parseControlBody parses a control-structure body that may be either a
+// braced block or — valid PHP, just less common in generated test code — a
+// single statement with no braces at all (`if ($x) return 1;`). Call with
+// p.cur on the last token before the body (e.g. the condition's closing
+// `)`) so p.peek is the body's first token.
+func (p *Parser) parseControlBody() *ast.BlockStmt {
+	if p.peek.Type == lexer.LBrace {
+		p.next()
+		return p.parseBlock().(*ast.BlockStmt)
+	}
+	p.next()
+	stmt := p.parseStatement()
+	block := &ast.BlockStmt{}
+	if stmt != nil {
+		block.Statements = append(block.Statements, stmt)
+	}
+	return block
+}
+
 func (p *Parser) parseIf() ast.Stmt {
 	if !p.expectPeek(lexer.LParen) {
 		return nil
@@ -336,10 +357,7 @@ func (p *Parser) parseIf() ast.Stmt {
 		p.next()
 		return p.parseAlternativeIf(cond)
 	}
-	if !p.expectPeek(lexer.LBrace) {
-		return nil
-	}
-	cons := p.parseBlock().(*ast.BlockStmt)
+	cons := p.parseControlBody()
 	var alt *ast.BlockStmt
 	if p.peek.Type == lexer.ElseIf {
 		p.next()
@@ -356,10 +374,7 @@ func (p *Parser) parseIf() ast.Stmt {
 				alt = &ast.BlockStmt{Statements: []ast.Stmt{nested}}
 			}
 		} else {
-			if !p.expectPeek(lexer.LBrace) {
-				return nil
-			}
-			alt = p.parseBlock().(*ast.BlockStmt)
+			alt = p.parseControlBody()
 		}
 	}
 	return &ast.IfStmt{Cond: cond, Consequence: cons, Alternative: alt}
@@ -429,10 +444,7 @@ func (p *Parser) parseWhile() ast.Stmt {
 		p.next()
 		return p.parseAlternativeWhile(cond)
 	}
-	if !p.expectPeek(lexer.LBrace) {
-		return nil
-	}
-	body := p.parseBlock().(*ast.BlockStmt)
+	body := p.parseControlBody()
 	return &ast.WhileStmt{Cond: cond, Body: body}
 }
 
@@ -447,10 +459,7 @@ func (p *Parser) parseAlternativeWhile(cond ast.Expr) ast.Stmt {
 }
 
 func (p *Parser) parseDoWhile() ast.Stmt {
-	if !p.expectPeek(lexer.LBrace) {
-		return nil
-	}
-	body := p.parseBlock().(*ast.BlockStmt)
+	body := p.parseControlBody()
 	if !p.expectPeek(lexer.While) {
 		return nil
 	}
@@ -504,10 +513,7 @@ func (p *Parser) parseFor() ast.Stmt {
 		p.next()
 		return p.parseAlternativeFor(init, cond, post)
 	}
-	if !p.expectPeek(lexer.LBrace) {
-		return nil
-	}
-	body := p.parseBlock().(*ast.BlockStmt)
+	body := p.parseControlBody()
 	return &ast.ForStmt{Init: init, Cond: cond, Post: post, Body: body}
 }
 
@@ -596,10 +602,7 @@ func (p *Parser) parseForeach() ast.Stmt {
 		p.next()
 		return p.parseAlternativeForeach(source, keyVar, valueVar, valueByRef)
 	}
-	if !p.expectPeek(lexer.LBrace) {
-		return nil
-	}
-	body := p.parseBlock().(*ast.BlockStmt)
+	body := p.parseControlBody()
 	return &ast.ForeachStmt{Source: source, KeyVar: keyVar, ValueVar: valueVar, ValueByRef: valueByRef, Body: body}
 }
 
@@ -1423,6 +1426,33 @@ func (p *Parser) parseClassConstants() []*ast.ClassConstant {
 	return constants
 }
 
+// parseConstStmt parses a top-level `const NAME = value, ...;` declaration
+// (distinct from a class's `const` member — see parseClassConstants). Names
+// are namespace-qualified the same way function/class declarations are, so
+// both a bare reference within the namespace and a fully-qualified
+// `\Ns\NAME` reference resolve to the same stored constant.
+func (p *Parser) parseConstStmt() ast.Stmt {
+	stmt := &ast.ConstStmt{}
+	for {
+		if !p.expectPeek(lexer.Ident) {
+			return stmt
+		}
+		name := p.resolveDeclarationName(p.cur.Literal)
+		if !p.expectPeek(lexer.Assign) {
+			return stmt
+		}
+		p.next()
+		value := p.parseExpression(lowest)
+		stmt.Constants = append(stmt.Constants, &ast.ClassConstant{Name: name, Value: value})
+		if p.peek.Type != lexer.Comma {
+			break
+		}
+		p.next()
+	}
+	p.consumeSemi()
+	return stmt
+}
+
 func (p *Parser) parseThrow() ast.Stmt {
 	if p.peek.Type == lexer.Semicolon {
 		p.errors = append(p.errors, "throw expects an expression")
@@ -1540,6 +1570,8 @@ func (p *Parser) parseExpression(precedence int) ast.Expr {
 		left = &ast.Ident{Name: p.cur.Literal}
 	case lexer.VarVar:
 		left = &ast.VariableVariable{Name: p.cur.Literal}
+	case lexer.DollarBrace:
+		left = p.parseDollarBraceName()
 	case lexer.Ident:
 		if strings.EqualFold(p.cur.Literal, "__NAMESPACE__") {
 			left = &ast.StringLit{Value: p.currentNamespace}
@@ -1589,6 +1621,9 @@ func (p *Parser) parseExpression(precedence int) ast.Expr {
 	case lexer.Clone:
 		p.next()
 		left = &ast.CloneExpr{Expr: p.parseExpression(prefix)}
+	case lexer.Print:
+		p.next()
+		left = &ast.PrintExpr{Value: p.parseExpression(lowest)}
 	case lexer.Include:
 		left = p.parseIncludeExpr(false, false)
 	case lexer.Require:
@@ -1647,6 +1682,11 @@ func (p *Parser) parsePostfix(left ast.Expr) ast.Expr {
 		case lexer.LBracket:
 			p.next()
 			left = p.parseIndexAccess(left)
+		case lexer.LBrace:
+			// Legacy curly-brace offset syntax (`$s{1}`), valid through
+			// PHP 7.4 and removed in 8.0 — this project targets 5.3.
+			p.next()
+			left = p.parseCurlyIndexAccess(left)
 		case lexer.LParen:
 			p.next()
 			left = &ast.VariableCallExpr{Callee: left, Args: p.parseCallArgs()}
@@ -1657,6 +1697,13 @@ func (p *Parser) parsePostfix(left ast.Expr) ast.Expr {
 				return left
 			}
 			left = &ast.IncDecExpr{Target: left, Op: p.cur.Literal, Post: true}
+		case lexer.ScopeResolution:
+			// `$var::member` / `$obj::member` — the class is resolved at
+			// runtime from `left`'s value (a class-name string or an
+			// object), unlike the literal-class-name `Foo::member` form
+			// (parsed separately via parseStaticAccess).
+			p.next()
+			left = p.parseDynamicStaticAccess(left)
 		default:
 			return left
 		}
@@ -1695,6 +1742,14 @@ func (p *Parser) parseStaticAccess() ast.Expr {
 			return &ast.DynamicStaticCallExpr{ClassName: className, Method: name, Args: p.parseCallArgs()}
 		}
 		return &ast.DynamicStaticPropertyFetchExpr{ClassName: className, Property: name}
+	case lexer.DollarBrace:
+		p.next()
+		name := p.parseDollarBraceName()
+		if p.peek.Type == lexer.LParen {
+			p.next()
+			return &ast.DynamicStaticCallExpr{ClassName: className, Method: name, Args: p.parseCallArgs()}
+		}
+		return &ast.DynamicStaticPropertyFetchExpr{ClassName: className, Property: name}
 	case lexer.Ident:
 		p.next()
 		name := p.cur.Literal
@@ -1705,6 +1760,64 @@ func (p *Parser) parseStaticAccess() ast.Expr {
 		return &ast.StaticCallExpr{ClassName: className, Method: name, Args: p.parseCallArgs()}
 	default:
 		p.errors = append(p.errors, fmt.Sprintf("expected static member after %s::", className))
+		return &ast.NullLit{}
+	}
+}
+
+// parseDollarBraceName parses the `${expr}` general variable-variable form
+// (`$` already consumed by the lexer into a DollarBrace token, p.cur is
+// that token): the braces contain an arbitrary expression whose value
+// names the target variable/member, e.g. `${$key}`.
+func (p *Parser) parseDollarBraceName() ast.Expr {
+	p.next()
+	inner := p.parseExpression(lowest)
+	if !p.expectPeek(lexer.RBrace) {
+		return &ast.NullLit{}
+	}
+	return &ast.VariableVariable{NameExpr: inner}
+}
+
+// parseDynamicStaticAccess parses the member part of `$var::member` /
+// `$obj::member` (`::` already consumed), mirroring parseStaticAccess's
+// member dispatch but building the ClassExpr-based variants so the class is
+// resolved from classExpr's runtime value instead of a literal name.
+func (p *Parser) parseDynamicStaticAccess(classExpr ast.Expr) ast.Expr {
+	switch p.peek.Type {
+	case lexer.Var:
+		p.next()
+		name := &ast.Ident{Name: p.cur.Literal}
+		if p.peek.Type == lexer.LParen {
+			p.next()
+			return &ast.DynamicStaticCallExpr{ClassExpr: classExpr, Method: name, Args: p.parseCallArgs()}
+		}
+		return &ast.StaticPropertyFetchExpr{ClassExpr: classExpr, Property: p.cur.Literal}
+	case lexer.VarVar:
+		p.next()
+		name := p.dynamicMemberName()
+		if p.peek.Type == lexer.LParen {
+			p.next()
+			return &ast.DynamicStaticCallExpr{ClassExpr: classExpr, Method: name, Args: p.parseCallArgs()}
+		}
+		return &ast.DynamicStaticPropertyFetchExpr{ClassExpr: classExpr, Property: name}
+	case lexer.DollarBrace:
+		p.next()
+		name := p.parseDollarBraceName()
+		if p.peek.Type == lexer.LParen {
+			p.next()
+			return &ast.DynamicStaticCallExpr{ClassExpr: classExpr, Method: name, Args: p.parseCallArgs()}
+		}
+		return &ast.DynamicStaticPropertyFetchExpr{ClassExpr: classExpr, Property: name}
+	case lexer.Ident:
+		p.next()
+		name := p.cur.Literal
+		if p.peek.Type != lexer.LParen {
+			p.errors = append(p.errors, "dynamic class constant access is not supported")
+			return &ast.NullLit{}
+		}
+		p.next()
+		return &ast.StaticCallExpr{ClassExpr: classExpr, Method: name, Args: p.parseCallArgs()}
+	default:
+		p.errors = append(p.errors, fmt.Sprintf("expected static member after ::, got %s", p.peek.Type))
 		return &ast.NullLit{}
 	}
 }
@@ -1773,13 +1886,21 @@ func (p *Parser) dynamicMemberName() ast.Expr {
 }
 
 func (p *Parser) parseIndexAccess(left ast.Expr) ast.Expr {
-	if p.peek.Type == lexer.RBracket {
+	return p.parseIndexAccessClosing(left, lexer.RBracket)
+}
+
+func (p *Parser) parseCurlyIndexAccess(left ast.Expr) ast.Expr {
+	return p.parseIndexAccessClosing(left, lexer.RBrace)
+}
+
+func (p *Parser) parseIndexAccessClosing(left ast.Expr, closing lexer.TokenType) ast.Expr {
+	if p.peek.Type == closing {
 		p.next()
 		return &ast.IndexExpr{Left: left}
 	}
 	p.next()
 	index := p.parseExpression(lowest)
-	if !p.expectPeek(lexer.RBracket) {
+	if !p.expectPeek(closing) {
 		return left
 	}
 	return &ast.IndexExpr{Left: left, Index: index}
@@ -1912,19 +2033,28 @@ func (p *Parser) parseInfix(left ast.Expr) ast.Expr {
 	if p.cur.Type == lexer.Assign || p.cur.Type == lexer.AssignRef || isCompoundAssignOp(p.cur.Type) {
 		op := p.cur.Type
 		p.next()
+		byRef := op == lexer.AssignRef
+		if op == lexer.Assign && p.cur.Type == lexer.Ampersand {
+			// `$a = &$b` (with whitespace between `=` and `&`) is just as
+			// valid as the adjacent `=&` form the lexer tokenizes directly —
+			// PHP's tokenizer treats `=` and `&` as separate tokens here too,
+			// so whitespace between them is not significant.
+			byRef = true
+			p.next()
+		}
 		value := p.parseExpression(assignment - 1)
 		if !isWritableExpr(left) {
 			p.errors = append(p.errors, "expression is not writable")
 			return left
 		}
-		if op == lexer.AssignRef && !isReferenceWritableExpr(left) {
+		if byRef && !isReferenceWritableExpr(left) {
 			p.errors = append(p.errors, "reference assignment target must be a variable")
 			return left
 		}
 		if isCompoundAssignOp(op) {
 			return &ast.AssignExpr{Target: left, Op: compoundBinaryOp(op), Value: value}
 		}
-		if op == lexer.AssignRef {
+		if byRef {
 			if !isReferenceWritableExpr(value) {
 				p.errors = append(p.errors, "reference assignment value must be a variable")
 				return left

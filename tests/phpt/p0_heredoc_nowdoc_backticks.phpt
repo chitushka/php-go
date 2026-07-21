@@ -18,6 +18,4 @@ echo $nowdoc;
 echo `echo $cmd`;
 ?>
 --EXPECT--
-Hello PHP
-Raw $name
-BT
+Hello PHPRaw $nameBT

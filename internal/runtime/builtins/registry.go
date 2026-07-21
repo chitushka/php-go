@@ -18,6 +18,13 @@ var funcs = map[string]Func{
 	"in_array":          inArray,
 	"implode":           implode,
 	"explode":           explode,
+	"array_sum":         arraySum,
+	"array_product":     arrayProduct,
+	"array_reverse":     arrayReverse,
+	"array_slice":       arraySlice,
+	"array_search":      arraySearch,
+	"array_merge":       arrayMerge,
+	"array_keys":        arrayKeys,
 	"is_array":          isArray,
 	"is_string":         isString,
 	"is_null":           isNull,
@@ -26,6 +33,11 @@ var funcs = map[string]Func{
 	"ltrim":             ltrim,
 	"rtrim":             rtrim,
 	"str_replace":       strReplace,
+	"str_repeat":        strRepeat,
+	"number_format":     numberFormat,
+	"str_pad":           strPad,
+	"wordwrap":          wordwrap,
+	"sprintf":           sprintfFn,
 	"round":             round,
 	"floor":             floor,
 	"ceil":              ceil,
@@ -56,6 +68,7 @@ var funcs = map[string]Func{
 var outputFuncs = map[string]OutputFunc{
 	"print_r":  printR,
 	"var_dump": varDump,
+	"printf":   printfFn,
 }
 
 func Call(name string, args []Value) (Value, bool, error) {
@@ -65,6 +78,19 @@ func Call(name string, args []Value) (Value, bool, error) {
 	}
 	value, err := fn(args)
 	return value, true, err
+}
+
+// Exists reports whether name is a registered builtin function (used by
+// function_exists()). It does not know about the additional builtins that
+// are special-cased directly in the interpreter's call dispatch (isset,
+// array_map, sort, ...) — callers should check those separately.
+func Exists(name string) bool {
+	key := strings.ToLower(name)
+	if _, ok := funcs[key]; ok {
+		return true
+	}
+	_, ok := outputFuncs[key]
+	return ok
 }
 
 func CallWithOutput(name string, args []Value) (Value, string, bool, error) {

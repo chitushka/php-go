@@ -10,7 +10,7 @@ var_dump(round(-2.5));
 var_dump(floor(3.0));
 var_dump(ceil(4.0));
 var_dump(abs(-5));
-var_dump(abs(-10.0/2));
+var_dump(abs(-10.0/2.0));
 var_dump(abs(-5.5));
 ?>
 --EXPECT--

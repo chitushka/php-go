@@ -94,7 +94,7 @@ func writeVarDump(b *strings.Builder, value Value, depth int) {
 		for _, entry := range value.A.Entries {
 			b.WriteString(indent)
 			b.WriteString("  [")
-			b.WriteString(arrayKeyString(entry.Key))
+			b.WriteString(varDumpArrayKeyString(entry.Key))
 			b.WriteString("]=>\n")
 			writeVarDump(b, entry.Value, depth+1)
 		}
@@ -111,4 +111,13 @@ func arrayKeyString(key ArrayKey) string {
 		return strconv.FormatInt(key.Int, 10)
 	}
 	return key.Str
+}
+
+// varDumpArrayKeyString matches var_dump()'s array key rendering, which
+// (unlike print_r) quotes string keys: `["a"]=>` vs print_r's `[a] =>`.
+func varDumpArrayKeyString(key ArrayKey) string {
+	if key.IsInt {
+		return strconv.FormatInt(key.Int, 10)
+	}
+	return "\"" + key.Str + "\""
 }

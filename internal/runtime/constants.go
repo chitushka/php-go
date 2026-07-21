@@ -78,5 +78,9 @@ func buildPredefinedConstants() map[string]Value {
 		"E_DEPRECATED":        IntValue(8192),
 		"E_USER_DEPRECATED":   IntValue(16384),
 		"E_ALL":               IntValue(32767),
+
+		"STR_PAD_RIGHT": IntValue(1),
+		"STR_PAD_LEFT":  IntValue(0),
+		"STR_PAD_BOTH":  IntValue(2),
 	}
 }

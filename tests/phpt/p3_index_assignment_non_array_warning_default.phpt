@@ -4,7 +4,7 @@ P3 index assignment on non-array warnings are non-halting by default
 <?php
 $x = 1;
 $name = 'y';
-$y = 'scalar';
+$y = 5;
 $nested = array('a' => 1);
 $x['key'] = 'bad';
 $$name['key'] = 'bad';
@@ -19,6 +19,6 @@ echo 'after';
 ?>
 --EXPECT--
 1
-scalar
+5
 1
 after

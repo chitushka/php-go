@@ -178,6 +178,14 @@ type IncludeExpr struct {
 
 func (*IncludeExpr) exprNode() {}
 
+// PrintExpr is `print`'s expression form, e.g. `$x = print "hi";`. Unlike
+// echo, print always evaluates to int(1) and takes exactly one operand.
+type PrintExpr struct {
+	Value Expr
+}
+
+func (*PrintExpr) exprNode() {}
+
 type ClassDeclStmt struct {
 	Name       string
 	Parent     string
@@ -215,6 +223,14 @@ type ClassConstant struct {
 	Value Expr
 	Owner string
 }
+
+// ConstStmt is a top-level/namespace-scope `const NAME = value, ...;`
+// declaration (as opposed to a class's `const` member, see ClassConstant).
+type ConstStmt struct {
+	Constants []*ClassConstant
+}
+
+func (*ConstStmt) stmtNode() {}
 
 type PropertyAssignStmt struct {
 	Object   Expr
@@ -266,7 +282,13 @@ type Ident struct{ Name string }
 
 func (*Ident) exprNode() {}
 
-type VariableVariable struct{ Name string }
+// NameExpr, when non-nil, means the variable name came from the general
+// `${expr}` brace form (e.g. `${$key}`) rather than the bare `$$name` form
+// — Name is used when NameExpr is nil.
+type VariableVariable struct {
+	Name     string
+	NameExpr Expr
+}
 
 func (*VariableVariable) exprNode() {}
 
@@ -452,8 +474,14 @@ type DynamicMethodCallExpr struct {
 
 func (*DynamicMethodCallExpr) exprNode() {}
 
+// ClassExpr, when non-nil, means the class was named by a runtime
+// expression (`$var::...`) rather than a literal name — the class is
+// either the string value of ClassExpr or, if it evaluates to an object,
+// that object's own class. Mirrors InstanceOfExpr's ClassName/ClassExpr
+// split.
 type StaticPropertyFetchExpr struct {
 	ClassName string
+	ClassExpr Expr
 	Property  string
 }
 
@@ -461,6 +489,7 @@ func (*StaticPropertyFetchExpr) exprNode() {}
 
 type DynamicStaticPropertyFetchExpr struct {
 	ClassName string
+	ClassExpr Expr
 	Property  Expr
 }
 
@@ -475,6 +504,7 @@ func (*ClassConstFetchExpr) exprNode() {}
 
 type StaticCallExpr struct {
 	ClassName string
+	ClassExpr Expr
 	Method    string
 	Args      []Expr
 }
@@ -483,6 +513,7 @@ func (*StaticCallExpr) exprNode() {}
 
 type DynamicStaticCallExpr struct {
 	ClassName string
+	ClassExpr Expr
 	Method    Expr
 	Args      []Expr
 }

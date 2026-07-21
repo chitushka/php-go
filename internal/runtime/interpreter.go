@@ -46,6 +46,7 @@ type Interpreter struct {
 	destructed                  map[*Object]bool
 	diagnostics                 []Diagnostic
 	errorPolicy                 ErrorPolicy
+	errorReportingLevel         int64
 	Out                         bytes.Buffer
 }
 
@@ -66,11 +67,11 @@ func NewInterpreterWithBaseDir(baseDir string) *Interpreter {
 		Vars:                        map[string]Value{},
 		globals:                     map[string]*variableSlot{},
 		functions:                   map[string]*ast.FunctionDeclStmt{},
-		classes:                     map[string]*ast.ClassDeclStmt{classNameKey("Exception"): builtinExceptionClass()},
+		classes:                     builtinClasses(),
 		classAliases:                map[string]classAlias{},
 		interfaces:                  map[string]*ast.InterfaceDeclStmt{},
 		constants:                   map[string]map[string]Value{},
-		declaredClassNames:          map[string]string{classNameKey("Exception"): "Exception"},
+		declaredClassNames:          builtinDeclaredClassNames(),
 		runtimeConstants:            map[string]Value{},
 		runtimeInsensitiveConstants: map[string]Value{},
 		staticVars:                  map[string]map[string]*variableSlot{},
@@ -85,6 +86,7 @@ func NewInterpreterWithBaseDir(baseDir string) *Interpreter {
 		fileStack:                   []string{},
 		destructed:                  map[*Object]bool{},
 		errorPolicy:                 DefaultErrorPolicy(),
+		errorReportingLevel:         int64(predefinedConstants["E_ALL"].I),
 	}
 }
 
@@ -99,6 +101,42 @@ func builtinExceptionClass() *ast.ClassDeclStmt {
 			{Name: "previous", Visibility: "private", Default: &ast.NullLit{}, Owner: "Exception"},
 		},
 	}
+}
+
+// splExceptionHierarchy pairs (class, parent) for PHP's built-in SPL
+// exceptions (available since PHP 5.1, well within 5.3 scope) — every one
+// is a plain subclass of Exception adding no members of its own.
+var splExceptionHierarchy = []struct{ name, parent string }{
+	{"ErrorException", "Exception"},
+	{"LogicException", "Exception"},
+	{"BadFunctionCallException", "LogicException"},
+	{"BadMethodCallException", "BadFunctionCallException"},
+	{"DomainException", "LogicException"},
+	{"InvalidArgumentException", "LogicException"},
+	{"LengthException", "LogicException"},
+	{"OutOfRangeException", "LogicException"},
+	{"RuntimeException", "Exception"},
+	{"OutOfBoundsException", "RuntimeException"},
+	{"OverflowException", "RuntimeException"},
+	{"RangeException", "RuntimeException"},
+	{"UnderflowException", "RuntimeException"},
+	{"UnexpectedValueException", "RuntimeException"},
+}
+
+func builtinClasses() map[string]*ast.ClassDeclStmt {
+	classes := map[string]*ast.ClassDeclStmt{classNameKey("Exception"): builtinExceptionClass()}
+	for _, spl := range splExceptionHierarchy {
+		classes[classNameKey(spl.name)] = &ast.ClassDeclStmt{Name: spl.name, Parent: spl.parent}
+	}
+	return classes
+}
+
+func builtinDeclaredClassNames() map[string]string {
+	names := map[string]string{classNameKey("Exception"): "Exception"}
+	for _, spl := range splExceptionHierarchy {
+		names[classNameKey(spl.name)] = spl.name
+	}
+	return names
 }
 
 func (i *Interpreter) SetEntryFile(path string) {
@@ -249,6 +287,10 @@ type frame struct {
 	function    string
 	functionKey string
 	returnByRef bool
+	// allArgs holds every argument value actually passed to this call — PHP
+	// allows calling a function with more arguments than it declares, the
+	// extras only reachable via func_get_args()/func_num_args()/func_get_arg().
+	allArgs []Value
 }
 
 type functionCallResult struct {
@@ -346,6 +388,14 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 				return nil, err
 			}
 			i.Out.WriteString(text)
+		}
+	case *ast.ConstStmt:
+		for _, c := range n.Constants {
+			value, err := i.eval(c.Value)
+			if err != nil {
+				return nil, err
+			}
+			i.runtimeConstants[c.Name] = value
 		}
 	case *ast.UnsetStmt:
 		for _, target := range n.Targets {
@@ -742,6 +792,17 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 			z, err := BitwiseNot(v)
 			return z, err
 		}
+	case *ast.PrintExpr:
+		v, err := i.eval(n.Value)
+		if err != nil {
+			return NullValue(), err
+		}
+		text, err := i.stringify(v)
+		if err != nil {
+			return NullValue(), err
+		}
+		i.Out.WriteString(text)
+		return IntValue(1), nil
 	case *ast.CloneExpr:
 		return i.evalClone(n.Expr)
 	case *ast.IncludeExpr:
@@ -883,13 +944,21 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 	case *ast.DynamicMethodCallExpr:
 		return i.callDynamicMethod(n)
 	case *ast.StaticPropertyFetchExpr:
-		return i.fetchStaticProperty(n.ClassName, n.Property)
+		className, err := i.staticTargetClassName(n.ClassName, n.ClassExpr)
+		if err != nil {
+			return NullValue(), err
+		}
+		return i.fetchStaticProperty(className, n.Property)
 	case *ast.DynamicStaticPropertyFetchExpr:
+		className, err := i.staticTargetClassName(n.ClassName, n.ClassExpr)
+		if err != nil {
+			return NullValue(), err
+		}
 		property, err := i.dynamicMemberName(n.Property)
 		if err != nil {
 			return NullValue(), err
 		}
-		return i.fetchStaticProperty(n.ClassName, property)
+		return i.fetchStaticProperty(className, property)
 	case *ast.ClassConstFetchExpr:
 		return i.getClassConstant(n.ClassName, n.Name)
 	case *ast.StaticCallExpr:
@@ -898,6 +967,33 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 		return i.callDynamicStatic(n)
 	}
 	return NullValue(), fmt.Errorf("unsupported expression %T", e)
+}
+
+// resolveClassExprName evaluates a dynamic class-reference expression
+// (`$var::...`) to the class name it refers to: an object's own class, or
+// the string value naming a class.
+func (i *Interpreter) resolveClassExprName(classExpr ast.Expr) (string, error) {
+	value, err := i.eval(classExpr)
+	if err != nil {
+		return "", err
+	}
+	if value.Kind == ObjectKind && value.O != nil {
+		return value.O.ClassName, nil
+	}
+	name := value.String()
+	if name == "" {
+		return "", fmt.Errorf("class name must not be empty")
+	}
+	return name, nil
+}
+
+// staticTargetClassName resolves the ClassName/ClassExpr pair shared by
+// StaticPropertyFetchExpr and StaticCallExpr (see their doc comment).
+func (i *Interpreter) staticTargetClassName(className string, classExpr ast.Expr) (string, error) {
+	if classExpr == nil {
+		return className, nil
+	}
+	return i.resolveClassExprName(classExpr)
 }
 
 func (i *Interpreter) instanceOfClassName(n *ast.InstanceOfExpr) (string, error) {
@@ -958,7 +1054,13 @@ func (i *Interpreter) evalClosure(c *ast.ClosureExpr) (Value, error) {
 		}
 		captures[use.Name] = &variableSlot{value: value}
 	}
-	return ClosureValue(&Closure{Fn: fn, Captures: captures}), nil
+	closure := &Closure{Fn: fn, Captures: captures}
+	if this := i.currentThis(); this != nil {
+		closure.This = this
+		closure.CalledClass = i.currentCalledClass()
+		fn.Owner = i.currentClass()
+	}
+	return ClosureValue(closure), nil
 }
 
 func (i *Interpreter) evalMagicConst(c *ast.MagicConstExpr) Value {
@@ -1076,7 +1178,33 @@ func (i *Interpreter) callVariable(c *ast.VariableCallExpr) (Value, error) {
 	return i.call(&ast.CallExpr{Name: callee.String(), Args: c.Args})
 }
 
+// dynamicMemberName resolves a dynamic property/method/static-member name
+// expression (`$$prop`, `${$key}`, or a plain `$name`) to the string to use
+// as the member name. `*ast.VariableVariable` gets special handling here:
+// evaluating it via the generic i.eval() path would perform variable-variable
+// semantics (double dereference — $prop's value names ANOTHER variable
+// whose value is returned), which is right for a standalone `$$prop`
+// expression but wrong in member-name position, where `Class::$$prop` /
+// `Class::${$prop}` must use $prop's value directly as the member name
+// (single dereference).
 func (i *Interpreter) dynamicMemberName(expr ast.Expr) (string, error) {
+	if vv, ok := expr.(*ast.VariableVariable); ok {
+		if vv.NameExpr != nil {
+			value, err := i.eval(vv.NameExpr)
+			if err != nil {
+				return "", err
+			}
+			return value.String(), nil
+		}
+		value, ok := i.getVar(vv.Name)
+		if !ok {
+			if err := i.noticef("undefined variable %s", vv.Name); err != nil {
+				return "", err
+			}
+			return "", nil
+		}
+		return value.String(), nil
+	}
 	value, err := i.eval(expr)
 	if err != nil {
 		return "", err
@@ -1126,6 +1254,34 @@ func (i *Interpreter) callBuiltin(c *ast.CallExpr) (Value, bool, error) {
 		return i.callUserFunc(c.Args)
 	case "call_user_func_array":
 		return i.callUserFuncArray(c.Args)
+	case "forward_static_call":
+		return i.callForwardStaticCall(c.Args)
+	case "forward_static_call_array":
+		return i.callForwardStaticCallArray(c.Args)
+	case "error_reporting":
+		return i.callErrorReporting(c.Args)
+	case "sort":
+		return i.callSort(c.Args)
+	case "ksort":
+		return i.callKsort(c.Args)
+	case "usort":
+		return i.callUsort(c.Args)
+	case "array_walk":
+		return i.callArrayWalk(c.Args)
+	case "array_map":
+		return i.callArrayMap(c.Args)
+	case "array_filter":
+		return i.callArrayFilter(c.Args)
+	case "array_reduce":
+		return i.callArrayReduce(c.Args)
+	case "function_exists":
+		return i.callFunctionExists(c.Args)
+	case "func_get_args":
+		return i.callFuncGetArgs(c.Args)
+	case "func_num_args":
+		return i.callFuncNumArgs(c.Args)
+	case "func_get_arg":
+		return i.callFuncGetArg(c.Args)
 	case "method_exists":
 		return i.callMethodExists(c.Args)
 	case "property_exists":
@@ -1704,6 +1860,54 @@ func (i *Interpreter) callUserFunc(args []ast.Expr) (Value, bool, error) {
 	return value, true, err
 }
 
+// callForwardStaticCall implements forward_static_call(): calls $callback
+// with the given arguments, PHP-docs framing it as "forwarding" the current
+// late-static-binding context. In practice every caller resolves that
+// context into a concrete class name before building the callback (e.g.
+// `array(get_called_class(), 'method')`), so this is just call_user_func()
+// under another name — a callback expressed as bare 'parent'/'static'
+// scope-resolution strings would need extra handling this doesn't attempt.
+func (i *Interpreter) callForwardStaticCall(args []ast.Expr) (Value, bool, error) {
+	if len(args) < 1 {
+		return i.handleBuiltinWarning(fmt.Errorf("forward_static_call expects at least 1 argument, got %d", len(args)), NullValue(), true)
+	}
+	callable, err := i.eval(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	value, err := i.callCallableValue(callable, args[1:])
+	if isCallableWarning(err) {
+		return i.handleBuiltinWarning(err, value, true)
+	}
+	return value, true, err
+}
+
+func (i *Interpreter) callForwardStaticCallArray(args []ast.Expr) (Value, bool, error) {
+	if len(args) != 2 {
+		return i.handleBuiltinWarning(fmt.Errorf("forward_static_call_array expects 2 arguments, got %d", len(args)), NullValue(), true)
+	}
+	callable, err := i.eval(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	argArray, err := i.eval(args[1])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	if argArray.Kind != ArrayKind || argArray.A == nil {
+		return i.handleBuiltinWarning(fmt.Errorf("forward_static_call_array expects argument 2 to be array"), NullValue(), true)
+	}
+	values := make([]Value, 0, len(argArray.A.Entries))
+	for _, entry := range argArray.A.Entries {
+		values = append(values, entry.RuntimeValue())
+	}
+	value, err := i.callCallableValueValues(callable, values)
+	if isCallableWarning(err) {
+		return i.handleBuiltinWarning(err, value, true)
+	}
+	return value, true, err
+}
+
 func (i *Interpreter) callUserFuncArray(args []ast.Expr) (Value, bool, error) {
 	if len(args) != 2 {
 		return i.handleBuiltinWarning(fmt.Errorf("call_user_func_array expects 2 arguments, got %d", len(args)), NullValue(), true)
@@ -1728,6 +1932,423 @@ func (i *Interpreter) callUserFuncArray(args []ast.Expr) (Value, bool, error) {
 		return i.handleBuiltinWarning(err, value, true)
 	}
 	return value, true, err
+}
+
+// callErrorReporting implements error_reporting(): it tracks the current
+// PHP-level reporting bitmask (E_ALL, E_NOTICE, ...) and returns the
+// previous value, matching PHP's signature. The bitmask is stored but does
+// not (yet) feed back into the coarser-grained ErrorPolicy that actually
+// gates diagnostics — no diagnostic in this interpreter is currently emitted
+// at a level fine enough (e.g. E_NOTICE for non-well-formed numeric string
+// arithmetic) for that gap to be observable.
+func (i *Interpreter) callErrorReporting(args []ast.Expr) (Value, bool, error) {
+	if len(args) > 1 {
+		return i.handleBuiltinWarning(fmt.Errorf("error_reporting expects 0 or 1 arguments, got %d", len(args)), NullValue(), true)
+	}
+	previous := i.errorReportingLevel
+	if len(args) == 1 {
+		v, err := i.eval(args[0])
+		if err != nil {
+			return NullValue(), true, err
+		}
+		n, _ := v.number()
+		i.errorReportingLevel = int64(n)
+	}
+	return IntValue(previous), true, nil
+}
+
+// callSort implements sort(): re-indexes $arr's values in ascending PHP
+// loose-comparison order, discarding the original keys — a by-reference
+// builtin, so it must live here rather than in the builtins package (which
+// only ever sees plain-value copies of its arguments).
+func (i *Interpreter) callSort(args []ast.Expr) (Value, bool, error) {
+	if len(args) != 1 {
+		return i.handleBuiltinWarning(fmt.Errorf("sort expects exactly 1 argument, got %d", len(args)), BoolValue(false), true)
+	}
+	slot, err := i.referenceSlot(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	if slot.value.Kind != ArrayKind || slot.value.A == nil {
+		return i.handleBuiltinWarning(fmt.Errorf("sort() expects parameter 1 to be array"), BoolValue(false), true)
+	}
+	values := make([]Value, len(slot.value.A.Entries))
+	for idx, entry := range slot.value.A.Entries {
+		values[idx] = entry.RuntimeValue()
+	}
+	sort.SliceStable(values, func(a, b int) bool {
+		cmp, _ := looseCompare(values[a], values[b])
+		return cmp < 0
+	})
+	sorted := NewArray()
+	for _, v := range values {
+		sorted.Append(v)
+	}
+	slot.value = ArrayValue(sorted)
+	return BoolValue(true), true, nil
+}
+
+// callKsort implements ksort(): reorders $arr's entries by key ascending
+// (PHP loose comparison), preserving each entry's original key/value.
+func (i *Interpreter) callKsort(args []ast.Expr) (Value, bool, error) {
+	if len(args) != 1 {
+		return i.handleBuiltinWarning(fmt.Errorf("ksort expects exactly 1 argument, got %d", len(args)), BoolValue(false), true)
+	}
+	slot, err := i.referenceSlot(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	if slot.value.Kind != ArrayKind || slot.value.A == nil {
+		return i.handleBuiltinWarning(fmt.Errorf("ksort() expects parameter 1 to be array"), BoolValue(false), true)
+	}
+	entries := append([]ArrayEntry(nil), slot.value.A.Entries...)
+	sort.SliceStable(entries, func(a, b int) bool {
+		cmp, _ := looseCompare(entries[a].Key.Value(), entries[b].Key.Value())
+		return cmp < 0
+	})
+	sorted := NewArray()
+	for _, entry := range entries {
+		sorted.Set(entry.Key, entry.RuntimeValue())
+	}
+	slot.value = ArrayValue(sorted)
+	return BoolValue(true), true, nil
+}
+
+// callUsort implements usort(): like sort(), but compares elements through
+// a user callback($a, $b) returning <0/0/>0 instead of PHP's default loose
+// comparison.
+func (i *Interpreter) callUsort(args []ast.Expr) (Value, bool, error) {
+	if len(args) != 2 {
+		return i.handleBuiltinWarning(fmt.Errorf("usort expects exactly 2 arguments, got %d", len(args)), BoolValue(false), true)
+	}
+	slot, err := i.referenceSlot(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	if slot.value.Kind != ArrayKind || slot.value.A == nil {
+		return i.handleBuiltinWarning(fmt.Errorf("usort() expects parameter 1 to be array"), BoolValue(false), true)
+	}
+	callback, err := i.eval(args[1])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	values := make([]Value, len(slot.value.A.Entries))
+	for idx, entry := range slot.value.A.Entries {
+		values[idx] = entry.RuntimeValue()
+	}
+	var callErr error
+	sort.SliceStable(values, func(a, b int) bool {
+		if callErr != nil {
+			return false
+		}
+		result, err := i.callCallableValueValues(callback, []Value{values[a], values[b]})
+		if err != nil {
+			callErr = err
+			return false
+		}
+		n, _ := result.number()
+		return n < 0
+	})
+	if callErr != nil {
+		return NullValue(), true, callErr
+	}
+	sorted := NewArray()
+	for _, v := range values {
+		sorted.Append(v)
+	}
+	slot.value = ArrayValue(sorted)
+	return BoolValue(true), true, nil
+}
+
+// callClosureSlots is like callClosureValues, but for by-ref parameters
+// (`function (&$v) {...}`) binds the caller's own slot directly instead of
+// a value copy — used by array_walk() so callback mutations of $value
+// propagate back into the array being walked.
+func (i *Interpreter) callClosureSlots(closure *Closure, slots []*variableSlot) (Value, error) {
+	if closure == nil || closure.Fn == nil {
+		return NullValue(), fmt.Errorf("invalid closure")
+	}
+	fn := closure.Fn
+	var extraArgs []Value
+	for _, s := range slots[min(len(fn.Params), len(slots)):] {
+		extraArgs = append(extraArgs, s.value)
+	}
+	result, err := i.callFunctionWithBinderResult(fn, len(slots), closure.This, closure.CalledClass, closure.Captures, extraArgs, func(idx int, param ast.Param) (*variableSlot, error) {
+		if idx >= len(slots) {
+			if param.Default == nil {
+				return i.missingArgumentSlot(fn, len(slots))
+			}
+			value, err := i.eval(param.Default)
+			if err != nil {
+				return nil, err
+			}
+			return &variableSlot{value: value}, nil
+		}
+		if param.ByRef {
+			return slots[idx], nil
+		}
+		return &variableSlot{value: slots[idx].value}, nil
+	})
+	return result.value, err
+}
+
+// callArrayWalk implements array_walk(): calls $callback($value, $key[,
+// $extra]) for every entry, writing back $value in case the callback
+// declared it by reference (`function (&$v, $k) {...}`). By-ref mutation is
+// only supported when $callback is a Closure — that covers every realistic
+// use — falling back to a plain-value call otherwise.
+func (i *Interpreter) callArrayWalk(args []ast.Expr) (Value, bool, error) {
+	if len(args) < 2 || len(args) > 3 {
+		return i.handleBuiltinWarning(fmt.Errorf("array_walk expects 2 or 3 arguments, got %d", len(args)), BoolValue(false), true)
+	}
+	slot, err := i.referenceSlot(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	if slot.value.Kind != ArrayKind || slot.value.A == nil {
+		return i.handleBuiltinWarning(fmt.Errorf("array_walk() expects parameter 1 to be array"), BoolValue(false), true)
+	}
+	callback, err := i.eval(args[1])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	hasExtra := len(args) == 3
+	var extra Value
+	if hasExtra {
+		extra, err = i.eval(args[2])
+		if err != nil {
+			return NullValue(), true, err
+		}
+	}
+	arr := slot.value.A
+	for idx := range arr.Entries {
+		valueSlot := &variableSlot{value: arr.Entries[idx].RuntimeValue()}
+		keySlot := &variableSlot{value: arr.Entries[idx].Key.Value()}
+		slots := []*variableSlot{valueSlot, keySlot}
+		if hasExtra {
+			slots = append(slots, &variableSlot{value: extra})
+		}
+		if callback.Kind == ClosureKind {
+			if _, err := i.callClosureSlots(callback.C, slots); err != nil {
+				return NullValue(), true, err
+			}
+		} else {
+			plainArgs := make([]Value, len(slots))
+			for si, s := range slots {
+				plainArgs[si] = s.value
+			}
+			if _, err := i.callCallableValueValues(callback, plainArgs); err != nil {
+				return NullValue(), true, err
+			}
+		}
+		arr.Entries[idx].Value = valueSlot.value
+		arr.Entries[idx].Slot = nil
+	}
+	return BoolValue(true), true, nil
+}
+
+// callArrayMap implements array_map(): needs to invoke a PHP callable per
+// element, so — unlike the plain-value array helpers in the builtins
+// package — it must live here where callable dispatch is available. A
+// single-array call preserves the original keys (matching PHP); multiple
+// arrays are zipped positionally and the result is re-indexed from 0, padded
+// with null past the shortest array.
+func (i *Interpreter) callArrayMap(args []ast.Expr) (Value, bool, error) {
+	if len(args) < 2 {
+		return i.handleBuiltinWarning(fmt.Errorf("array_map expects at least 2 arguments, got %d", len(args)), NullValue(), true)
+	}
+	callback, err := i.eval(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	arrays := make([]*Array, 0, len(args)-1)
+	for _, arg := range args[1:] {
+		v, err := i.eval(arg)
+		if err != nil {
+			return NullValue(), true, err
+		}
+		if v.Kind != ArrayKind || v.A == nil {
+			return i.handleBuiltinWarning(fmt.Errorf("array_map() expects array arguments"), NullValue(), true)
+		}
+		arrays = append(arrays, v.A)
+	}
+	out := NewArray()
+	if len(arrays) == 1 {
+		for _, entry := range arrays[0].Entries {
+			result, err := i.callCallableValueValues(callback, []Value{entry.RuntimeValue()})
+			if err != nil {
+				return NullValue(), true, err
+			}
+			out.Set(entry.Key, result)
+		}
+		return ArrayValue(out), true, nil
+	}
+	longest := 0
+	for _, a := range arrays {
+		if len(a.Entries) > longest {
+			longest = len(a.Entries)
+		}
+	}
+	for idx := 0; idx < longest; idx++ {
+		callArgs := make([]Value, len(arrays))
+		for a, arr := range arrays {
+			if idx < len(arr.Entries) {
+				callArgs[a] = arr.Entries[idx].RuntimeValue()
+			} else {
+				callArgs[a] = NullValue()
+			}
+		}
+		result, err := i.callCallableValueValues(callback, callArgs)
+		if err != nil {
+			return NullValue(), true, err
+		}
+		out.Append(result)
+	}
+	return ArrayValue(out), true, nil
+}
+
+// callArrayFilter implements array_filter(): keeps entries (preserving
+// keys) whose value is truthy, or for which the optional callback returns
+// truthy.
+func (i *Interpreter) callArrayFilter(args []ast.Expr) (Value, bool, error) {
+	if len(args) < 1 || len(args) > 2 {
+		return i.handleBuiltinWarning(fmt.Errorf("array_filter expects 1 or 2 arguments, got %d", len(args)), NullValue(), true)
+	}
+	arrValue, err := i.eval(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	if arrValue.Kind != ArrayKind || arrValue.A == nil {
+		return i.handleBuiltinWarning(fmt.Errorf("array_filter() expects parameter 1 to be array"), NullValue(), true)
+	}
+	var callback Value
+	hasCallback := len(args) == 2
+	if hasCallback {
+		callback, err = i.eval(args[1])
+		if err != nil {
+			return NullValue(), true, err
+		}
+	}
+	out := NewArray()
+	for _, entry := range arrValue.A.Entries {
+		value := entry.RuntimeValue()
+		keep := value.Truthy()
+		if hasCallback {
+			result, err := i.callCallableValueValues(callback, []Value{value})
+			if err != nil {
+				return NullValue(), true, err
+			}
+			keep = result.Truthy()
+		}
+		if keep {
+			out.Set(entry.Key, value)
+		}
+	}
+	return ArrayValue(out), true, nil
+}
+
+// callArrayReduce implements array_reduce(): folds the array left-to-right
+// through callback($carry, $item), starting from $initial (default null).
+func (i *Interpreter) callArrayReduce(args []ast.Expr) (Value, bool, error) {
+	if len(args) < 2 || len(args) > 3 {
+		return i.handleBuiltinWarning(fmt.Errorf("array_reduce expects 2 or 3 arguments, got %d", len(args)), NullValue(), true)
+	}
+	arrValue, err := i.eval(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	if arrValue.Kind != ArrayKind || arrValue.A == nil {
+		return i.handleBuiltinWarning(fmt.Errorf("array_reduce() expects parameter 1 to be array"), NullValue(), true)
+	}
+	callback, err := i.eval(args[1])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	carry := NullValue()
+	if len(args) == 3 {
+		carry, err = i.eval(args[2])
+		if err != nil {
+			return NullValue(), true, err
+		}
+	}
+	for _, entry := range arrValue.A.Entries {
+		carry, err = i.callCallableValueValues(callback, []Value{carry, entry.RuntimeValue()})
+		if err != nil {
+			return NullValue(), true, err
+		}
+	}
+	return carry, true, nil
+}
+
+// callFunctionExists implements function_exists(): true for user-defined
+// functions (namespaced or, via fallback, their global-name equivalent) and
+// for builtins.Exists()-registered builtins. It does not recognize the
+// handful of builtins special-cased directly in callBuiltin's dispatch
+// (sort, array_map, isset, ...) — none of those are exercised by
+// function_exists() in the current test suite.
+func (i *Interpreter) callFunctionExists(args []ast.Expr) (Value, bool, error) {
+	if len(args) != 1 {
+		return i.builtinWarningf(NullValue(), true, "function_exists expects 1 argument, got %d", len(args))
+	}
+	nameValue, err := i.eval(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	name := nameValue.String()
+	if _, ok := i.functions[functionNameKey(name)]; ok {
+		return BoolValue(true), true, nil
+	}
+	if base := namespaceBaseName(name); base != name {
+		if _, ok := i.functions[functionNameKey(base)]; ok {
+			return BoolValue(true), true, nil
+		}
+	}
+	return BoolValue(builtins.Exists(name)), true, nil
+}
+
+func (i *Interpreter) currentCallArgs() []Value {
+	if len(i.frames) == 0 {
+		return nil
+	}
+	return i.frames[len(i.frames)-1].allArgs
+}
+
+func (i *Interpreter) callFuncGetArgs(args []ast.Expr) (Value, bool, error) {
+	if len(args) != 0 {
+		return i.handleBuiltinWarning(fmt.Errorf("func_get_args expects 0 arguments, got %d", len(args)), NullValue(), true)
+	}
+	arr := NewArray()
+	for _, v := range i.currentCallArgs() {
+		arr.Append(v)
+	}
+	return ArrayValue(arr), true, nil
+}
+
+func (i *Interpreter) callFuncNumArgs(args []ast.Expr) (Value, bool, error) {
+	if len(args) != 0 {
+		return i.handleBuiltinWarning(fmt.Errorf("func_num_args expects 0 arguments, got %d", len(args)), NullValue(), true)
+	}
+	return IntValue(int64(len(i.currentCallArgs()))), true, nil
+}
+
+func (i *Interpreter) callFuncGetArg(args []ast.Expr) (Value, bool, error) {
+	if len(args) != 1 {
+		return i.handleBuiltinWarning(fmt.Errorf("func_get_arg expects 1 argument, got %d", len(args)), NullValue(), true)
+	}
+	idxValue, err := i.eval(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	callArgs := i.currentCallArgs()
+	idx := int(idxValue.I)
+	if idxValue.Kind != Int {
+		n, _ := idxValue.number()
+		idx = int(n)
+	}
+	if idx < 0 || idx >= len(callArgs) {
+		return i.handleBuiltinWarning(fmt.Errorf("func_get_arg(): argument %d not passed to function", idx), BoolValue(false), true)
+	}
+	return callArgs[idx], true, nil
 }
 
 func (i *Interpreter) callCallableValue(callable Value, args []ast.Expr) (Value, error) {
@@ -2835,15 +3456,23 @@ func (i *Interpreter) fetchProperty(object ast.Expr, property string) (Value, er
 }
 
 func (i *Interpreter) lookupStaticPropertyValue(expr *ast.StaticPropertyFetchExpr) (Value, bool, error) {
-	return i.lookupStaticProperty(expr.ClassName, expr.Property)
+	className, err := i.staticTargetClassName(expr.ClassName, expr.ClassExpr)
+	if err != nil {
+		return NullValue(), false, err
+	}
+	return i.lookupStaticProperty(className, expr.Property)
 }
 
 func (i *Interpreter) lookupDynamicStaticPropertyValue(expr *ast.DynamicStaticPropertyFetchExpr) (Value, bool, error) {
+	className, err := i.staticTargetClassName(expr.ClassName, expr.ClassExpr)
+	if err != nil {
+		return NullValue(), false, err
+	}
 	property, err := i.dynamicMemberName(expr.Property)
 	if err != nil {
 		return NullValue(), false, err
 	}
-	return i.lookupStaticProperty(expr.ClassName, property)
+	return i.lookupStaticProperty(className, property)
 }
 
 func (i *Interpreter) lookupStaticProperty(className, property string) (Value, bool, error) {
@@ -3115,8 +3744,30 @@ func (i *Interpreter) callFunction(fn *ast.FunctionDeclStmt, args []ast.Expr, th
 	return result.value, err
 }
 
+// evalExtraArgs evaluates any trailing call arguments beyond a function's
+// declared parameter count, for func_get_args()/func_num_args() support —
+// PHP allows calling with more arguments than declared.
+func (i *Interpreter) evalExtraArgs(args []ast.Expr, from int) ([]Value, error) {
+	if from >= len(args) {
+		return nil, nil
+	}
+	extra := make([]Value, 0, len(args)-from)
+	for _, arg := range args[from:] {
+		value, err := i.eval(arg)
+		if err != nil {
+			return nil, err
+		}
+		extra = append(extra, value)
+	}
+	return extra, nil
+}
+
 func (i *Interpreter) callFunctionResult(fn *ast.FunctionDeclStmt, args []ast.Expr, thisObj *Object, calledClass string) (functionCallResult, error) {
-	return i.callFunctionWithBinderResult(fn, len(args), thisObj, calledClass, nil, func(idx int, param ast.Param) (*variableSlot, error) {
+	extraArgs, err := i.evalExtraArgs(args, len(fn.Params))
+	if err != nil {
+		return functionCallResult{}, err
+	}
+	return i.callFunctionWithBinderResult(fn, len(args), thisObj, calledClass, nil, extraArgs, func(idx int, param ast.Param) (*variableSlot, error) {
 		if idx >= len(args) {
 			if param.Default == nil {
 				return i.missingArgumentSlot(fn, len(args))
@@ -3151,7 +3802,11 @@ func (i *Interpreter) callFunctionResult(fn *ast.FunctionDeclStmt, args []ast.Ex
 }
 
 func (i *Interpreter) callFunctionValues(fn *ast.FunctionDeclStmt, args []Value, thisObj *Object, calledClass string) (Value, error) {
-	result, err := i.callFunctionWithBinderResult(fn, len(args), thisObj, calledClass, nil, func(idx int, param ast.Param) (*variableSlot, error) {
+	var extraArgs []Value
+	if len(args) > len(fn.Params) {
+		extraArgs = args[len(fn.Params):]
+	}
+	result, err := i.callFunctionWithBinderResult(fn, len(args), thisObj, calledClass, nil, extraArgs, func(idx int, param ast.Param) (*variableSlot, error) {
 		if idx >= len(args) {
 			if param.Default == nil {
 				return i.missingArgumentSlot(fn, len(args))
@@ -3183,7 +3838,11 @@ func (i *Interpreter) callClosureValues(closure *Closure, args []Value) (Value, 
 		return NullValue(), fmt.Errorf("invalid closure")
 	}
 	fn := closure.Fn
-	result, err := i.callFunctionWithBinderResult(fn, len(args), nil, "", closure.Captures, func(idx int, param ast.Param) (*variableSlot, error) {
+	var extraArgs []Value
+	if len(args) > len(fn.Params) {
+		extraArgs = args[len(fn.Params):]
+	}
+	result, err := i.callFunctionWithBinderResult(fn, len(args), closure.This, closure.CalledClass, closure.Captures, extraArgs, func(idx int, param ast.Param) (*variableSlot, error) {
 		if idx >= len(args) {
 			if param.Default == nil {
 				return i.missingArgumentSlot(fn, len(args))
@@ -3207,7 +3866,11 @@ func (i *Interpreter) callClosureResult(closure *Closure, args []ast.Expr) (func
 		return functionCallResult{}, fmt.Errorf("invalid closure")
 	}
 	fn := closure.Fn
-	return i.callFunctionWithBinderResult(fn, len(args), nil, "", closure.Captures, func(idx int, param ast.Param) (*variableSlot, error) {
+	extraArgs, err := i.evalExtraArgs(args, len(fn.Params))
+	if err != nil {
+		return functionCallResult{}, err
+	}
+	return i.callFunctionWithBinderResult(fn, len(args), closure.This, closure.CalledClass, closure.Captures, extraArgs, func(idx int, param ast.Param) (*variableSlot, error) {
 		if idx >= len(args) {
 			if param.Default == nil {
 				return i.missingArgumentSlot(fn, len(args))
@@ -3248,18 +3911,13 @@ func (i *Interpreter) missingArgumentSlot(fn *ast.FunctionDeclStmt, provided int
 	return &variableSlot{value: NullValue()}, nil
 }
 
-func (i *Interpreter) callFunctionWithBinder(fn *ast.FunctionDeclStmt, provided int, thisObj *Object, calledClass string, bind func(int, ast.Param) (*variableSlot, error)) (Value, error) {
-	result, err := i.callFunctionWithBinderResult(fn, provided, thisObj, calledClass, nil, bind)
-	return result.value, err
-}
-
-func (i *Interpreter) callFunctionWithBinderResult(fn *ast.FunctionDeclStmt, provided int, thisObj *Object, calledClass string, captures map[string]*variableSlot, bind func(int, ast.Param) (*variableSlot, error)) (functionCallResult, error) {
+func (i *Interpreter) callFunctionWithBinderResult(fn *ast.FunctionDeclStmt, provided int, thisObj *Object, calledClass string, captures map[string]*variableSlot, extraArgs []Value, bind func(int, ast.Param) (*variableSlot, error)) (functionCallResult, error) {
 	if fn.Abstract {
 		return functionCallResult{}, fmt.Errorf("cannot call abstract method %s::%s", fn.Owner, fn.Name)
 	}
-	if provided > len(fn.Params) {
-		return functionCallResult{}, fmt.Errorf("function %s expects at most %d arguments, got %d", fn.Name, len(fn.Params), provided)
-	}
+	// PHP allows calling with more arguments than declared; the extras are
+	// simply unreachable through named parameters and only visible via
+	// func_get_args()/func_num_args()/func_get_arg() (see allArgs below).
 	if calledClass == "" {
 		calledClass = fn.Owner
 	}
@@ -3270,6 +3928,7 @@ func (i *Interpreter) callFunctionWithBinderResult(fn *ast.FunctionDeclStmt, pro
 	if thisObj != nil {
 		callFrame.vars["this"] = &variableSlot{value: ObjectValue(thisObj)}
 	}
+	allArgs := make([]Value, 0, provided)
 	for idx, param := range fn.Params {
 		slot, err := bind(idx, param)
 		if err != nil {
@@ -3279,7 +3938,11 @@ func (i *Interpreter) callFunctionWithBinderResult(fn *ast.FunctionDeclStmt, pro
 			return functionCallResult{}, err
 		}
 		callFrame.vars[param.Name] = slot
+		if idx < provided {
+			allArgs = append(allArgs, slot.value)
+		}
 	}
+	callFrame.allArgs = append(allArgs, extraArgs...)
 	i.frames = append(i.frames, callFrame)
 	ret, err := i.exec(fn.Body)
 	i.frames = i.frames[:len(i.frames)-1]
@@ -3633,15 +4296,23 @@ func (i *Interpreter) callObjectMethodValueValues(obj *Object, methodName string
 }
 
 func (i *Interpreter) callStatic(n *ast.StaticCallExpr) (Value, error) {
-	return i.callStaticName(n.ClassName, n.Method, n.Args)
+	className, err := i.staticTargetClassName(n.ClassName, n.ClassExpr)
+	if err != nil {
+		return NullValue(), err
+	}
+	return i.callStaticName(className, n.Method, n.Args)
 }
 
 func (i *Interpreter) callDynamicStatic(n *ast.DynamicStaticCallExpr) (Value, error) {
+	className, err := i.staticTargetClassName(n.ClassName, n.ClassExpr)
+	if err != nil {
+		return NullValue(), err
+	}
 	method, err := i.dynamicMemberName(n.Method)
 	if err != nil {
 		return NullValue(), err
 	}
-	return i.callStaticName(n.ClassName, method, n.Args)
+	return i.callStaticName(className, method, n.Args)
 }
 
 func (i *Interpreter) callStaticName(staticClassName, methodName string, args []ast.Expr) (Value, error) {
@@ -4218,7 +4889,57 @@ func incrementString(text string) string {
 	return string(data)
 }
 
+// tryAssignStringOffset implements PHP's string offset assignment
+// (`$s[0] = 'J';`): if target.Left names a variable currently holding a
+// String, the byte at the offset is replaced (padding with spaces if the
+// offset is past the end) instead of falling through to array semantics.
+func (i *Interpreter) tryAssignStringOffset(target *ast.IndexExpr, value Value) (bool, error) {
+	if target.Index == nil {
+		return false, nil
+	}
+	var name string
+	switch n := target.Left.(type) {
+	case *ast.Ident:
+		name = n.Name
+	case *ast.VariableVariable:
+		name = i.variableVariableName(n.Name)
+	default:
+		return false, nil
+	}
+	current, exists := i.getVar(name)
+	if !exists || current.Kind != String {
+		return false, nil
+	}
+	index, err := i.eval(target.Index)
+	if err != nil {
+		return false, err
+	}
+	n, _ := index.number()
+	offset := int(n)
+	if offset < 0 {
+		return false, nil
+	}
+	repl := value.String()
+	ch := byte(' ')
+	if len(repl) > 0 {
+		ch = repl[0]
+	}
+	s := current.S
+	if offset < len(s) {
+		b := []byte(s)
+		b[offset] = ch
+		s = string(b)
+	} else {
+		s += strings.Repeat(" ", offset-len(s)) + string(ch)
+	}
+	i.setVar(name, StringValue(s))
+	return true, nil
+}
+
 func (i *Interpreter) assignIndex(target *ast.IndexExpr, value Value) error {
+	if handled, err := i.tryAssignStringOffset(target, value); handled || err != nil {
+		return err
+	}
 	var key ArrayKey
 	appendValue := target.Index == nil
 	if !appendValue {
@@ -4330,13 +5051,21 @@ func (i *Interpreter) assignTarget(target ast.Expr, value Value) error {
 		}
 		return i.assignProperty(n.Object, property, value)
 	case *ast.StaticPropertyFetchExpr:
-		return i.assignStaticProperty(n.ClassName, n.Property, value)
+		className, err := i.staticTargetClassName(n.ClassName, n.ClassExpr)
+		if err != nil {
+			return err
+		}
+		return i.assignStaticProperty(className, n.Property, value)
 	case *ast.DynamicStaticPropertyFetchExpr:
+		className, err := i.staticTargetClassName(n.ClassName, n.ClassExpr)
+		if err != nil {
+			return err
+		}
 		property, err := i.dynamicMemberName(n.Property)
 		if err != nil {
 			return err
 		}
-		return i.assignStaticProperty(n.ClassName, property, value)
+		return i.assignStaticProperty(className, property, value)
 	case *ast.IndexExpr:
 		return i.assignIndex(n, value)
 	case *ast.ListExpr:
@@ -4453,13 +5182,21 @@ func (i *Interpreter) unsetTarget(target ast.Expr) error {
 		}
 		return i.unsetProperty(n.Object, property)
 	case *ast.StaticPropertyFetchExpr:
-		return i.unsetStaticProperty(n.ClassName, n.Property)
+		className, err := i.staticTargetClassName(n.ClassName, n.ClassExpr)
+		if err != nil {
+			return err
+		}
+		return i.unsetStaticProperty(className, n.Property)
 	case *ast.DynamicStaticPropertyFetchExpr:
+		className, err := i.staticTargetClassName(n.ClassName, n.ClassExpr)
+		if err != nil {
+			return err
+		}
 		property, err := i.dynamicMemberName(n.Property)
 		if err != nil {
 			return err
 		}
-		return i.unsetStaticProperty(n.ClassName, property)
+		return i.unsetStaticProperty(className, property)
 	default:
 		return nil
 	}
@@ -6432,6 +7169,9 @@ func (i *Interpreter) classesRelated(a, b string) bool {
 }
 
 func (i *Interpreter) valueInstanceOf(value Value, className string) bool {
+	if value.Kind == ClosureKind {
+		return value.C != nil && strings.EqualFold(className, "Closure")
+	}
 	if value.Kind != ObjectKind || value.O == nil {
 		return false
 	}

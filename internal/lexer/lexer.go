@@ -267,6 +267,10 @@ func (l *Lexer) NextToken() Token {
 			lit := l.readIdentifier()
 			return Token{Type: VarVar, Literal: lit, Line: line, Column: col}
 		}
+		if l.ch == '{' {
+			l.readChar()
+			return Token{Type: DollarBrace, Line: line, Column: col}
+		}
 		lit := l.readIdentifier()
 		return Token{Type: Var, Literal: lit, Line: line, Column: col}
 	case '\'', '"':
@@ -565,7 +569,17 @@ func findHeredocTerminator(input string, start int, label string) (int, int, int
 		labelEnd := lineStart + len(label)
 		if labelEnd <= len(input) && strings.HasPrefix(input[lineStart:lineEnd], label) {
 			if labelEnd == lineEnd || input[labelEnd] == ';' || input[labelEnd] == '\r' {
-				return lineStart, lineStart, labelEnd
+				// PHP's heredoc/nowdoc content excludes the single newline
+				// immediately preceding the closing label line — only trim
+				// it here, not any blank lines before it.
+				contentEnd := lineStart
+				if contentEnd > start && input[contentEnd-1] == '\n' {
+					contentEnd--
+					if contentEnd > start && input[contentEnd-1] == '\r' {
+						contentEnd--
+					}
+				}
+				return contentEnd, contentEnd, labelEnd
 			}
 		}
 		if lineEnd == len(input) {

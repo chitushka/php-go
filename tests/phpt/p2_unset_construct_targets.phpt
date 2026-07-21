@@ -15,8 +15,7 @@ $var = 'v';
 $items = array('x' => 1, 'y' => 2);
 $obj = new UnsetTarget();
 $prop = 'name';
-$static = 'slot';
-$slot = 'count';
+$static = 'count';
 
 unset($var, $items['x'], $obj->$prop, UnsetTarget::$$static);
 

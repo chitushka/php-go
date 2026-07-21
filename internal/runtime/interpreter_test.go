@@ -1994,7 +1994,10 @@ func TestMagicUnset(t *testing.T) {
 }
 
 func TestUnsetConstructTargets(t *testing.T) {
-	src := "<?php class UnsetBase { public static $base = 'base'; } class UnsetTarget extends UnsetBase { public static $count = 7; public $name = 'Ada'; } $var = 'v'; $items = array('x' => 1, 'y' => 2); $obj = new UnsetTarget(); $prop = 'name'; $static = 'slot'; $slot = 'count'; unset($var, $items['x'], $obj->$prop, UnsetTarget::$$static); echo isset($var) ? 'var' : 'no-var'; echo ':'; echo isset($items['x']) ? 'x' : 'no-x'; echo ':'; echo isset($obj->name) ? 'name' : 'no-name'; echo ':'; echo isset(UnsetTarget::$count) ? 'count' : 'no-count'; unset(UnsetTarget::$base); echo ':'; echo isset(UnsetBase::$base) ? 'base' : 'no-base';"
+	// `Class::$$name` uses $name's value directly as the property name
+	// (single dereference) — unlike a standalone `$$name` expression, which
+	// dereferences twice (see dynamicMemberName's doc comment).
+	src := "<?php class UnsetBase { public static $base = 'base'; } class UnsetTarget extends UnsetBase { public static $count = 7; public $name = 'Ada'; } $var = 'v'; $items = array('x' => 1, 'y' => 2); $obj = new UnsetTarget(); $prop = 'name'; $static = 'count'; unset($var, $items['x'], $obj->$prop, UnsetTarget::$$static); echo isset($var) ? 'var' : 'no-var'; echo ':'; echo isset($items['x']) ? 'x' : 'no-x'; echo ':'; echo isset($obj->name) ? 'name' : 'no-name'; echo ':'; echo isset(UnsetTarget::$count) ? 'count' : 'no-count'; unset(UnsetTarget::$base); echo ':'; echo isset(UnsetBase::$base) ? 'base' : 'no-base';"
 	got := run(t, src)
 	if got != "no-var:no-x:no-name:no-count:no-base" {
 		t.Fatalf("got %q", got)
@@ -2231,9 +2234,11 @@ func TestP3ObjectComparisons(t *testing.T) {
 }
 
 func TestP3DivisionAndModuloEdges(t *testing.T) {
-	src := "<?php echo (4 / 2 === 2.0 ? 'float' : 'bad'); echo ':'; echo (5 / 2 === 2.5 ? 'fraction' : 'bad'); echo ':'; echo ('12' / '3' === 4.0 ? 'string-float' : 'bad'); echo ':'; echo ('7' / '2' === 3.5 ? 'string-fraction' : 'bad'); echo ':'; echo 5 % 2.9; echo ':'; echo -5 % 2; echo ':'; echo 5.9 % 2;"
+	// 4/2 divides evenly with both operands int, so PHP gives int(2), not
+	// float(2.0) — see BUG-6/division fix in CLAUDE.md.
+	src := "<?php echo (4 / 2 === 2 ? 'int' : 'bad'); echo ':'; echo (5 / 2 === 2.5 ? 'fraction' : 'bad'); echo ':'; echo ('12' / '3' === 4.0 ? 'string-float' : 'bad'); echo ':'; echo ('7' / '2' === 3.5 ? 'string-fraction' : 'bad'); echo ':'; echo 5 % 2.9; echo ':'; echo -5 % 2; echo ':'; echo 5.9 % 2;"
 	got := run(t, src)
-	if got != "float:fraction:string-float:string-fraction:1:-1:1" {
+	if got != "int:fraction:string-float:string-fraction:1:-1:1" {
 		t.Fatalf("got %q", got)
 	}
 }
@@ -2309,7 +2314,11 @@ func TestListAssignmentNonArrayWarningUsesErrorPolicy(t *testing.T) {
 }
 
 func TestIndexAssignmentNonArrayWarningUsesErrorPolicy(t *testing.T) {
-	p := parser.New(lexer.New("<?php $x = 1; $name = 'y'; $y = 'scalar'; $nested = array('a' => 1); $x['key'] = 'bad'; $$name['key'] = 'bad'; $nested['a']['b'] = 'bad'; echo $x; echo ':'; echo $y; echo ':'; echo $nested['a']; echo ':after';"))
+	// $y is an int (not a string) here: strings have real offset-assignment
+	// semantics ($s[0] = 'x'), so a string no longer exercises the "cannot
+	// assign index on non-array" path — only genuinely non-indexable scalars
+	// (int, bool, float) do.
+	p := parser.New(lexer.New("<?php $x = 1; $name = 'y'; $y = 5; $nested = array('a' => 1); $x['key'] = 'bad'; $$name['key'] = 'bad'; $nested['a']['b'] = 'bad'; echo $x; echo ':'; echo $y; echo ':'; echo $nested['a']; echo ':after';"))
 	program := p.ParseProgram()
 	if len(p.Errors()) > 0 {
 		t.Fatalf("parse errors: %v", p.Errors())
@@ -2318,7 +2327,7 @@ func TestIndexAssignmentNonArrayWarningUsesErrorPolicy(t *testing.T) {
 	if err := i.Run(program); err != nil {
 		t.Fatalf("runtime error: %v", err)
 	}
-	if got := i.Out.String(); got != "1:scalar:1:after" {
+	if got := i.Out.String(); got != "1:5:1:after" {
 		t.Fatalf("got %q", got)
 	}
 	diagnostics := i.Diagnostics()
@@ -3310,7 +3319,9 @@ func TestPregMatchCapturesJSONHashAndFileContents(t *testing.T) {
 }
 
 func TestP0SyntaxBatch(t *testing.T) {
-	src := "<?php // line comment\n/* block comment */ $a = 5; $a += 3; $a %= 5; $a++; ++$a; $a -= 1; $a *= 3; $a /= 2; echo $a; echo ':'; $s = 'php'; $s .= '-go'; print $s; echo ':'; if ($a === 6.0) { echo 'strict'; } elseif ($a <> 6) { echo 'bad'; } else { echo 'bad'; } $items = array('x' => 1, 'y' => 2); unset($items['x']); if (!isset($items['x'])) { echo ':unset'; } ?>"
+	// 12/2 divides evenly with both operands int, so $a ends up int(6), not
+	// float(6.0) — see BUG-6/division fix in CLAUDE.md.
+	src := "<?php // line comment\n/* block comment */ $a = 5; $a += 3; $a %= 5; $a++; ++$a; $a -= 1; $a *= 3; $a /= 2; echo $a; echo ':'; $s = 'php'; $s .= '-go'; print $s; echo ':'; if ($a === 6) { echo 'strict'; } elseif ($a <> 6) { echo 'bad'; } else { echo 'bad'; } $items = array('x' => 1, 'y' => 2); unset($items['x']); if (!isset($items['x'])) { echo ':unset'; } ?>"
 	got := run(t, src)
 	want := "6:php-go:strict:unset"
 	if got != want {

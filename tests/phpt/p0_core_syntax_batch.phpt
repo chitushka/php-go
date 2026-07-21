@@ -18,7 +18,7 @@ $s = 'php';
 $s .= '-go';
 print $s;
 echo ':';
-if ($a === 6.0) {
+if ($a === 6) {
     echo 'strict';
 } elseif ($a <> 6) {
     echo 'bad';
