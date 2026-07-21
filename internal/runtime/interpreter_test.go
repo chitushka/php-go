@@ -1883,6 +1883,22 @@ func TestInheritedClassConstantsAndParentAccess(t *testing.T) {
 	}
 }
 
+func TestPredefinedConstants(t *testing.T) {
+	src := "<?php echo PHP_INT_MAX; echo ':'; echo PHP_INT_SIZE; echo ':'; echo E_ALL; echo ':'; echo E_WARNING; echo ':'; echo defined('M_PI'); echo ':'; echo constant('PHP_INT_SIZE');"
+	got := run(t, src)
+	if got != "9223372036854775807:8:32767:2:1:8" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestPredefinedConstantsAreCaseSensitiveAndNotRedefinable(t *testing.T) {
+	src := "<?php echo php_int_max; echo ':'; var_dump(define('PHP_INT_MAX', 1));"
+	got := run(t, src)
+	if got != "php_int_max:bool(false)\n" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestInterfaceConstants(t *testing.T) {
 	src := "<?php interface Named { const KIND = 'iface'; } echo Named::KIND;"
 	got := run(t, src)

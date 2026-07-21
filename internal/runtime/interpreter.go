@@ -1001,6 +1001,9 @@ func (i *Interpreter) lookupRuntimeConstant(name string) (Value, bool) {
 	case "null":
 		return NullValue(), true
 	}
+	if value, ok := predefinedConstants[name]; ok {
+		return value, true
+	}
 	if value, ok := i.runtimeConstants[name]; ok {
 		return value, true
 	}

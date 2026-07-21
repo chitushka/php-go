@@ -25,6 +25,7 @@
 - `interface`, `extends` для интерфейсов, `implements`, case-insensitive interface lookup, interface constants, compatibility checks для inherited interface method signatures и runtime-проверка обязательных методов.
 - Class constants через `const NAME = ...`, доступ `Class::NAME`, `self::NAME`, `parent::NAME`, `Interface::NAME` и наследование констант.
 - Bare/runtime constants: bare-доступ `NAME`, `define()`, `defined()`, `constant()`, case-insensitive `define(..., true)` и fallback неизвестной bare-константы в строку имени.
+- Предопределённые core-константы (case-sensitive, не перезаписываемые через `define()`): `PHP_VERSION`, `PHP_VERSION_ID`, `PHP_MAJOR_VERSION`/`PHP_MINOR_VERSION`/`PHP_RELEASE_VERSION`, `PHP_OS`, `PHP_SAPI`, `PHP_EOL`, `PHP_INT_MAX`, `PHP_INT_SIZE`, `DIRECTORY_SEPARATOR`, `PATH_SEPARATOR`, математические `M_PI`/`M_E`/`M_SQRT2`/... и `NAN`/`INF`, уровни ошибок `E_ERROR`...`E_ALL`.
 - Magic constants: `__FILE__`, `__DIR__`, `__LINE__`, `__FUNCTION__`, `__CLASS__`, `__METHOD__`.
 - Namespaces/imports: базовые `namespace`, bracketed `namespace { ... }`, `use ... as ...`, leading `\`, `__NAMESPACE__`, namespaced functions/classes/constants и fallback namespaced function/constant lookup к global имени.
 - `instanceof` для классов, родителей и интерфейсов.
