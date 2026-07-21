@@ -203,7 +203,7 @@ func implode(args []Value) (Value, error) {
 }
 
 func explode(args []Value) (Value, error) {
-	if err := checkArgCount("explode", len(args), 2, 2); err != nil {
+	if err := checkArgCount("explode", len(args), 2, 3); err != nil {
 		return NullValue(), err
 	}
 	delimiter := args[0].String()
@@ -213,7 +213,26 @@ func explode(args []Value) (Value, error) {
 		arr.Append(StringValue(s))
 		return ArrayValue(arr), nil
 	}
-	for _, part := range strings.Split(s, delimiter) {
+	parts := strings.Split(s, delimiter)
+	if len(args) == 3 {
+		limitF, _ := args[2].Number()
+		limit := int(limitF)
+		if limit == 0 {
+			limit = 1
+		}
+		switch {
+		case limit > 0 && limit < len(parts):
+			head := append([]string{}, parts[:limit-1]...)
+			parts = append(head, strings.Join(parts[limit-1:], delimiter))
+		case limit < 0:
+			keep := len(parts) + limit
+			if keep < 0 {
+				keep = 0
+			}
+			parts = parts[:keep]
+		}
+	}
+	for _, part := range parts {
 		arr.Append(StringValue(part))
 	}
 	return ArrayValue(arr), nil

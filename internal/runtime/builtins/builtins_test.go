@@ -32,6 +32,46 @@ func TestArrayBuiltins(t *testing.T) {
 	}
 }
 
+func arrayStrings(t *testing.T, value Value) []string {
+	t.Helper()
+	if value.Kind != ArrayKind || value.A == nil {
+		t.Fatalf("expected array, got %+v", value)
+	}
+	out := make([]string, 0, len(value.A.Entries))
+	for _, entry := range value.A.Entries {
+		out = append(out, entry.Value.String())
+	}
+	return out
+}
+
+func TestExplodeLimit(t *testing.T) {
+	cases := []struct {
+		limit int64
+		want  []string
+	}{
+		{2, []string{"a", "b,c,d"}},
+		{-1, []string{"a", "b", "c"}},
+		{-6, []string{}},
+		{0, []string{"a,b,c,d"}},
+		{100, []string{"a", "b", "c", "d"}},
+	}
+	for _, c := range cases {
+		value, ok, err := Call("explode", []Value{StringValue(","), StringValue("a,b,c,d"), IntValue(c.limit)})
+		if err != nil || !ok {
+			t.Fatalf("explode(limit=%d) ok=%v err=%v", c.limit, ok, err)
+		}
+		got := arrayStrings(t, value)
+		if len(got) != len(c.want) {
+			t.Fatalf("explode(limit=%d) got %v, want %v", c.limit, got, c.want)
+		}
+		for i := range got {
+			if got[i] != c.want[i] {
+				t.Fatalf("explode(limit=%d) got %v, want %v", c.limit, got, c.want)
+			}
+		}
+	}
+}
+
 func TestImplodeSingleArgAndReversedOrder(t *testing.T) {
 	arr := NewArray()
 	arr.Append(IntValue(1))
