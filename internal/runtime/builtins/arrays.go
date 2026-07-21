@@ -1,6 +1,7 @@
 package builtins
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -105,30 +106,97 @@ func arrayKeyExists(args []Value) (Value, error) {
 }
 
 func inArray(args []Value) (Value, error) {
-	if err := checkArgCount("in_array", len(args), 2, 2); err != nil {
+	if err := checkArgCount("in_array", len(args), 2, 3); err != nil {
 		return NullValue(), err
 	}
 	if args[1].Kind != ArrayKind || args[1].A == nil {
 		return BoolValue(false), nil
 	}
+	strict := len(args) == 3 && args[2].Truthy()
 	for _, entry := range args[1].A.Entries {
-		if entry.Value.String() == args[0].String() {
+		if strict {
+			if valuesStrictEqual(entry.Value, args[0]) {
+				return BoolValue(true), nil
+			}
+		} else if entry.Value.String() == args[0].String() {
 			return BoolValue(true), nil
 		}
 	}
 	return BoolValue(false), nil
 }
 
+// valuesStrictEqual implements in_array()/array_search()'s $strict comparison
+// (PHP's === for the value kinds representable by builtins.Value). Objects
+// carry no payload in this package's Value (see ObjectValue()), so they
+// conservatively never compare equal here rather than risk a false match.
+func valuesStrictEqual(a, b Value) bool {
+	if a.Kind != b.Kind {
+		return false
+	}
+	switch a.Kind {
+	case NullKind:
+		return true
+	case BoolKind:
+		return a.B == b.B
+	case IntKind:
+		return a.I == b.I
+	case FloatKind:
+		return a.F == b.F
+	case StringKind:
+		return a.S == b.S
+	case ArrayKind:
+		return arraysStrictEqual(a.A, b.A)
+	default:
+		return false
+	}
+}
+
+func arraysStrictEqual(a, b *Array) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	if len(a.Entries) != len(b.Entries) {
+		return false
+	}
+	for i, entry := range a.Entries {
+		other := b.Entries[i]
+		if entry.Key != other.Key {
+			return false
+		}
+		if !valuesStrictEqual(entry.Value, other.Value) {
+			return false
+		}
+	}
+	return true
+}
+
 func implode(args []Value) (Value, error) {
-	if err := checkArgCount("implode", len(args), 2, 2); err != nil {
+	if err := checkArgCount("implode", len(args), 1, 2); err != nil {
 		return NullValue(), err
 	}
-	glue := args[0].String()
-	if args[1].Kind != ArrayKind || args[1].A == nil {
+	var glue string
+	var arr *Array
+	switch {
+	case len(args) == 1:
+		if args[0].Kind != ArrayKind {
+			return NullValue(), fmt.Errorf("implode: Argument #1 ($array) must be of type array")
+		}
+		arr = args[0].A
+	case args[0].Kind == ArrayKind:
+		// Legacy PHP 5.3-compatible reversed order: implode($array, $glue).
+		arr = args[0].A
+		glue = args[1].String()
+	default:
+		glue = args[0].String()
+		if args[1].Kind == ArrayKind {
+			arr = args[1].A
+		}
+	}
+	if arr == nil {
 		return StringValue(""), nil
 	}
-	parts := make([]string, 0, len(args[1].A.Entries))
-	for _, entry := range args[1].A.Entries {
+	parts := make([]string, 0, len(arr.Entries))
+	for _, entry := range arr.Entries {
 		parts = append(parts, entry.Value.String())
 	}
 	return StringValue(strings.Join(parts, glue)), nil

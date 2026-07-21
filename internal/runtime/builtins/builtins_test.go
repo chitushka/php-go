@@ -32,6 +32,42 @@ func TestArrayBuiltins(t *testing.T) {
 	}
 }
 
+func TestImplodeSingleArgAndReversedOrder(t *testing.T) {
+	arr := NewArray()
+	arr.Append(IntValue(1))
+	arr.Append(IntValue(2))
+	arr.Append(IntValue(3))
+
+	value, ok, err := Call("implode", []Value{ArrayValue(arr)})
+	if err != nil || !ok || value.String() != "123" {
+		t.Fatalf("implode(array) got value=%q ok=%v err=%v", value.String(), ok, err)
+	}
+
+	value, ok, err = Call("implode", []Value{ArrayValue(arr), StringValue("-")})
+	if err != nil || !ok || value.String() != "1-2-3" {
+		t.Fatalf("implode(array, glue) got value=%q ok=%v err=%v", value.String(), ok, err)
+	}
+}
+
+func TestInArrayStrict(t *testing.T) {
+	arr := NewArray()
+	arr.Append(StringValue("2"))
+	arr.Append(StringValue("3"))
+
+	value, ok, err := Call("in_array", []Value{IntValue(2), ArrayValue(arr)})
+	if err != nil || !ok || !value.Truthy() {
+		t.Fatalf("in_array(2, [\"2\",\"3\"]) got value=%+v ok=%v err=%v, want true", value, ok, err)
+	}
+	value, ok, err = Call("in_array", []Value{IntValue(2), ArrayValue(arr), BoolValue(true)})
+	if err != nil || !ok || value.Truthy() {
+		t.Fatalf("in_array(2, [\"2\",\"3\"], true) got value=%+v ok=%v err=%v, want false", value, ok, err)
+	}
+	value, ok, err = Call("in_array", []Value{StringValue("2"), ArrayValue(arr), BoolValue(true)})
+	if err != nil || !ok || !value.Truthy() {
+		t.Fatalf("in_array(\"2\", [\"2\",\"3\"], true) got value=%+v ok=%v err=%v, want true", value, ok, err)
+	}
+}
+
 func TestVariableAndTypeBuiltins(t *testing.T) {
 	value, ok, err := Call("isset", []Value{StringValue("x"), NullValue()})
 	if err != nil || !ok || value.Truthy() {
@@ -60,7 +96,7 @@ func TestMoreStringBuiltins(t *testing.T) {
 
 func TestMathAndDateBuiltins(t *testing.T) {
 	value, ok, err := Call("round", []Value{FloatValue(1.6)})
-	if err != nil || !ok || value.Kind != IntKind || value.I != 2 {
+	if err != nil || !ok || value.Kind != FloatKind || value.F != 2 {
 		t.Fatalf("round got value=%+v ok=%v err=%v", value, ok, err)
 	}
 	value, ok, err = Call("max", []Value{IntValue(1), IntValue(7), IntValue(3)})
@@ -70,6 +106,50 @@ func TestMathAndDateBuiltins(t *testing.T) {
 	value, ok, err = Call("date", []Value{StringValue("Y-m-d"), IntValue(0)})
 	if err != nil || !ok || value.String() != "1970-01-01" {
 		t.Fatalf("date got value=%q ok=%v err=%v", value.String(), ok, err)
+	}
+}
+
+func TestRoundFloorCeilAbsAlwaysReturnCorrectType(t *testing.T) {
+	// round/floor/ceil always return float in PHP, never int, regardless of
+	// whether the result happens to be a whole number.
+	for _, name := range []string{"round", "floor", "ceil"} {
+		value, ok, err := Call(name, []Value{FloatValue(3.0)})
+		if err != nil || !ok || value.Kind != FloatKind {
+			t.Fatalf("%s(3.0) got value=%+v ok=%v err=%v, want FloatKind", name, value, ok, err)
+		}
+	}
+
+	// abs() preserves the input type: int stays int, float stays float even
+	// when the magnitude is a whole number.
+	value, ok, err := Call("abs", []Value{IntValue(-5)})
+	if err != nil || !ok || value.Kind != IntKind || value.I != 5 {
+		t.Fatalf("abs(-5) got value=%+v ok=%v err=%v", value, ok, err)
+	}
+	value, ok, err = Call("abs", []Value{FloatValue(-5.0)})
+	if err != nil || !ok || value.Kind != FloatKind || value.F != 5 {
+		t.Fatalf("abs(-5.0) got value=%+v ok=%v err=%v", value, ok, err)
+	}
+}
+
+func TestRoundWithPrecision(t *testing.T) {
+	cases := []struct {
+		val       float64
+		precision int64
+		want      float64
+	}{
+		{3.14159, 2, 3.14},
+		{1241757, -3, 1242000},
+		{1.005, 2, 1.01},
+		{2.5, 0, 3},
+		{-2.5, 0, -3},
+		{1.95583, 2, 1.96},
+		{0.285, 2, 0.29},
+	}
+	for _, c := range cases {
+		value, ok, err := Call("round", []Value{FloatValue(c.val), IntValue(c.precision)})
+		if err != nil || !ok || value.Kind != FloatKind || value.F != c.want {
+			t.Fatalf("round(%v, %d) got value=%+v ok=%v err=%v, want float(%v)", c.val, c.precision, value, ok, err, c.want)
+		}
 	}
 }
 
