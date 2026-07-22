@@ -25,15 +25,35 @@ type Value struct {
 	F    float64
 	S    string
 	A    *Array
+	O    *ObjectInfo
 }
 
-func NullValue() Value           { return Value{Kind: NullKind} }
-func BoolValue(v bool) Value     { return Value{Kind: BoolKind, B: v} }
-func IntValue(v int64) Value     { return Value{Kind: IntKind, I: v} }
-func FloatValue(v float64) Value { return Value{Kind: FloatKind, F: v} }
-func StringValue(v string) Value { return Value{Kind: StringKind, S: v} }
-func ArrayValue(v *Array) Value  { return Value{Kind: ArrayKind, A: v} }
-func ObjectValue() Value         { return Value{Kind: ObjectKind} }
+// ObjectInfo is the read-only view of a runtime object/closure this package
+// is given for display purposes (var_dump, print_r, ...). It intentionally
+// doesn't carry a live reference back to runtime.Object — this package
+// can't import runtime (runtime imports builtins) — so property values are
+// pre-converted Value snapshots rather than mutable slots.
+type ObjectInfo struct {
+	ClassName string
+	ID        int
+	Props     []ObjectProperty
+}
+
+type ObjectProperty struct {
+	Name       string
+	Visibility string // "public" (or ""), "protected", "private"
+	Owner      string // declaring class, only meaningful for "private"
+	Value      Value
+}
+
+func NullValue() Value                           { return Value{Kind: NullKind} }
+func BoolValue(v bool) Value                     { return Value{Kind: BoolKind, B: v} }
+func IntValue(v int64) Value                     { return Value{Kind: IntKind, I: v} }
+func FloatValue(v float64) Value                 { return Value{Kind: FloatKind, F: v} }
+func StringValue(v string) Value                 { return Value{Kind: StringKind, S: v} }
+func ArrayValue(v *Array) Value                  { return Value{Kind: ArrayKind, A: v} }
+func ObjectValue() Value                         { return Value{Kind: ObjectKind} }
+func ObjectValueWithInfo(info *ObjectInfo) Value { return Value{Kind: ObjectKind, O: info} }
 
 func (v Value) Truthy() bool {
 	switch v.Kind {

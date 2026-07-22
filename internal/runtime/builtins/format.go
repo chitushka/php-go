@@ -17,6 +17,9 @@ func printR(args []Value) (Value, string, error) {
 }
 
 func printRValue(value Value, depth int) string {
+	if value.Kind == ObjectKind {
+		return printRObject(value.O, depth)
+	}
 	if value.Kind != ArrayKind || value.A == nil {
 		return value.String()
 	}
@@ -33,6 +36,41 @@ func printRValue(value Value, depth int) string {
 		b.WriteString("] => ")
 		b.WriteString(printRValue(entry.Value, depth+1))
 		b.WriteString("\n")
+	}
+	b.WriteString(indent)
+	b.WriteString(")\n")
+	return b.String()
+}
+
+func printRObject(info *ObjectInfo, depth int) string {
+	indent := strings.Repeat("    ", depth)
+	childIndent := strings.Repeat("    ", depth+1)
+	className := "stdClass"
+	if info != nil && info.ClassName != "" {
+		className = info.ClassName
+	}
+	var b strings.Builder
+	b.WriteString(className)
+	b.WriteString(" Object\n")
+	b.WriteString(indent)
+	b.WriteString("(\n")
+	if info != nil {
+		for _, prop := range info.Props {
+			b.WriteString(childIndent)
+			b.WriteString("[")
+			b.WriteString(prop.Name)
+			switch prop.Visibility {
+			case "protected":
+				b.WriteString(":protected")
+			case "private":
+				b.WriteString(":")
+				b.WriteString(prop.Owner)
+				b.WriteString(":private")
+			}
+			b.WriteString("] => ")
+			b.WriteString(printRValue(prop.Value, depth+1))
+			b.WriteString("\n")
+		}
 	}
 	b.WriteString(indent)
 	b.WriteString(")\n")
@@ -102,7 +140,41 @@ func writeVarDump(b *strings.Builder, value Value, depth int) {
 		b.WriteString("}\n")
 	case ObjectKind:
 		b.WriteString(indent)
-		b.WriteString("object\n")
+		className := "stdClass"
+		id := 0
+		var props []ObjectProperty
+		if value.O != nil {
+			if value.O.ClassName != "" {
+				className = value.O.ClassName
+			}
+			id = value.O.ID
+			props = value.O.Props
+		}
+		b.WriteString("object(")
+		b.WriteString(className)
+		b.WriteString(")#")
+		b.WriteString(strconv.Itoa(id))
+		b.WriteString(" (")
+		b.WriteString(strconv.Itoa(len(props)))
+		b.WriteString(") {\n")
+		for _, prop := range props {
+			b.WriteString(indent)
+			b.WriteString("  [\"")
+			b.WriteString(prop.Name)
+			b.WriteString("\"")
+			switch prop.Visibility {
+			case "protected":
+				b.WriteString(":protected")
+			case "private":
+				b.WriteString(":\"")
+				b.WriteString(prop.Owner)
+				b.WriteString("\":private")
+			}
+			b.WriteString("]=>\n")
+			writeVarDump(b, prop.Value, depth+1)
+		}
+		b.WriteString(indent)
+		b.WriteString("}\n")
 	}
 }
 

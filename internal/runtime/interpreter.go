@@ -1058,7 +1058,7 @@ func (i *Interpreter) evalClosure(c *ast.ClosureExpr) (Value, error) {
 		}
 		captures[use.Name] = &variableSlot{value: cloneArrayValue(value)}
 	}
-	closure := &Closure{Fn: fn, Captures: captures}
+	closure := &Closure{ID: nextObjectID(), Fn: fn, Captures: captures}
 	if this := i.currentThis(); this != nil {
 		closure.This = this
 		closure.CalledClass = i.currentCalledClass()
@@ -3680,12 +3680,41 @@ func toBuiltinValue(value Value) builtins.Value {
 	case ArrayKind:
 		return builtins.ArrayValue(toBuiltinArray(value.A))
 	case ObjectKind:
-		return builtins.ObjectValue()
+		return builtins.ObjectValueWithInfo(toBuiltinObjectInfo(value.O))
 	case ClosureKind:
-		return builtins.ObjectValue()
+		id := 0
+		if value.C != nil {
+			id = value.C.ID
+		}
+		return builtins.ObjectValueWithInfo(&builtins.ObjectInfo{ClassName: "Closure", ID: id})
 	default:
 		return builtins.NullValue()
 	}
+}
+
+// toBuiltinObjectInfo snapshots a runtime.Object's instance properties into
+// the read-only builtins.ObjectInfo shape (BUG-12): builtins can't see
+// runtime.Object directly (import direction is runtime -> builtins), so
+// without this conversion var_dump/print_r previously saw a payload-less
+// ObjectKind and printed a bare "object" with no class name or properties.
+// Property order/visibility mirror what serialize() already does via
+// sortedObjectPropertyKeys/propertyNameForKey.
+func toBuiltinObjectInfo(obj *Object) *builtins.ObjectInfo {
+	if obj == nil {
+		return nil
+	}
+	keys := sortedObjectPropertyKeys(obj)
+	props := make([]builtins.ObjectProperty, 0, len(keys))
+	for _, key := range keys {
+		info := obj.PropMeta[key]
+		props = append(props, builtins.ObjectProperty{
+			Name:       propertyNameForKey(key, info),
+			Visibility: info.Visibility,
+			Owner:      info.Owner,
+			Value:      toBuiltinValue(obj.Props[key]),
+		})
+	}
+	return &builtins.ObjectInfo{ClassName: obj.ClassName, ID: obj.ID, Props: props}
 }
 
 func toBuiltinArray(arr *Array) *builtins.Array {
@@ -5598,6 +5627,9 @@ func (i *Interpreter) castValue(typ string, value Value) (Value, error) {
 		if value.Kind == ArrayKind {
 			return value, nil
 		}
+		if value.Kind == ObjectKind && value.O != nil {
+			return ArrayValue(objectToArray(value.O)), nil
+		}
 		arr := NewArray()
 		if value.Kind != Null {
 			arr.Append(value)
@@ -5625,6 +5657,22 @@ func (i *Interpreter) castValue(typ string, value Value) (Value, error) {
 	default:
 		return value, nil
 	}
+}
+
+// objectToArray implements (array)$object (BUG-11): each instance property
+// becomes an array entry keyed by its declared name for public properties,
+// or by serialize()'s mangled name for protected ("\0*\0name") and private
+// ("\0Owner\0name") properties — reusing serializedObjectPropertyName keeps
+// this consistent with the existing serialize() implementation. Static
+// properties live in the interpreter's separate statics table, not in
+// obj.Props, so they're naturally excluded.
+func objectToArray(obj *Object) *Array {
+	arr := NewArray()
+	for _, key := range sortedObjectPropertyKeys(obj) {
+		name := serializedObjectPropertyName(key, obj.PropMeta[key])
+		arr.Set(StringKey(name), obj.Props[key])
+	}
+	return arr
 }
 
 func arrayKeyPropertyName(key ArrayKey) string {

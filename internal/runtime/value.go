@@ -25,6 +25,7 @@ const (
 )
 
 type Closure struct {
+	ID       int
 	Fn       *ast.FunctionDeclStmt
 	Captures map[string]*variableSlot
 	// This/CalledClass implement PHP 5.3's automatic $this binding: a
