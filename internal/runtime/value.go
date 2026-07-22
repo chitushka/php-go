@@ -140,15 +140,21 @@ func BinaryWithDiagnostic(op string, a, b Value) (Value, *Diagnostic, error) {
 			return NullValue(), nil, fmt.Errorf("non numeric operand")
 		}
 		switch op {
-		case "+":
-			value, err := numericResult(na + nb)
-			return value, nil, err
-		case "-":
-			value, err := numericResult(na - nb)
-			return value, nil, err
-		case "*":
-			value, err := numericResult(na * nb)
-			return value, nil, err
+		case "+", "-", "*":
+			var result float64
+			switch op {
+			case "+":
+				result = na + nb
+			case "-":
+				result = na - nb
+			case "*":
+				result = na * nb
+			}
+			if arithmeticKind(a) != Float && arithmeticKind(b) != Float {
+				value, err := numericResult(result)
+				return value, nil, err
+			}
+			return FloatValue(result), nil, nil
 		case "/":
 			if nb == 0 {
 				return BoolValue(false), &Diagnostic{Severity: Warning, Message: "Division by zero"}, nil
@@ -617,4 +623,53 @@ func numericResult(v float64) (Value, error) {
 // division result must stay float even when it happens to come out whole.
 func isIntLikeKind(k Kind) bool {
 	return k == Int || k == Bool || k == Null
+}
+
+// arithmeticKind reports whether a value contributes an Int- or Float-typed
+// operand to +/-/* PHP arithmetic, per PHP's rule that the result is float
+// if either operand is (or is shaped like) a float, regardless of whether
+// the numeric result happens to come out whole. Int/Bool/Null always
+// contribute Int; Float always contributes Float; String contributes Float
+// only when its leading numeric prefix has a decimal point or exponent
+// (e.g. "5.0", "1e2") — a bare-digit prefix like "5" or "10 apples"
+// contributes Int, matching PHP's numeric-string int/float distinction.
+func arithmeticKind(v Value) Kind {
+	switch v.Kind {
+	case Float:
+		return Float
+	case String:
+		if stringNumericPrefixIsFloatForm(v.S) {
+			return Float
+		}
+		return Int
+	default:
+		return Int
+	}
+}
+
+// stringNumericPrefixIsFloatForm scans the same leading numeric prefix as
+// parseNumericPrefix and reports whether it contains a decimal point or
+// exponent, mirroring PHP's is_numeric_string int/float classification.
+func stringNumericPrefixIsFloatForm(text string) bool {
+	text = strings.TrimLeft(text, " \t\r\n")
+	end := 0
+	if end < len(text) && (text[end] == '+' || text[end] == '-') {
+		end++
+	}
+	for end < len(text) && text[end] >= '0' && text[end] <= '9' {
+		end++
+	}
+	if end < len(text) && text[end] == '.' {
+		return true
+	}
+	if end < len(text) && (text[end] == 'e' || text[end] == 'E') {
+		expEnd := end + 1
+		if expEnd < len(text) && (text[expEnd] == '+' || text[expEnd] == '-') {
+			expEnd++
+		}
+		if expEnd < len(text) && text[expEnd] >= '0' && text[expEnd] <= '9' {
+			return true
+		}
+	}
+	return false
 }

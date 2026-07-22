@@ -1921,6 +1921,24 @@ func TestIntOverflowPromotesToFloat(t *testing.T) {
 	}
 }
 
+func TestArithmeticPreservesFloatTypeOnWholeResults(t *testing.T) {
+	src := `<?php
+var_dump(5.0 + 3.0); echo ':';
+var_dump(5.0 + 3); echo ':';
+var_dump(2.0 * 3); echo ':';
+var_dump(5.0 - 2.0); echo ':';
+var_dump(-5.0); echo ':';
+var_dump(+5.0); echo ':';
+var_dump(1 + "10 apples"); echo ':';
+var_dump("5" + "3"); echo ':';
+var_dump("5.0" + "3");`
+	got := run(t, src)
+	want := "float(8)\n:float(8)\n:float(6)\n:float(3)\n:float(-5)\n:float(5)\n:int(11)\n:int(8)\n:float(8)\n"
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
 func TestInterfaceConstants(t *testing.T) {
 	src := "<?php interface Named { const KIND = 'iface'; } echo Named::KIND;"
 	got := run(t, src)
