@@ -558,7 +558,7 @@ func (i *Interpreter) exec(s ast.Stmt) (*returnSignal, error) {
 			if n.ValueByRef {
 				i.bindSlot(n.ValueVar, src.A.EnsureSlot(entry.Key))
 			} else {
-				i.setVar(n.ValueVar, entry.RuntimeValue())
+				i.setVar(n.ValueVar, cloneArrayValue(entry.RuntimeValue()))
 			}
 			ret, err := i.exec(n.Body)
 			if handled, propagated, ok := consumeBreak(err); ok {
@@ -910,6 +910,10 @@ func (i *Interpreter) eval(e ast.Expr) (Value, error) {
 			if err != nil {
 				return NullValue(), err
 			}
+			// BUG-9: an array element is stored by value, so an existing
+			// array variable used as an element (array($a, ...)) must not
+			// keep sharing $a's underlying storage.
+			value = cloneArrayValue(value)
 			if elem.Key == nil {
 				arr.Append(value)
 				continue
@@ -1052,7 +1056,7 @@ func (i *Interpreter) evalClosure(c *ast.ClosureExpr) (Value, error) {
 		if !ok {
 			value = NullValue()
 		}
-		captures[use.Name] = &variableSlot{value: value}
+		captures[use.Name] = &variableSlot{value: cloneArrayValue(value)}
 	}
 	closure := &Closure{Fn: fn, Captures: captures}
 	if this := i.currentThis(); this != nil {
@@ -2087,7 +2091,7 @@ func (i *Interpreter) callClosureSlots(closure *Closure, slots []*variableSlot) 
 		if param.ByRef {
 			return slots[idx], nil
 		}
-		return &variableSlot{value: slots[idx].value}, nil
+		return &variableSlot{value: cloneArrayValue(slots[idx].value)}, nil
 	})
 	return result.value, err
 }
@@ -3757,7 +3761,7 @@ func (i *Interpreter) evalExtraArgs(args []ast.Expr, from int) ([]Value, error) 
 		if err != nil {
 			return nil, err
 		}
-		extra = append(extra, value)
+		extra = append(extra, cloneArrayValue(value))
 	}
 	return extra, nil
 }
@@ -3797,7 +3801,9 @@ func (i *Interpreter) callFunctionResult(fn *ast.FunctionDeclStmt, args []ast.Ex
 		if err != nil {
 			return nil, err
 		}
-		return &variableSlot{value: value}, nil
+		// BUG-9: a by-value parameter must not keep sharing the caller's
+		// array storage.
+		return &variableSlot{value: cloneArrayValue(value)}, nil
 	})
 }
 
@@ -3820,7 +3826,7 @@ func (i *Interpreter) callFunctionValues(fn *ast.FunctionDeclStmt, args []Value,
 		if param.ByRef {
 			return nil, fmt.Errorf("argument %d for %s must be a variable passed by reference", idx+1, fn.Name)
 		}
-		return &variableSlot{value: args[idx]}, nil
+		return &variableSlot{value: cloneArrayValue(args[idx])}, nil
 	})
 	return result.value, err
 }
@@ -3856,7 +3862,7 @@ func (i *Interpreter) callClosureValues(closure *Closure, args []Value) (Value, 
 		if param.ByRef {
 			return nil, fmt.Errorf("argument %d for %s must be a variable passed by reference", idx+1, fn.Name)
 		}
-		return &variableSlot{value: args[idx]}, nil
+		return &variableSlot{value: cloneArrayValue(args[idx])}, nil
 	})
 	return result.value, err
 }
@@ -3900,7 +3906,7 @@ func (i *Interpreter) callClosureResult(closure *Closure, args []ast.Expr) (func
 		if err != nil {
 			return nil, err
 		}
-		return &variableSlot{value: value}, nil
+		return &variableSlot{value: cloneArrayValue(value)}, nil
 	})
 }
 
@@ -4108,7 +4114,9 @@ func (i *Interpreter) evalClone(expr ast.Expr) (Value, error) {
 func (i *Interpreter) cloneObject(obj *Object) *Object {
 	props := map[string]Value{}
 	for name, value := range obj.Props {
-		props[name] = value
+		// BUG-9: PHP's shallow object clone still copies array-typed
+		// properties by value (only object-typed properties stay shared).
+		props[name] = cloneArrayValue(value)
 	}
 	meta := map[string]PropertyMeta{}
 	for name, info := range obj.PropMeta {
@@ -5035,6 +5043,11 @@ func (i *Interpreter) warnCannotAssignIndexOnNonArray() (*Array, error) {
 }
 
 func (i *Interpreter) assignTarget(target ast.Expr, value Value) error {
+	// BUG-9: assignTarget is the single choke point for every plain (non
+	// by-ref) "=" assignment — variables, properties, static properties,
+	// index targets, and list() elements — so cloning array values here
+	// gives PHP's array copy-on-assignment semantics everywhere at once.
+	value = cloneArrayValue(value)
 	switch n := target.(type) {
 	case *ast.Ident:
 		i.setVar(n.Name, value)

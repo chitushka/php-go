@@ -123,6 +123,30 @@ func (a *Array) Delete(key ArrayKey) {
 	}
 }
 
+// Clone returns a deep copy of the array, implementing PHP's array value
+// (copy-on-assignment) semantics: elements are independent copies —
+// recursively, for nested arrays — except for entries that carry an
+// explicit reference slot (created via foreach (&$v) or $arr['k'] = &$x),
+// which real PHP array copies deliberately keep shared with the original.
+func (a *Array) Clone() *Array {
+	clone := &Array{
+		Entries: make([]ArrayEntry, len(a.Entries)),
+		index:   make(map[string]int, len(a.index)),
+		nextKey: a.nextKey,
+	}
+	for id, pos := range a.index {
+		clone.index[id] = pos
+	}
+	for idx, entry := range a.Entries {
+		if entry.Slot != nil {
+			clone.Entries[idx] = entry
+			continue
+		}
+		clone.Entries[idx] = ArrayEntry{Key: entry.Key, Value: cloneArrayValue(entry.Value)}
+	}
+	return clone
+}
+
 func KeyFromValue(v Value) ArrayKey {
 	switch v.Kind {
 	case Int:

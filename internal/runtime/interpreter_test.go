@@ -1939,6 +1939,91 @@ var_dump("5.0" + "3");`
 	}
 }
 
+func TestArrayAssignmentCopiesOnWrite(t *testing.T) {
+	src := `<?php
+$a = array(1, 2, 3);
+$b = $a;
+$b[] = 99;
+echo count($a) . ':' . count($b);`
+	got := run(t, src)
+	if got != "3:4" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestArrayArgumentPassedByValueIsIndependent(t *testing.T) {
+	src := `<?php
+function mutate($arr) { $arr[] = 'x'; return $arr; }
+$c = array(1, 2);
+$d = mutate($c);
+echo count($c) . ':' . count($d);`
+	got := run(t, src)
+	if got != "2:3" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestForeachByValueDoesNotMutateSource(t *testing.T) {
+	src := `<?php
+$e = array(array(1, 2), array(3, 4));
+foreach ($e as $sub) { $sub[] = 999; }
+echo count($e[0]) . ':' . count($e[1]);`
+	got := run(t, src)
+	if got != "2:2" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestArrayLiteralElementIsIndependentCopy(t *testing.T) {
+	src := `<?php
+$f = array(1, 2);
+$g = array($f, 3);
+$g[0][] = 'leak?';
+echo count($f) . ':' . count($g[0]);`
+	got := run(t, src)
+	if got != "2:3" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestObjectClonePropertyArrayIsIndependentCopy(t *testing.T) {
+	src := `<?php
+class Holder { public $items = array(1, 2); }
+$h1 = new Holder();
+$h2 = clone $h1;
+$h2->items[] = 'z';
+echo count($h1->items) . ':' . count($h2->items);`
+	got := run(t, src)
+	if got != "2:3" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestClosureUseByValueCapturesIndependentArrayCopy(t *testing.T) {
+	src := `<?php
+$src = array(1, 2);
+$fn = function () use ($src) { return $src; };
+$captured = $fn();
+$captured[] = 'w';
+echo count($src) . ':' . count($captured);`
+	got := run(t, src)
+	if got != "2:3" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestArrayReferenceAssignmentStillAliases(t *testing.T) {
+	src := `<?php
+$r1 = array(1, 2);
+$r2 = &$r1;
+$r2[] = 'ref-ok';
+echo count($r1) . ':' . count($r2);`
+	got := run(t, src)
+	if got != "3:3" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestInterfaceConstants(t *testing.T) {
 	src := "<?php interface Named { const KIND = 'iface'; } echo Named::KIND;"
 	got := run(t, src)

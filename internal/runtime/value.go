@@ -618,6 +618,21 @@ func numericResult(v float64) (Value, error) {
 	return FloatValue(v), nil
 }
 
+// cloneArrayValue returns an independent copy of v when it is an array,
+// implementing PHP's array value (copy-on-assignment) semantics (BUG-9):
+// every other Kind is returned unchanged, since scalars are already copied
+// by Go's Value struct assignment and objects/closures are intentionally
+// shared by PHP's own reference-type semantics. Call this at every point
+// where a Value moves into new independent storage by value — variable
+// assignment, non-by-ref argument/capture binding, array-literal/element
+// construction, foreach without & — never at reference-binding sites.
+func cloneArrayValue(v Value) Value {
+	if v.Kind == ArrayKind && v.A != nil {
+		return ArrayValue(v.A.Clone())
+	}
+	return v
+}
+
 // isIntLikeKind reports whether a value's Kind carries an exact integer
 // numeric value (Int/Bool/Null), as opposed to Float/String where the
 // division result must stay float even when it happens to come out whole.
