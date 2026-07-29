@@ -1,0 +1,24 @@
+--TEST--
+p1 (int) cast saturates to PHP_INT_MAX/PHP_INT_MIN on overflow (BUG-14)
+--FILE--
+<?php
+var_dump((int)"99999999999999999999");
+var_dump((int)"-99999999999999999999");
+var_dump((int)1e30);
+var_dump((int)-1e30);
+var_dump((int)NAN);
+var_dump((int)INF);
+var_dump((int)-INF);
+var_dump((int)"9223372036854775807");
+var_dump((int)"-9223372036854775808");
+?>
+--EXPECT--
+int(9223372036854775807)
+int(-9223372036854775808)
+int(9223372036854775807)
+int(-9223372036854775808)
+int(0)
+int(9223372036854775807)
+int(-9223372036854775808)
+int(9223372036854775807)
+int(-9223372036854775808)

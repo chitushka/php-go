@@ -3,6 +3,7 @@ package runtime
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1280,6 +1281,8 @@ func (i *Interpreter) callBuiltin(c *ast.CallExpr) (Value, bool, error) {
 		return i.callArrayReduce(c.Args)
 	case "function_exists":
 		return i.callFunctionExists(c.Args)
+	case "intval":
+		return i.callIntval(c.Args)
 	case "func_get_args":
 		return i.callFuncGetArgs(c.Args)
 	case "func_num_args":
@@ -2308,6 +2311,112 @@ func (i *Interpreter) callFunctionExists(args []ast.Expr) (Value, bool, error) {
 		}
 	}
 	return BoolValue(builtins.Exists(name)), true, nil
+}
+
+// callIntval implements intval($var, $base = 10). $base only affects string
+// values (PHP ignores it for every other type, applying the same conversion
+// as the (int) cast — see castInt). For the default base 10 it also defers
+// to castInt, so string parsing stays consistent with (int) elsewhere in
+// this interpreter (numeric-string parsing including exponents); only a
+// non-default $base switches to explicit digit-by-digit base parsing, which
+// is the only case PHP's base-aware conversion actually changes behavior for
+// (hex/octal/binary strings, optional "0x" prefix stripping, etc).
+func (i *Interpreter) callIntval(args []ast.Expr) (Value, bool, error) {
+	if len(args) < 1 || len(args) > 2 {
+		return i.builtinWarningf(NullValue(), true, "intval() expects 1 or 2 parameters, %d given", len(args))
+	}
+	value, err := i.eval(args[0])
+	if err != nil {
+		return NullValue(), true, err
+	}
+	if value.Kind != String {
+		return IntValue(castInt(value)), true, nil
+	}
+	base := int64(10)
+	if len(args) == 2 {
+		baseValue, err := i.eval(args[1])
+		if err != nil {
+			return NullValue(), true, err
+		}
+		base = castInt(baseValue)
+	}
+	if base == 10 {
+		return IntValue(castInt(value)), true, nil
+	}
+	return IntValue(strtolStringToInt(value.S, int(base))), true, nil
+}
+
+// strtolStringToInt mimics C strtol(str, NULL, base) for a non-default
+// intval() $base: optional whitespace, optional sign, an optional "0x"/"0X"
+// prefix (for base 16, or base 0 auto-detecting hex), an optional leading
+// "0" auto-detecting octal for base 0, then base-N digits, stopping at the
+// first character that doesn't fit. Overflow clamps to int64 min/max, same
+// as strtol's ERANGE behavior.
+func strtolStringToInt(text string, base int) int64 {
+	pos := 0
+	for pos < len(text) && isCTypeSpace(text[pos]) {
+		pos++
+	}
+	neg := false
+	if pos < len(text) && (text[pos] == '+' || text[pos] == '-') {
+		neg = text[pos] == '-'
+		pos++
+	}
+	if base == 0 {
+		if pos+1 < len(text) && text[pos] == '0' && (text[pos+1] == 'x' || text[pos+1] == 'X') {
+			base = 16
+			pos += 2
+		} else if pos < len(text) && text[pos] == '0' {
+			base = 8
+		} else {
+			base = 10
+		}
+	} else if base == 16 && pos+1 < len(text) && text[pos] == '0' && (text[pos+1] == 'x' || text[pos+1] == 'X') {
+		pos += 2
+	}
+	if base < 2 || base > 36 {
+		return 0
+	}
+	start := pos
+	for pos < len(text) {
+		d := strtolDigitValue(text[pos])
+		if d < 0 || d >= base {
+			break
+		}
+		pos++
+	}
+	digits := text[start:pos]
+	if digits == "" {
+		return 0
+	}
+	if neg {
+		digits = "-" + digits
+	}
+	parsed, err := strconv.ParseInt(digits, base, 64)
+	if err != nil {
+		if neg {
+			return math.MinInt64
+		}
+		return math.MaxInt64
+	}
+	return parsed
+}
+
+func strtolDigitValue(b byte) int {
+	switch {
+	case b >= '0' && b <= '9':
+		return int(b - '0')
+	case b >= 'a' && b <= 'z':
+		return int(b-'a') + 10
+	case b >= 'A' && b <= 'Z':
+		return int(b-'A') + 10
+	default:
+		return -1
+	}
+}
+
+func isCTypeSpace(b byte) bool {
+	return b == ' ' || b == '\t' || b == '\n' || b == '\v' || b == '\f' || b == '\r'
 }
 
 func (i *Interpreter) currentCallArgs() []Value {
@@ -5694,11 +5803,32 @@ func castInt(value Value) int64 {
 	case Int:
 		return value.I
 	case Float:
-		return int64(value.F)
+		return floatToInt64Saturating(value.F)
 	case String:
-		return int64(parseNumericPrefix(value.S))
+		return floatToInt64Saturating(parseNumericPrefix(value.S))
 	default:
 		return 1
+	}
+}
+
+// floatToInt64Saturating converts a float64 to int64 for the (int) cast and
+// intval(), clamping out-of-range magnitudes to PHP_INT_MAX/PHP_INT_MIN
+// (matching PHP's is_numeric_string overflow handling for numeric strings)
+// instead of Go's implementation-defined int64(f) for f outside the int64
+// range — see BUG-14 in CLAUDE.md, where the unguarded conversion produced
+// math.MinInt64 garbage for any sufficiently large positive value. NaN
+// saturates to 0. Reuses maxInt64Float (value.go), the same 2^63 boundary
+// already used by numericResult's overflow guard for arithmetic (BUG-2/4).
+func floatToInt64Saturating(f float64) int64 {
+	switch {
+	case math.IsNaN(f):
+		return 0
+	case f >= maxInt64Float:
+		return math.MaxInt64
+	case f < -maxInt64Float:
+		return math.MinInt64
+	default:
+		return int64(f)
 	}
 }
 

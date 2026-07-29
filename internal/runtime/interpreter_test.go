@@ -3431,3 +3431,60 @@ func TestP0SyntaxBatch(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestIntval(t *testing.T) {
+	// Base 10 (default) intentionally keeps modern (int)-cast semantics —
+	// including scientific notation ("1e3" => 1000) — rather than PHP 5.3's
+	// original strtol-based (int)/intval() behavior; see BUG-13 (WONTFIX) in
+	// CLAUDE.md. Non-default bases use real base-aware digit parsing, which
+	// is where $base actually changes behavior in PHP.
+	src := `<?php
+var_dump(intval("1e3")); echo ':';
+var_dump(intval(42)); echo ':';
+var_dump(intval(4.9)); echo ':';
+var_dump(intval(true)); echo ':';
+var_dump(intval(null)); echo ':';
+var_dump(intval("  42abc")); echo ':';
+var_dump(intval("-42")); echo ':';
+var_dump(intval("0x1A", 16)); echo ':';
+var_dump(intval("1A", 16)); echo ':';
+var_dump(intval("0x1A", 0)); echo ':';
+var_dump(intval("012", 0)); echo ':';
+var_dump(intval("111", 2));`
+	got := run(t, src)
+	want := "int(1000)\n:int(42)\n:int(4)\n:int(1)\n:int(0)\n:int(42)\n:int(-42)\n:int(26)\n:int(26)\n:int(26)\n:int(10)\n:int(7)\n"
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestIntvalArgumentCountWarning(t *testing.T) {
+	src := `<?php var_dump(intval());`
+	got := run(t, src)
+	if got != "NULL\n" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestIntCastSaturatesOnFloatOverflow(t *testing.T) {
+	// castInt's Go int64(hugeFloat) conversion used to be unguarded and gave
+	// implementation-defined garbage (math.MinInt64 on this platform) for
+	// any magnitude beyond int64 range — see BUG-14 in CLAUDE.md. It must
+	// saturate to PHP_INT_MAX/PHP_INT_MIN instead, matching PHP's
+	// is_numeric_string overflow handling; NaN saturates to 0.
+	src := `<?php
+var_dump((int)"99999999999999999999"); echo ':';
+var_dump((int)"-99999999999999999999"); echo ':';
+var_dump((int)1e30); echo ':';
+var_dump((int)-1e30); echo ':';
+var_dump((int)NAN); echo ':';
+var_dump((int)INF); echo ':';
+var_dump((int)-INF); echo ':';
+var_dump((int)"9223372036854775807"); echo ':';
+var_dump((int)"-9223372036854775808");`
+	got := run(t, src)
+	want := "int(9223372036854775807)\n:int(-9223372036854775808)\n:int(9223372036854775807)\n:int(-9223372036854775808)\n:int(0)\n:int(9223372036854775807)\n:int(-9223372036854775808)\n:int(9223372036854775807)\n:int(-9223372036854775808)\n"
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
