@@ -3488,3 +3488,29 @@ var_dump((int)"-9223372036854775808");`
 		t.Fatalf("got %q want %q", got, want)
 	}
 }
+
+func TestSimpleInterpolationDoesNotChainArrayAccess(t *testing.T) {
+	// PHP's simple "$arr[key]" interpolation syntax allows exactly one
+	// level of [key] — it does not chain into nested arrays like the
+	// complex "{$...}" syntax does. See BUG-16 in CLAUDE.md.
+	src := `<?php
+$arr = array('a' => array('b' => 'X'));
+echo "$arr[a][b]";`
+	got := run(t, src)
+	if got != "Array[b]" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestSimpleInterpolationDoesNotChainPropertyAccess(t *testing.T) {
+	// Same rule for "$obj->prop" — exactly one level; anything after is
+	// literal text, not a further property access. See BUG-16 in CLAUDE.md.
+	src := `<?php
+class Box { public $a = 'value'; }
+$obj = new Box();
+echo "$obj->a->b";`
+	got := run(t, src)
+	if got != "value->b" {
+		t.Fatalf("got %q", got)
+	}
+}

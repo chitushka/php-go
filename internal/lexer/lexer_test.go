@@ -148,3 +148,20 @@ func TestHeredocAndNowdocTokens(t *testing.T) {
 		t.Fatalf("got nowdoc token %s (%q) interpolate=%v", got.Type, got.Literal, got.Interpolate)
 	}
 }
+
+func TestHeredocEscapeSequences(t *testing.T) {
+	l := New("<?php <<<TXT\nA\\tB\\n\\\\\\$name\\x41\nTXT;\n<<<'RAW'\nA\\tB\nRAW;")
+
+	got := l.NextToken()
+	want := "A\tB\n\\\\$name" + "A"
+	if got.Type != String || got.Literal != want || !got.Interpolate {
+		t.Fatalf("got heredoc token %s (%q) interpolate=%v, want %q", got.Type, got.Literal, got.Interpolate, want)
+	}
+	if semi := l.NextToken(); semi.Type != Semicolon {
+		t.Fatalf("got token %s, want semicolon", semi.Type)
+	}
+	got = l.NextToken()
+	if got.Type != String || got.Literal != `A\tB` || got.Interpolate {
+		t.Fatalf("got nowdoc token %s (%q) interpolate=%v, want raw escapes untouched", got.Type, got.Literal, got.Interpolate)
+	}
+}

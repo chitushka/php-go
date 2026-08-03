@@ -551,7 +551,91 @@ func (l *Lexer) readHeredoc() (string, bool) {
 	for l.position < labelEnd {
 		l.readChar()
 	}
-	return l.input[contentStart:contentEnd], interpolate
+	content := l.input[contentStart:contentEnd]
+	if interpolate {
+		content = processHeredocEscapes(content)
+	}
+	return content, interpolate
+}
+
+// processHeredocEscapes decodes the same escape sequences as readString's
+// double-quoted branch, but over an already-extracted content string rather
+// than the lexer cursor (heredoc has no delimiter quote to special-case).
+// The \$ case intentionally stays as the literal two-byte sequence \$, not a
+// resolved $ — interpreter.interpolateString still needs to see it to know
+// to collapse it to a literal $ without triggering variable interpolation,
+// matching readString's existing behavior for double-quoted strings.
+func processHeredocEscapes(content string) string {
+	var b strings.Builder
+	b.Grow(len(content))
+	for i := 0; i < len(content); {
+		ch := content[i]
+		if ch != '\\' || i+1 >= len(content) {
+			b.WriteByte(ch)
+			i++
+			continue
+		}
+		next := content[i+1]
+		switch next {
+		case 'n':
+			b.WriteByte('\n')
+			i += 2
+		case 'r':
+			b.WriteByte('\r')
+			i += 2
+		case 't':
+			b.WriteByte('\t')
+			i += 2
+		case 'v':
+			b.WriteByte('\v')
+			i += 2
+		case 'e':
+			b.WriteByte(0x1b)
+			i += 2
+		case 'f':
+			b.WriteByte('\f')
+			i += 2
+		case '\\':
+			b.WriteByte('\\')
+			i += 2
+		case '$':
+			b.WriteString(`\$`)
+			i += 2
+		case 'x', 'X':
+			j := i + 2
+			value, digits := 0, 0
+			for digits < 2 && j < len(content) && isHexDigit(content[j]) {
+				value = value*16 + hexValue(content[j])
+				digits++
+				j++
+			}
+			if digits == 0 {
+				b.WriteByte('\\')
+				b.WriteByte(next)
+				i += 2
+			} else {
+				b.WriteByte(byte(value))
+				i = j
+			}
+		default:
+			if isOctalDigit(next) {
+				j := i + 1
+				value, digits := 0, 0
+				for digits < 3 && j < len(content) && isOctalDigit(content[j]) {
+					value = value*8 + int(content[j]-'0')
+					digits++
+					j++
+				}
+				b.WriteByte(byte(value))
+				i = j
+			} else {
+				b.WriteByte('\\')
+				b.WriteByte(next)
+				i += 2
+			}
+		}
+	}
+	return b.String()
 }
 
 func findHeredocTerminator(input string, start int, label string) (int, int, int) {

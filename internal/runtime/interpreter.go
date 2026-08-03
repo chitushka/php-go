@@ -5495,7 +5495,7 @@ func (i *Interpreter) interpolateString(text string) (string, error) {
 			idx++
 			continue
 		}
-		value, end, err := i.interpolationVariableValue(text, idx+1)
+		value, end, err := i.interpolationSimpleVariableValue(text, idx+1)
 		if err != nil {
 			return "", err
 		}
@@ -5547,6 +5547,38 @@ func (i *Interpreter) interpolationExprValue(expr string) (Value, error) {
 	}
 	value, _, err := i.interpolationVariableValue("$"+expr, 1)
 	return value, err
+}
+
+// interpolationSimpleVariableValue resolves PHP's "simple" interpolation
+// syntax ($var, $var[key], $var->prop) which — unlike complex {$...} syntax —
+// allows exactly one [key] OR one ->prop, never both and never chained.
+// Anything beyond that single level is left as literal text.
+func (i *Interpreter) interpolationSimpleVariableValue(text string, start int) (Value, int, error) {
+	name, idx := interpolationName(text, start)
+	if name == "" {
+		return NullValue(), start, nil
+	}
+	value, _ := i.getVar(name)
+	switch {
+	case idx < len(text) && text[idx] == '[':
+		key, next, ok, err := i.interpolationArrayKey(text, idx+1)
+		if err != nil || !ok {
+			return value, idx, err
+		}
+		return interpolationIndexValue(value, key), next, nil
+	case strings.HasPrefix(text[idx:], "->"):
+		prop, next := interpolationName(text, idx+2)
+		if prop == "" {
+			return value, idx, nil
+		}
+		propValue, err := i.interpolationPropertyValue(value, prop)
+		if err != nil {
+			return NullValue(), idx, err
+		}
+		return propValue, next, nil
+	default:
+		return value, idx, nil
+	}
 }
 
 func (i *Interpreter) interpolationVariableValue(text string, start int) (Value, int, error) {
