@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"testing"
 
-	"php-src-go/internal/ast"
-	"php-src-go/internal/lexer"
-	"php-src-go/internal/parser"
+	"github.com/chitushka/php-go/internal/ast"
+	"github.com/chitushka/php-go/internal/lexer"
+	"github.com/chitushka/php-go/internal/parser"
 )
 
 // parseProgram parses src (which must include its own <?php tag) and fails

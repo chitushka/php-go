@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"php-src-go/internal/lexer"
-	"php-src-go/internal/parser"
-	"php-src-go/internal/runtime"
+	"github.com/chitushka/php-go/internal/lexer"
+	"github.com/chitushka/php-go/internal/parser"
+	"github.com/chitushka/php-go/internal/runtime"
 )
 
 func main() {

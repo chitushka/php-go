@@ -1,5 +1,3 @@
-.gitattributes
-
 *.so
 *.o
 *.a
@@ -12,6 +10,9 @@ php.exe
 .vscode/
 .DS_Store
 temp
+.cache/
+bin/
+coverage.out
 
 # AI agents
 .claude/

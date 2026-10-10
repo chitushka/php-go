@@ -3,7 +3,7 @@ package phpt_test
 import (
 	"testing"
 
-	"php-src-go/internal/phpt"
+	"github.com/chitushka/php-go/internal/phpt"
 )
 
 func TestRunPassingPHPT(t *testing.T) {

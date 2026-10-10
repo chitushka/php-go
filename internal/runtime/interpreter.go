@@ -13,10 +13,10 @@ import (
 	"strconv"
 	"strings"
 
-	"php-src-go/internal/ast"
-	"php-src-go/internal/lexer"
-	"php-src-go/internal/parser"
-	"php-src-go/internal/runtime/builtins"
+	"github.com/chitushka/php-go/internal/ast"
+	"github.com/chitushka/php-go/internal/lexer"
+	"github.com/chitushka/php-go/internal/parser"
+	"github.com/chitushka/php-go/internal/runtime/builtins"
 )
 
 type Interpreter struct {

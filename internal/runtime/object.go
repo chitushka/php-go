@@ -1,6 +1,6 @@
 package runtime
 
-import "php-src-go/internal/ast"
+import "github.com/chitushka/php-go/internal/ast"
 
 type Object struct {
 	ID             int

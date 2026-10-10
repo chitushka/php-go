@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"php-src-go/internal/phpt"
+	"github.com/chitushka/php-go/internal/phpt"
 )
 
 func main() {

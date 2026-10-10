@@ -1,58 +1,101 @@
-# php-src-go
+# php-go
 
-Начало переноса ядра PHP 5.3 на Go. Цель первого этапа - не переносить стандартные библиотеки из `ext/`, а построить минимальный фронтенд и runtime для пошагового переноса языка: lexer, parser, AST, interpreter и CLI.
+[![CI](https://github.com/chitushka/php-go/actions/workflows/ci.yml/badge.svg)](https://github.com/chitushka/php-go/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-## Уже реализовано
+A PHP 5.3 compatibility interpreter written in Go. The project provides a
+lexer, recursive-descent parser, AST, runtime, command-line interpreter, and a
+PHPT-compatible acceptance-test runner.
 
-- CLI `php53`, читающий PHP-файл и выполняющий поддерживаемое подмножество.
-- CLI `php53test`, запускающий PHPT-подобные acceptance-тесты.
-- Лексер/source mode для inline HTML, `<?php`, short echo `<?=`, закрывающего `?>`, комментариев, чисел включая шестнадцатеричные (`0x1A`) и восьмеричные (`017`) целые литералы и float-литералы с экспонентой (`1e3`) и ведущей/замыкающей точкой (`.5`, `5.`), строк с базовыми escape-последовательностями, `$var` и базовым complex double-quoted interpolation (`$arr[key]`, `$obj->prop`, `${name}`, `{$arr['key']}`), heredoc/nowdoc и backticks, переменных включая variable variables `$$name`, идентификаторов, `echo`, `print`, `if`, `elseif`, `else`, `while`, `do`, `for`, `switch`, `global`, `static`, `unset`, `exit`/`die`, `true`, `false`, `null`.
-- Парсер выражений с приоритетами для `+`, `-`, `*`, `/`, `%`, bitwise/shift (`&`, `|`, `^`, `~`, `<<`, `>>`), сравнений, `==`, `!=`, `<>`, `===`, `!==`, ternary `?:` и casts.
-- Выражения конкатенации `.`, логические `&&`/`||` и `and`/`or` с short-circuit и PHP-приоритетом ниже присваивания, `xor`, индексный доступ `$array[$key]`, `$string[$offset]` с undefined index/offset notice diagnostics, присваивание в массив по индексу с non-array warning diagnostics, `$array[]` append и nested writable array targets с auto-vivification.
-- Операторы присваивания как выражения, compound assignments (`+=`, `-=`, `*=`, `/=`, `%=`, `.=`), `list(...)` assignment для numeric array destructuring с non-array warning diagnostics, property assignment non-object warning diagnostics, expression-value semantics для `++`/`--` включая PHP-style string increment, `echo`, `print`, `unset` для переменных, array/object/static-property targets, `exit`/`die`, блоки, `if/elseif/else` включая alternative `if: elseif: else: endif` syntax, `while` включая alternative `while: endwhile` syntax, `do/while`, `for` включая alternative `for: endfor` syntax, `switch` включая alternative `switch: endswitch` syntax, `break`/`continue` включая numeric levels.
-- PHP-массивы через `array(...)` с ordered hash map, auto-index и ключами `int`/`string`.
-- `foreach ($items as $value)`, `foreach ($items as $key => $value)` и `foreach` by reference (`&$value`) с non-array warning diagnostics, включая alternative `foreach: endforeach` syntax.
-- Пользовательские функции: `function name($arg = null, &$ref) { ... }`, `function &name() { ... }`, anonymous functions/closures `function (...) use (...) { ... }`, обычные вызовы и variable functions (`$fn()`) с case-insensitive lookup/redeclare checks, default parameters с базовыми compatibility checks для optional/required ordering и constant-expression defaults, missing required argument warning diagnostics, pass-by-reference parameters для writable targets, return by reference, локальные frame-ы и `return`.
-- References: базовое assignment by reference (`=&`) для переменных, variable variables и array elements, `foreach` by reference и return by reference с aliasing через общий variable slot.
-- Переменные функций: `global $name` и persistent `static $local = ...`.
-- Встроенные функции ядра: `count`, `strlen`, `substr`, `strpos`, `strtolower`, `strtoupper`, `trim`, `str_replace`, `array_key_exists`, `in_array`, `implode`, `explode`, `print_r`, `var_dump`, `round`, `floor`, `ceil`, `abs`, `min`, `max`, `time`, `date`, `file_exists`, `is_file`, `is_dir`, `basename`, `dirname`, `file_get_contents`, `file_put_contents`, `unlink`, `preg_match` с capture-массивом и warning diagnostics, `preg_replace`, `json_encode`, `json_decode`, `md5`, `sha1`, `hash`, `serialize`, `unserialize`, `call_user_func`, `call_user_func_array`, базовые `is_*` включая `is_object` и `is_callable`.
-- `isset` и `empty` выполняются как language constructs: аргументы проверяются без обычного предварительного вычисления, поддержаны несколько аргументов `isset`, nested array access, свойства, static-свойства и argument warning diagnostics.
-- Builtins вынесены в пакет `internal/runtime/builtins`; новые функции добавляются по функциональным файлам (`strings.go`, `arrays.go`, `filesystem.go`, `regex.go`, `json.go`, `hash.go`, `serialization.go`) и регистрируются в `registry.go`.
-- Ограниченные `include`, `require`, `include_once` и `require_once` для строковых путей, разрешаемых относительно текущего PHP-файла.
-- Базовые классы: `class`, `extends`, `new`, case-insensitive class/method lookup, `__autoload`, `class_alias()`, OOP introspection (`class_exists`, `interface_exists`, `get_class`, `get_object_vars`, `get_class_methods`, `get_class_vars`, `get_declared_classes`, `get_declared_interfaces`, `get_parent_class`, `class_parents`, `class_implements`, `method_exists`, `property_exists`, `is_subclass_of`, `is_a`, `is_callable`), dynamic class names in `new`, `clone` включая `__clone` visibility checks и запрет прямого вызова `__clone()`, методы, `__construct`, old-style constructors, `__destruct`, `$this`, динамические свойства включая `$obj->$name`, `$obj->method()` и dynamic method calls (`$obj->$method()`), static methods/properties включая dynamic static member names (`Class::$$name`, `Class::$method()`).
-- Модификаторы `public`, `protected`, `private`, `static` для методов и свойств, включая runtime-проверку доступа.
-- `self::`, `parent::`, `static::`, late static binding для static members, `get_called_class()`, а также базовые проверки `final`, `abstract`, inherited method visibility/static/signature override и inherited property visibility/static compatibility.
-- `interface`, `extends` для интерфейсов, `implements`, case-insensitive interface lookup, interface constants, compatibility checks для inherited interface method signatures и runtime-проверка обязательных методов.
-- Class constants через `const NAME = ...`, доступ `Class::NAME`, `self::NAME`, `parent::NAME`, `Interface::NAME` и наследование констант.
-- Bare/runtime constants: bare-доступ `NAME`, `define()`, `defined()`, `constant()`, case-insensitive `define(..., true)` и fallback неизвестной bare-константы в строку имени.
-- Предопределённые core-константы (case-sensitive, не перезаписываемые через `define()`): `PHP_VERSION`, `PHP_VERSION_ID`, `PHP_MAJOR_VERSION`/`PHP_MINOR_VERSION`/`PHP_RELEASE_VERSION`, `PHP_OS`, `PHP_SAPI`, `PHP_EOL`, `PHP_INT_MAX`, `PHP_INT_SIZE`, `DIRECTORY_SEPARATOR`, `PATH_SEPARATOR`, математические `M_PI`/`M_E`/`M_SQRT2`/... и `NAN`/`INF`, уровни ошибок `E_ERROR`...`E_ALL`.
-- Magic constants: `__FILE__`, `__DIR__`, `__LINE__`, `__FUNCTION__`, `__CLASS__`, `__METHOD__`.
-- Namespaces/imports: базовые `namespace`, bracketed `namespace { ... }`, `use ... as ...`, leading `\`, `__NAMESPACE__`, namespaced functions/classes/constants и fallback namespaced function/constant lookup к global имени.
-- `instanceof` для классов, родителей и интерфейсов.
-- Magic methods `__get`, `__set`, `__isset`, `__unset`, `__call`, `__callStatic`, `__invoke`, `__clone`, `__sleep`, `__wakeup`, `__toString` для базового property/method overloading, callable objects, клонирования, сериализации и строкового вывода объектов; `__toString` должен вернуть строку.
-- Исключения: `throw`, `try`, несколько `catch`-блоков, пользовательские классы-наследники встроенного `Exception`, базовые `Exception::getMessage()/getCode()/getFile()/getLine()/getPrevious()/getTrace()/getTraceAsString()` и строковое представление исключения.
-- PHPT-подобный runner с секциями `--TEST--`, `--FILE--`, `--EXPECT--`, `--EXPECTF--`, `--EXPECTREGEX--`, `--SKIPIF--`, `--INI--`, `--CLEAN--`, `--EXIT_CODE--`, `--GET--`, `--POST--`, `--ENV--`, `--COOKIE--`, `--HEADERS--`.
-- SAPI-модель PHPT runner подготавливает `$_GET`, `$_POST`, `$_COOKIE`, `$_FILES`, `$_REQUEST`, `$_ENV`, `$_SERVER` с базовыми request/server/header полями; поддержаны синтетический `--FILES--`, `--POST_RAW--` multipart/form-data, nested upload names (`file[]`, `file[group][]`, `file[avatar][front]`), upload INI-лимиты (`post_max_size`, `upload_max_filesize`, `file_uploads`, `max_file_uploads`, `upload_tmp_dir`), RFC1867 `MAX_FILE_SIZE`/empty filename edge cases, `is_uploaded_file()` и `move_uploaded_file()`.
-- Response headers: runtime поддерживает `header()` и `headers_list()`.
-- Runtime со значениями `null`, `bool`, `int`, `float`, `string`, `array`, `object` и таблицей переменных.
+php-go is useful for compatibility research, controlled legacy-code execution,
+and experimentation. It implements a substantial, tested PHP 5.3 subset; it is
+not a drop-in replacement for the native PHP runtime or its extension library.
 
-## Запуск
+## Requirements
+
+- Go 1.25.6 or newer
+- Windows, Linux, or macOS
+
+The project has no third-party Go dependencies.
+
+## Install and run
+
+Run directly from a clone:
 
 ```sh
-go test ./...
 go run ./cmd/php53 examples/hello.php
-go run ./cmd/php53test tests/phpt
 ```
 
-## Актуальный статус совместимости
+Or install both commands:
 
-- Закрыт большой P2-срез OOP semantics: type hints PHP 5.3 (`array`, class/interface, `self`, `parent`), уточненные проверки override/interface signatures, private static/member scope, `__sleep` scoped properties, `unserialize()` autoload перед `__wakeup`, destructor edge cases при исключениях из `__clone`/`__wakeup`.
-- Закрыты P3 type juggling slices: numeric-string arithmetic/comparison prefixes, loose/strict/order comparisons для массивов и объектов, nonzero division/modulo edge semantics, PHP 5.3 string bitwise semantics и string `++`/`--` edge semantics.
-- Include/require стали ближе к PHP 5.3: поддержаны expression return values (`return`, default `1`, повторный `_once` как `true`), базовый `include_path` из PHPT `--INI--`, default `.` include_path precedence и bypass include_path для явных `./`/`../` путей.
-- P3 error model получил настраиваемую runtime-политику severity: diagnostics различают parse/fatal/error/warning/notice, дефолт сохраняет non-halting warning для missing `include`, division/modulo by zero, list non-array, index assignment non-array, property assignment non-object, foreach non-array, user function missing arguments, registry builtin, SAPI builtin, callable builtin, OOP introspection builtin, constant builtin, serialization builtin, `preg_match` capture diagnostics и `isset`/`empty` argument diagnostics, сохраняет undefined variable/index/offset/property и scalar read notices non-halting, сохраняет parameter type-hint mismatch как halting recoverable error, missing `require` остаётся fatal, strict-режим может останавливать выполнение на warning/notice, а PHPT `--INI--` умеет задавать `php_src_go.strict_errors`, `php_src_go.error_report`, `php_src_go.error_halt` и базовый `error_reporting`.
-- Все новые возможности закреплены focused PHPT-контрактами в `tests/phpt`; текущий базовый контроль качества: `go test ./...` и `go run ./cmd/php53test tests/phpt`.
+```sh
+go install github.com/chitushka/php-go/cmd/php53@latest
+go install github.com/chitushka/php-go/cmd/php53test@latest
+php53 path/to/program.php
+```
 
-## Следующие шаги переноса
+Build local binaries with:
 
-1. Следующий шаг: провести оставшиеся runtime warning/notice diagnostics через настраиваемую error policy, сохраняя focused PHPT-контракты.
-2. `declare`/`eval` отложены до отдельного решения; `eval` может остаться выключенным из-за security-модели.
+```sh
+go build -o bin/php53 ./cmd/php53
+go build -o bin/php53test ./cmd/php53test
+```
+
+On Windows, the produced files have an `.exe` suffix.
+
+## Supported compatibility surface
+
+The tested subset includes:
+
+- PHP source modes, scalar literals, interpolation, heredoc/nowdoc, and
+  backticks;
+- variables, arrays, references, expressions, casts, and PHP 5.x-style type
+  juggling;
+- control flow and alternative control-structure syntax;
+- functions, closures, namespaces, constants, includes, and error policy;
+- classes, interfaces, inheritance, visibility, late static binding, magic
+  methods, and exceptions;
+- common string, array, math, date, filesystem, regex, JSON, hash, and
+  serialization builtins;
+- basic SAPI state, headers, superglobals, and multipart upload handling.
+
+The executable compatibility contract is the focused suite in `tests/phpt`.
+
+## Known limitations
+
+- Only the documented and tested PHP 5.3 subset is supported.
+- `declare` and `eval` are not implemented; `eval` is intentionally deferred
+  because of its security model.
+- Extension parity is out of scope. Builtins are implemented selectively.
+- Diagnostics and edge-case behavior can differ from the Zend Engine outside
+  the PHPT contract.
+- `tests/custom` is an exploratory corpus and includes unsupported constructs
+  such as `goto`; it is not the release gate.
+
+## Security
+
+The interpreter is **not a sandbox**. PHP programs can access the filesystem
+and backticks execute commands through the host shell. Run only trusted source,
+or isolate the process using operating-system or container controls. See
+[`SECURITY.md`](SECURITY.md) for reporting and deployment guidance.
+
+## Development and verification
+
+```sh
+gofmt -w path/to/edited.go
+go vet ./...
+go test ./...
+go run ./cmd/php53test tests/phpt
+go build ./cmd/php53 ./cmd/php53test
+```
+
+CI runs these checks on Linux and Windows and runs the Go race detector on
+Linux. Every language change should include one focused PHPT test documenting
+the expected PHP 5.3 behavior.
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) before opening a pull request and
+[`CHANGELOG.md`](CHANGELOG.md) for release notes.
+
+## License
+
+Licensed under the [MIT License](LICENSE).

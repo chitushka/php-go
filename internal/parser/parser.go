@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"php-src-go/internal/ast"
-	"php-src-go/internal/lexer"
+	"github.com/chitushka/php-go/internal/ast"
+	"github.com/chitushka/php-go/internal/lexer"
 )
 
 const (
